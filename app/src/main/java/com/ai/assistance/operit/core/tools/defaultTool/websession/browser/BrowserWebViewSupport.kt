@@ -42,7 +42,7 @@ internal fun StandardBrowserSessionTools.createSessionOnMain(
     sessionName: String?,
     customUserAgent: String?
 ): BrowserToolSession {
-    val webView = WebView(appContext)
+    val webView = WebView(resolveWebViewContext(appContext))
     val session =
         BrowserToolSession(
             id = sessionId,
@@ -53,6 +53,15 @@ internal fun StandardBrowserSessionTools.createSessionOnMain(
     configureWebView(session, resolveUserAgent(customUserAgent))
     userscriptManager.attachSession(session.id, session.webView)
     return session
+}
+
+internal fun StandardBrowserSessionTools.resolveWebViewContext(fallbackContext: Context): Context {
+    val currentActivity = ActivityLifecycleManager.getCurrentActivity()
+    return if (currentActivity != null && !currentActivity.isFinishing && !currentActivity.isDestroyed) {
+        currentActivity
+    } else {
+        fallbackContext
+    }
 }
 
 internal fun StandardBrowserSessionTools.configureWebView(
@@ -162,6 +171,7 @@ internal fun StandardBrowserSessionTools.configureWebView(
                 session.pendingFileChooserCallback?.onReceiveValue(null)
                 session.pendingFileChooserCallback = filePathCallback
                 session.lastFileChooserRequestAt = System.currentTimeMillis()
+                notifySessionStateChanged(session)
 
                 AppLogger.d(
                     WEBVIEW_SUPPORT_TAG,
@@ -202,6 +212,8 @@ internal fun StandardBrowserSessionTools.configureWebView(
                         url = url,
                         jsResult = result
                     )
+                notifySessionStateChanged(session)
+                refreshSessionUiOnMain(session.id)
                 AppLogger.d(WEBVIEW_SUPPORT_TAG, "web_session js alert pending: ${message.orEmpty()}")
                 return true
             }
@@ -219,6 +231,8 @@ internal fun StandardBrowserSessionTools.configureWebView(
                         url = url,
                         jsResult = result
                     )
+                notifySessionStateChanged(session)
+                refreshSessionUiOnMain(session.id)
                 AppLogger.d(WEBVIEW_SUPPORT_TAG, "web_session js confirm pending: ${message.orEmpty()}")
                 return true
             }
@@ -238,6 +252,8 @@ internal fun StandardBrowserSessionTools.configureWebView(
                         url = url,
                         jsPromptResult = result
                     )
+                notifySessionStateChanged(session)
+                refreshSessionUiOnMain(session.id)
                 AppLogger.d(WEBVIEW_SUPPORT_TAG, "web_session js prompt pending: ${message.orEmpty()}")
                 return true
             }
@@ -254,6 +270,7 @@ internal fun StandardBrowserSessionTools.configureWebView(
                 session.lastSnapshot = null
                 clearEventLogs(session)
                 session.pendingDialog = null
+                notifySessionStateChanged(session)
                 userscriptManager.onPageChanged(session.id, url, forceReset = true)
                 syncNavigationStateUi(session)
             }
@@ -262,6 +279,7 @@ internal fun StandardBrowserSessionTools.configureWebView(
                 super.onPageCommitVisible(view, url)
                 session.currentUrl = url
                 session.lastSnapshot = null
+                notifySessionStateChanged(session)
                 userscriptManager.onPageChanged(session.id, url)
                 refreshNavigationStateFromWebView(view, session)
             }
@@ -273,6 +291,7 @@ internal fun StandardBrowserSessionTools.configureWebView(
                 session.pageTitle = view.title ?: ""
                 session.pageLoaded = true
                 session.isLoading = false
+                notifySessionStateChanged(session)
                 applyViewportOverride(session)
                 refreshNavigationStateFromWebView(view, session)
                 injectDownloadHelper(view)
@@ -315,6 +334,7 @@ internal fun StandardBrowserSessionTools.configureWebView(
                 super.doUpdateVisitedHistory(view, url, isReload)
                 session.currentUrl = url
                 val pageTitle = view.title.orEmpty()
+                notifySessionStateChanged(session)
                 refreshNavigationStateFromWebView(view, session)
                 ioScope.launch {
                     historyStore.recordVisit(url, pageTitle, isReload)
@@ -332,9 +352,39 @@ internal fun StandardBrowserSessionTools.configureWebView(
                         "session=${session.id}, url=${error.url}, primaryError=${error.primaryError}"
                 )
                 session.hasSslError = true
+                notifySessionStateChanged(session)
                 updateNavigationState(session)
                 refreshSessionUiOnMain(session.id)
                 handler.proceed()
+            }
+
+            override fun onRenderProcessGone(
+                view: WebView,
+                detail: android.webkit.RenderProcessGoneDetail
+            ): Boolean {
+                AppLogger.e(
+                    WEBVIEW_SUPPORT_TAG,
+                    "web_session render process gone: session=${session.id}, " +
+                        "didCrash=${detail.didCrash()}, priority=${detail.rendererPriorityAtExit()}"
+                )
+                session.pageLoaded = false
+                session.isLoading = false
+                session.lastSnapshot = null
+                session.pendingDialog?.jsPromptResult?.cancel()
+                session.pendingDialog?.jsResult?.cancel()
+                session.pendingDialog = null
+                session.pendingFileChooserCallback?.onReceiveValue(null)
+                session.pendingFileChooserCallback = null
+                notifySessionStateChanged(session)
+                closeSession(session.id)
+                showToast(
+                    if (detail.didCrash()) {
+                        context.getString(R.string.web_session_render_process_crashed)
+                    } else {
+                        context.getString(R.string.web_session_render_process_gone)
+                    }
+                )
+                return true
             }
         }
 }
@@ -563,6 +613,17 @@ internal fun StandardBrowserSessionTools.createBrowserHostCallbacks(
                 cancelExternalOpenRequest(requestId)
             }
         }
+
+        override fun onHandlePendingDialog(accept: Boolean, promptText: String?) {
+            runOnMainSync<Unit> {
+                val session = getActiveSessionOnMain() ?: return@runOnMainSync
+                resolvePendingDialogOnMain(
+                    session = session,
+                    accept = accept,
+                    promptText = promptText
+                )
+            }
+        }
     }
 
 internal fun StandardBrowserSessionTools.destroyOverlayOnMain() {
@@ -753,6 +814,15 @@ internal fun StandardBrowserSessionTools.buildBrowserState(
         failedDownloadCount = downloadSummary.failedCount,
         latestCompletedDownloadName = downloadSummary.latestCompletedFileName,
         overallDownloadProgress = downloadSummary.overallProgress,
+        pendingDialog =
+            activeSession?.pendingDialog?.let { dialog ->
+                WebSessionPendingDialogState(
+                    type = dialog.type,
+                    message = dialog.message,
+                    defaultValue = dialog.defaultValue,
+                    url = dialog.url
+                )
+            },
         tabs =
             orderedIds.mapNotNull { id ->
                 sessionById(id)?.let { session ->
@@ -816,6 +886,7 @@ internal fun StandardBrowserSessionTools.getActiveSessionOnMain(): BrowserToolSe
 internal fun StandardBrowserSessionTools.updateNavigationState(session: BrowserToolSession) {
     session.canGoBack = runCatching { session.webView.canGoBack() }.getOrDefault(false)
     session.canGoForward = runCatching { session.webView.canGoForward() }.getOrDefault(false)
+    notifySessionStateChanged(session)
 }
 
 internal fun StandardBrowserSessionTools.syncNavigationStateUi(session: BrowserToolSession) {
@@ -928,7 +999,7 @@ internal fun StandardBrowserSessionTools.createPopupSessionOnMain(
 ): BrowserToolSession {
     val popupSession =
         createSessionOnMain(
-            appContext = context.applicationContext,
+            appContext = parentSession.webView.context ?: context.applicationContext,
             sessionId = UUID.randomUUID().toString(),
             sessionName = parentSession.sessionName,
             customUserAgent = parentSession.customUserAgent
@@ -1192,6 +1263,31 @@ internal fun StandardBrowserSessionTools.setDesktopModeEnabled(enabled: Boolean)
     }
 }
 
+internal fun StandardBrowserSessionTools.resolvePendingDialogOnMain(
+    session: BrowserToolSession,
+    accept: Boolean,
+    promptText: String? = null
+): PendingDialog? {
+    val pending = session.pendingDialog ?: return null
+    if (pending.jsPromptResult != null) {
+        if (accept) {
+            pending.jsPromptResult.confirm(promptText ?: pending.defaultValue.orEmpty())
+        } else {
+            pending.jsPromptResult.cancel()
+        }
+    } else if (pending.jsResult != null) {
+        if (accept) {
+            pending.jsResult.confirm()
+        } else {
+            pending.jsResult.cancel()
+        }
+    }
+    session.pendingDialog = null
+    notifySessionStateChanged(session)
+    refreshSessionUiOnMain(session.id)
+    return pending
+}
+
 internal fun StandardBrowserSessionTools.closeSession(sessionId: String): Boolean {
     val orderedBeforeClose = orderedSessionIds()
     val closedIndex = orderedBeforeClose.indexOf(sessionId)
@@ -1216,6 +1312,7 @@ internal fun StandardBrowserSessionTools.closeSession(sessionId: String): Boolea
         session.pendingDialog?.jsPromptResult?.cancel()
         session.pendingDialog?.jsResult?.cancel()
         session.pendingDialog = null
+        notifySessionStateChanged(session)
         cleanupWebViewOnMain(session.webView)
 
         val remainingIds = orderedSessionIds().filter { sessionById(it) != null }

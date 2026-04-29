@@ -2,6 +2,7 @@ package com.ai.assistance.operit.core.tools
 
 import android.content.Context
 import com.ai.assistance.operit.util.AppLogger
+import com.ai.assistance.operit.core.tools.mcp.MCPManager
 import com.ai.assistance.operit.core.tools.packTool.PackageManager
 import com.ai.assistance.operit.data.model.AITool
 import com.ai.assistance.operit.data.model.ToolInvocation
@@ -15,8 +16,11 @@ import com.ai.assistance.operit.util.stream.stream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 
 /**
  * Handles the extraction and execution of AI tools from responses Supports real-time streaming
@@ -244,6 +248,12 @@ class AIToolHandler private constructor(private val context: Context) {
         return availableTools[toolName]
     }
 
+    private fun isMcpServiceActive(packageName: String): Boolean {
+        val client = MCPManager.getInstance(context).getOrCreateClient(packageName) ?: return false
+        val serviceInfo = runBlocking { client.getServiceInfo() } ?: return false
+        return serviceInfo.active && serviceInfo.ready
+    }
+
 
     /**
      * Returns a tool executor if available.
@@ -277,6 +287,31 @@ class AIToolHandler private constructor(private val context: Context) {
                     }
                 } catch (e: Exception) {
                     AppLogger.e(TAG, "Failed to auto-activate package '$packageName' for tool $toolName", e)
+                }
+            }
+        }
+
+        if (executor != null && toolName.contains(':')) {
+            val packageName = toolName.substringBefore(':', missingDelimiterValue = "")
+            if (packageName.isNotBlank()) {
+                try {
+                    val packageManager = getOrCreatePackageManager()
+                    val isMcpAvailable =
+                            packageManager.getAvailableServerPackages().containsKey(packageName)
+                    if (isMcpAvailable && !isMcpServiceActive(packageName)) {
+                        AppLogger.d(
+                                TAG,
+                                "MCP service '$packageName' is inactive while resolving $toolName, auto-reactivating package"
+                        )
+                        packageManager.usePackage(packageName)
+                        executor = availableTools[toolName]
+                    }
+                } catch (e: Exception) {
+                    AppLogger.e(
+                            TAG,
+                            "Failed to auto-reactivate MCP package '$packageName' for tool $toolName",
+                            e
+                    )
                 }
             }
         }
@@ -323,6 +358,54 @@ class AIToolHandler private constructor(private val context: Context) {
             val result = executor.invoke(tool)
             notifyToolExecutionResult(tool, result)
             result
+        } catch (e: Exception) {
+            notifyToolExecutionError(tool, e)
+            throw e
+        } finally {
+            notifyToolExecutionFinished(tool)
+        }
+    }
+
+    /** Executes a tool and preserves intermediate streaming results when supported by the executor. */
+    fun executeToolAndStream(tool: AITool): Flow<ToolResult> = flow {
+        notifyToolCallRequested(tool)
+        val executor = getToolExecutorOrActivate(tool.name)
+
+        if (executor == null) {
+            val notFoundResult =
+                ToolResult(
+                    toolName = tool.name,
+                    success = false,
+                    result = StringResultData(""),
+                    error = "Tool not found: ${tool.name}"
+                )
+            notifyToolExecutionResult(tool, notFoundResult)
+            notifyToolExecutionFinished(tool)
+            emit(notFoundResult)
+            return@flow
+        }
+
+        val validationResult = executor.validateParameters(tool)
+        if (!validationResult.valid) {
+            val validationFailedResult =
+                ToolResult(
+                    toolName = tool.name,
+                    success = false,
+                    result = StringResultData(""),
+                    error = validationResult.errorMessage
+                )
+            notifyToolExecutionResult(tool, validationFailedResult)
+            notifyToolExecutionFinished(tool)
+            emit(validationFailedResult)
+            return@flow
+        }
+
+        notifyToolExecutionStarted(tool)
+        try {
+            executor.invokeAndStream(tool).collect { result ->
+                notifyToolExecutionResult(tool, result)
+                emit(result)
+            }
         } catch (e: Exception) {
             notifyToolExecutionError(tool, e)
             throw e

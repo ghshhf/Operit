@@ -86,6 +86,12 @@ import com.ai.assistance.operit.util.LocaleUtils
  * components like tool execution, conversation management, user preferences, and problem library.
  */
 class EnhancedAIService private constructor(private val context: Context) {
+    data class TurnTokenSnapshot(
+        val inputTokens: Int,
+        val outputTokens: Int,
+        val cachedInputTokens: Int,
+    )
+
     companion object {
         private const val TAG = "EnhancedAIService"
 
@@ -299,6 +305,45 @@ class EnhancedAIService private constructor(private val context: Context) {
         }
     }
 
+    interface SendMessageCallbacks {
+        fun onNonFatalError(error: String) {}
+
+        fun onTokenLimitExceeded() {}
+
+        fun onToolInvocation(toolName: String) {}
+    }
+
+    data class SendMessageOptions(
+        var message: String = "",
+        var maxTokens: Int = 0,
+        var tokenUsageThreshold: Double = 0.0,
+        var chatId: String? = null,
+        var chatHistory: List<PromptTurn> = emptyList(),
+        var workspacePath: String? = null,
+        var workspaceEnv: String? = null,
+        var functionType: FunctionType = FunctionType.CHAT,
+        var promptFunctionType: PromptFunctionType = PromptFunctionType.CHAT,
+        var enableThinking: Boolean = false,
+        var enableMemoryAutoUpdate: Boolean = true,
+        var onNonFatalError: suspend (error: String) -> Unit = {},
+        var onTokenLimitExceeded: (suspend () -> Unit)? = null,
+        var customSystemPromptTemplate: String? = null,
+        var isSubTask: Boolean = false,
+        var characterName: String? = null,
+        var avatarUri: String? = null,
+        var roleCardId: String? = null,
+        var enableGroupOrchestrationHint: Boolean = false,
+        var groupParticipantNamesText: String? = null,
+        var proxySenderName: String? = null,
+        var callbacks: SendMessageCallbacks? = null,
+        var onToolInvocation: (suspend (String) -> Unit)? = null,
+        var notifyReplyOverride: Boolean? = null,
+        var chatModelConfigIdOverride: String? = null,
+        var chatModelIndexOverride: Int? = null,
+        var stream: Boolean = true,
+        var disableWarning: Boolean = false
+    )
+
     // MultiServiceManager 管理不同功能的 AIService 实例
     private val multiServiceManager = MultiServiceManager(context)
 
@@ -408,6 +453,9 @@ class EnhancedAIService private constructor(private val context: Context) {
     private var accumulatedInputTokenCount = 0
     private var accumulatedOutputTokenCount = 0
     private var accumulatedCachedInputTokenCount = 0
+    private var currentRequestInputTokenCount = 0
+    private var currentRequestOutputTokenCount = 0
+    private var currentRequestCachedInputTokenCount = 0
 
     // Callbacks
     private var currentResponseCallback: ((content: String, thinking: String?) -> Unit)? = null
@@ -420,7 +468,7 @@ class EnhancedAIService private constructor(private val context: Context) {
     private var lastReplyContent: String? = null
 
     init {
-        com.ai.assistance.operit.api.chat.library.ProblemLibrary.initialize(context)
+        com.ai.assistance.operit.api.chat.library.MemoryLibrary.initialize(context)
         initScope.launch {
             runCatching {
                 ensureInitialized()
@@ -611,8 +659,6 @@ class EnhancedAIService private constructor(private val context: Context) {
         functionType: FunctionType = FunctionType.CHAT,
         promptFunctionType: PromptFunctionType = PromptFunctionType.CHAT,
         enableThinking: Boolean = false,
-        thinkingGuidance: Boolean = false,
-        enableMemoryQuery: Boolean = true,
         customSystemPromptTemplate: String? = null,
         roleCardId: String? = null,
         enableGroupOrchestrationHint: Boolean = false,
@@ -632,9 +678,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                 workspacePath = workspacePath,
                 workspaceEnv = workspaceEnv,
                 promptFunctionType = promptFunctionType,
-                thinkingGuidance = thinkingGuidance,
                 customSystemPromptTemplate = customSystemPromptTemplate,
-                enableMemoryQuery = enableMemoryQuery,
                 roleCardId = roleCardId,
                 enableGroupOrchestrationHint = enableGroupOrchestrationHint,
                 groupParticipantNamesText = groupParticipantNamesText,
@@ -728,40 +772,63 @@ class EnhancedAIService private constructor(private val context: Context) {
 
     /** Send a message to the AI service */
     suspend fun sendMessage(
-        message: String,
-        chatId: String? = null,
-        chatHistory: List<PromptTurn> = emptyList(),
-        workspacePath: String? = null,
-        workspaceEnv: String? = null,
-        functionType: FunctionType = FunctionType.CHAT,
-        promptFunctionType: PromptFunctionType = PromptFunctionType.CHAT,
-        enableThinking: Boolean = false,
-        thinkingGuidance: Boolean = false,
-        enableMemoryQuery: Boolean = true,
-        maxTokens: Int,
-        tokenUsageThreshold: Double,
-        onNonFatalError: suspend (error: String) -> Unit = {},
-        onTokenLimitExceeded: (suspend () -> Unit)? = null,
-        customSystemPromptTemplate: String? = null,
-        isSubTask: Boolean = false,
-        characterName: String? = null,
-        avatarUri: String? = null,
-        roleCardId: String? = null,
-        enableGroupOrchestrationHint: Boolean = false,
-        groupParticipantNamesText: String? = null,
-        proxySenderName: String? = null,
-        onToolInvocation: (suspend (String) -> Unit)? = null,
-        chatModelConfigIdOverride: String? = null,
-        chatModelIndexOverride: Int? = null,
-        stream: Boolean = true
+        options: SendMessageOptions
     ): Stream<String> {
-        AppLogger.d(
-                TAG,
-                "sendMessage调用开始: 功能类型=$functionType, 提示词类型=$promptFunctionType, 思考引导=$thinkingGuidance"
-        )
+        val message = options.message
+        val chatId = options.chatId
+        val chatHistory = options.chatHistory
+        val workspacePath = options.workspacePath
+        val workspaceEnv = options.workspaceEnv
+        val functionType = options.functionType
+        val promptFunctionType = options.promptFunctionType
+        val enableThinking = options.enableThinking
+        val enableMemoryAutoUpdate = options.enableMemoryAutoUpdate
+        val maxTokens = options.maxTokens
+        val tokenUsageThreshold = options.tokenUsageThreshold
+        val customSystemPromptTemplate = options.customSystemPromptTemplate
+        val isSubTask = options.isSubTask
+        val characterName = options.characterName
+        val avatarUri = options.avatarUri
+        val roleCardId = options.roleCardId
+        val enableGroupOrchestrationHint = options.enableGroupOrchestrationHint
+        val groupParticipantNamesText = options.groupParticipantNamesText
+        val proxySenderName = options.proxySenderName
+        val callbacks = options.callbacks
+        val notifyReplyOverride = options.notifyReplyOverride
+        val chatModelConfigIdOverride = options.chatModelConfigIdOverride
+        val chatModelIndexOverride = options.chatModelIndexOverride
+        val stream = options.stream
+        val disableWarning = options.disableWarning
+        val onNonFatalError: suspend (error: String) -> Unit = { error ->
+            options.onNonFatalError(error)
+            callbacks?.onNonFatalError(error)
+        }
+        val onTokenLimitExceeded: (suspend () -> Unit)? =
+            if (options.onTokenLimitExceeded != null || callbacks != null) {
+                suspend {
+                    options.onTokenLimitExceeded?.invoke()
+                    callbacks?.onTokenLimitExceeded()
+                }
+            } else {
+                null
+            }
+        val onToolInvocation: (suspend (String) -> Unit)? =
+            if (options.onToolInvocation != null || callbacks != null) {
+                { toolName ->
+                    options.onToolInvocation?.invoke(toolName)
+                    callbacks?.onToolInvocation(toolName)
+                }
+            } else {
+                null
+            }
+
+        AppLogger.d(TAG, "sendMessage调用开始: 功能类型=$functionType, 提示词类型=$promptFunctionType")
         accumulatedInputTokenCount = 0
         accumulatedOutputTokenCount = 0
         accumulatedCachedInputTokenCount = 0
+        currentRequestInputTokenCount = 0
+        currentRequestOutputTokenCount = 0
+        currentRequestCachedInputTokenCount = 0
 
         val eventChannel = MutableSharedStream<TextStreamEvent>(replay = Int.MAX_VALUE)
         val wrappedStream = stream {
@@ -799,9 +866,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                                     workspacePath,
                                     workspaceEnv,
                                     promptFunctionType,
-                                    thinkingGuidance,
                                     customSystemPromptTemplate,
-                                    enableMemoryQuery,
                                     roleCardId,
                                     enableGroupOrchestrationHint,
                                     groupParticipantNamesText,
@@ -845,6 +910,9 @@ class EnhancedAIService private constructor(private val context: Context) {
 
                     // 清空之前的单次请求token计数
                     _perRequestTokenCounts.value = null
+                    currentRequestInputTokenCount = 0
+                    currentRequestOutputTokenCount = 0
+                    currentRequestCachedInputTokenCount = 0
 
                     // 获取工具列表（如果启用Tool Call）
                     val availableTools = getAvailableToolsForFunction(
@@ -923,6 +991,9 @@ class EnhancedAIService private constructor(private val context: Context) {
                                     stream = stream,
                                     availableTools = availableTools,
                                     onTokensUpdated = { input, cachedInput, output ->
+                                        currentRequestInputTokenCount = input.coerceAtLeast(0)
+                                        currentRequestOutputTokenCount = output.coerceAtLeast(0)
+                                        currentRequestCachedInputTokenCount = cachedInput.coerceAtLeast(0)
                                         _perRequestTokenCounts.value = Pair(input, output)
                                     },
                                     onNonFatalError = onNonFatalError
@@ -968,7 +1039,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                                     }
                                 }
                             }
-
+ 
                         try {
                             responseStream.collect { content ->
                                 // 第一次收到响应，更新状态
@@ -1023,6 +1094,9 @@ class EnhancedAIService private constructor(private val context: Context) {
                     accumulatedInputTokenCount += inputTokens
                     accumulatedOutputTokenCount += outputTokens
                     accumulatedCachedInputTokenCount += cachedInputTokens
+                    currentRequestInputTokenCount = 0
+                    currentRequestOutputTokenCount = 0
+                    currentRequestCachedInputTokenCount = 0
                     apiPreferences.updateTokensForProviderModel(serviceForFunction.providerModel, inputTokens, outputTokens, cachedInputTokens)
                     
                     // Update request count
@@ -1075,7 +1149,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                                 functionType,
                                 collector,
                                 enableThinking,
-                                enableMemoryQuery,
+                                enableMemoryAutoUpdate,
                                 onNonFatalError,
                                 onTokenLimitExceeded,
                                 maxTokens,
@@ -1086,10 +1160,12 @@ class EnhancedAIService private constructor(private val context: Context) {
                                 roleCardId,
                                 chatId,
                                 onToolInvocation,
+                                notifyReplyOverride,
                                 chatModelConfigIdOverride,
                                 chatModelIndexOverride,
                                 stream,
-                                enableGroupOrchestrationHint
+                                enableGroupOrchestrationHint,
+                                disableWarning
                             )
                         }
                     } else if (!hadFatalError) {
@@ -1493,7 +1569,7 @@ class EnhancedAIService private constructor(private val context: Context) {
             functionType: FunctionType = FunctionType.CHAT,
             collector: StreamCollector<String>,
             enableThinking: Boolean = false,
-            enableMemoryQuery: Boolean = true,
+            enableMemoryAutoUpdate: Boolean = true,
             onNonFatalError: suspend (error: String) -> Unit,
             onTokenLimitExceeded: (suspend () -> Unit)? = null,
             maxTokens: Int,
@@ -1504,10 +1580,12 @@ class EnhancedAIService private constructor(private val context: Context) {
             roleCardId: String? = null,
             chatId: String? = null,
             onToolInvocation: (suspend (String) -> Unit)? = null,
+            notifyReplyOverride: Boolean? = null,
             chatModelConfigIdOverride: String? = null,
             chatModelIndexOverride: Int? = null,
             stream: Boolean = true,
-            enableGroupOrchestrationHint: Boolean = false
+            enableGroupOrchestrationHint: Boolean = false,
+            disableWarning: Boolean = false
     ) {
         try {
             val startTime = messageTimingNow()
@@ -1524,12 +1602,12 @@ class EnhancedAIService private constructor(private val context: Context) {
             if (content.isEmpty()) {
                 AppLogger.d(TAG, "Stream content is empty. Finalizing conversation state.")
                 // We call handleTaskCompletion to properly set the conversation as inactive and update the UI state.
-                // We pass enableMemoryQuery = false because there's no content to analyze or save.
                 handleWaitForUserNeed(
                     context = context,
                     content = content,
                     isSubTask = isSubTask,
-                    chatId = chatId
+                    chatId = chatId,
+                    notifyReplyOverride = notifyReplyOverride
                 )
                 return
             }
@@ -1542,6 +1620,19 @@ class EnhancedAIService private constructor(private val context: Context) {
             // 禁止“纯思考输出”：移除 thinking 后正文为空时，发出专用告警并回传给 AI 继续生成
             val contentWithoutThinking = ChatUtils.removeThinkingContent(content)
             if (contentWithoutThinking.isEmpty()) {
+                if (disableWarning) {
+                    AppLogger.w(TAG, "检测到纯思考输出，disableWarning=true，直接结束本轮而不注入警告")
+                    handleWaitForUserNeed(
+                        context = context,
+                        content = context.roundManager.getDisplayContent(),
+                        isSubTask = isSubTask,
+                        chatId = chatId,
+                        characterName = characterName,
+                        avatarUri = avatarUri,
+                        notifyReplyOverride = notifyReplyOverride
+                    )
+                    return
+                }
                 val pureThinkingWarning =
                         ConversationMarkupManager.createWarningStatus(
                                 this@EnhancedAIService.context.getString(
@@ -1565,7 +1656,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                         functionType = functionType,
                         collector = collector,
                         enableThinking = enableThinking,
-                        enableMemoryQuery = enableMemoryQuery,
+                        enableMemoryAutoUpdate = enableMemoryAutoUpdate,
                         onNonFatalError = onNonFatalError,
                         onTokenLimitExceeded = onTokenLimitExceeded,
                         maxTokens = maxTokens,
@@ -1576,11 +1667,13 @@ class EnhancedAIService private constructor(private val context: Context) {
                         roleCardId = roleCardId,
                         chatId = chatId,
                         onToolInvocation = onToolInvocation,
+                        notifyReplyOverride = notifyReplyOverride,
                         chatModelConfigIdOverride = chatModelConfigIdOverride,
                         chatModelIndexOverride = chatModelIndexOverride,
                         stream = stream,
                         enableGroupOrchestrationHint = enableGroupOrchestrationHint,
-                        toolResultOverrideMessage = pureThinkingWarning
+                        toolResultOverrideMessage = pureThinkingWarning,
+                        disableWarning = disableWarning
                 )
                 return
             }
@@ -1618,11 +1711,13 @@ class EnhancedAIService private constructor(private val context: Context) {
                 handleTaskCompletion(
                     context = context,
                     content = finalContent,
-                    enableMemoryQuery = enableMemoryQuery,
+                    enableMemoryAutoUpdate = enableMemoryAutoUpdate,
+                    onNonFatalError = onNonFatalError,
                     isSubTask = isSubTask,
                     chatId = chatId,
                     characterName = characterName,
-                    avatarUri = avatarUri
+                    avatarUri = avatarUri,
+                    notifyReplyOverride = notifyReplyOverride
                 )
                 return
             }
@@ -1651,6 +1746,22 @@ class EnhancedAIService private constructor(private val context: Context) {
             }
 
             if (truncatedToolRecovery != null) {
+                if (disableWarning) {
+                    AppLogger.w(
+                        TAG,
+                        "检测到未闭合工具调用，disableWarning=true，直接结束本轮而不注入警告。invalidated=${truncatedToolRecovery.invalidatedToolNames}"
+                    )
+                    handleWaitForUserNeed(
+                        context = context,
+                        content = context.roundManager.getDisplayContent(),
+                        isSubTask = isSubTask,
+                        chatId = chatId,
+                        characterName = characterName,
+                        avatarUri = avatarUri,
+                        notifyReplyOverride = notifyReplyOverride
+                    )
+                    return
+                }
                 val warningStatus =
                         ConversationMarkupManager.createWarningStatus(
                                 this@EnhancedAIService.context.getString(
@@ -1670,7 +1781,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                         functionType = functionType,
                         collector = collector,
                         enableThinking = enableThinking,
-                        enableMemoryQuery = enableMemoryQuery,
+                        enableMemoryAutoUpdate = enableMemoryAutoUpdate,
                         onNonFatalError = onNonFatalError,
                         onTokenLimitExceeded = onTokenLimitExceeded,
                         maxTokens = maxTokens,
@@ -1681,11 +1792,13 @@ class EnhancedAIService private constructor(private val context: Context) {
                         roleCardId = roleCardId,
                         chatId = chatId,
                         onToolInvocation = onToolInvocation,
+                        notifyReplyOverride = notifyReplyOverride,
                         chatModelConfigIdOverride = chatModelConfigIdOverride,
                         chatModelIndexOverride = chatModelIndexOverride,
                         stream = stream,
                         enableGroupOrchestrationHint = enableGroupOrchestrationHint,
-                        toolResultOverrideMessage = warningStatus
+                        toolResultOverrideMessage = warningStatus,
+                        disableWarning = disableWarning
                 )
                 return
             }
@@ -1693,36 +1806,44 @@ class EnhancedAIService private constructor(private val context: Context) {
             // Main flow: Detect and process tool invocations
             if (extractedToolInvocations.isNotEmpty()) {
                 if (hasTaskCompletion) {
-                    val warning =
-                            ConversationMarkupManager.createToolsSkippedByCompletionWarning(
-                                    this@EnhancedAIService.context,
-                                    extractedToolInvocations.map { it.tool.name }
+                    if (disableWarning) {
+                        AppLogger.d(TAG, "检测到完成标记和工具并存，disableWarning=true，跳过 warning 注入")
+                    } else {
+                        val warning =
+                                ConversationMarkupManager.createToolsSkippedByCompletionWarning(
+                                        this@EnhancedAIService.context,
+                                        extractedToolInvocations.map { it.tool.name }
+                                )
+                        context.roundManager.appendContent(warning)
+                        collector.emit(warning)
+                        try {
+                            context.conversationHistory.add(
+                                PromptTurn(kind = PromptTurnKind.TOOL_RESULT, content = warning)
                             )
-                    context.roundManager.appendContent(warning)
-                    collector.emit(warning)
-                    try {
-                        context.conversationHistory.add(
-                            PromptTurn(kind = PromptTurnKind.TOOL_RESULT, content = warning)
-                        )
-                    } catch (e: Exception) {
-                        AppLogger.e(TAG, "添加任务完成跳过工具警告到历史记录失败", e)
+                        } catch (e: Exception) {
+                            AppLogger.e(TAG, "添加任务完成跳过工具警告到历史记录失败", e)
+                        }
                     }
                 }
 
                 // Handle wait for user need marker
                 if (ConversationMarkupManager.containsWaitForUserNeed(finalContent)) {
-                    val userNeedContent =
-                            ConversationMarkupManager.createWarningStatus(
-                                    this@EnhancedAIService.context.getString(R.string.enhanced_tool_warning),
+                    if (disableWarning) {
+                        AppLogger.d(TAG, "检测到等待用户输入标记与工具并存，disableWarning=true，跳过 warning 注入")
+                    } else {
+                        val userNeedContent =
+                                ConversationMarkupManager.createWarningStatus(
+                                        this@EnhancedAIService.context.getString(R.string.enhanced_tool_warning),
+                                )
+                        context.roundManager.appendContent(userNeedContent)
+                        collector.emit(userNeedContent)
+                        try {
+                            context.conversationHistory.add(
+                                PromptTurn(kind = PromptTurnKind.TOOL_RESULT, content = userNeedContent)
                             )
-                    context.roundManager.appendContent(userNeedContent)
-                    collector.emit(userNeedContent)
-                    try {
-                        context.conversationHistory.add(
-                            PromptTurn(kind = PromptTurnKind.TOOL_RESULT, content = userNeedContent)
-                        )
-                    } catch (e: Exception) {
-                        AppLogger.e(TAG, "添加工具调用警告到历史记录失败", e)
+                        } catch (e: Exception) {
+                            AppLogger.e(TAG, "添加工具调用警告到历史记录失败", e)
+                        }
                     }
                 }
 
@@ -1739,7 +1860,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                         functionType,
                         collector,
                         enableThinking,
-                        enableMemoryQuery,
+                        enableMemoryAutoUpdate,
                         onNonFatalError,
                         onTokenLimitExceeded,
                         maxTokens,
@@ -1750,10 +1871,12 @@ class EnhancedAIService private constructor(private val context: Context) {
                         roleCardId,
                         chatId,
                         onToolInvocation,
+                        notifyReplyOverride,
                         chatModelConfigIdOverride,
                         chatModelIndexOverride,
                         stream = stream,
-                        enableGroupOrchestrationHint = enableGroupOrchestrationHint
+                        enableGroupOrchestrationHint = enableGroupOrchestrationHint,
+                        disableWarning = disableWarning
                 )
                 return
             }
@@ -1773,7 +1896,8 @@ class EnhancedAIService private constructor(private val context: Context) {
                 isSubTask = isSubTask,
                 chatId = chatId,
                 characterName = characterName,
-                avatarUri = avatarUri
+                avatarUri = avatarUri,
+                notifyReplyOverride = notifyReplyOverride
             )
             logMessageTiming(
                 stage = "enhanced.processStreamCompletion.complete",
@@ -1792,11 +1916,13 @@ class EnhancedAIService private constructor(private val context: Context) {
     private suspend fun handleTaskCompletion(
         context: MessageExecutionContext,
         content: String,
-        enableMemoryQuery: Boolean,
+        enableMemoryAutoUpdate: Boolean,
+        onNonFatalError: suspend (error: String) -> Unit,
         isSubTask: Boolean,
         chatId: String? = null,
         characterName: String? = null,
-        avatarUri: String? = null
+        avatarUri: String? = null,
+        notifyReplyOverride: Boolean? = null
     ) {
         // Mark conversation as complete
         context.isConversationActive.set(false)
@@ -1809,27 +1935,34 @@ class EnhancedAIService private constructor(private val context: Context) {
 
         // Ensure input processing state is updated to completed
         if (!isSubTask) {
-        withContext(Dispatchers.Main) {
-            _inputProcessingState.value = InputProcessingState.Completed
+            withContext(Dispatchers.Main) {
+                _inputProcessingState.value = InputProcessingState.Completed
             }
         }
 
-        if (enableMemoryQuery) {
-            // 保存问题记录到库
-            toolProcessingScope.launch {
-                com.ai.assistance.operit.api.chat.library.ProblemLibrary.saveProblemAsync(
-                        this@EnhancedAIService.context,
-                        toolHandler,
-                        context.conversationHistory.toRoleContentPairs(),
-                        content,
-                        multiServiceManager.getServiceForFunction(FunctionType.PROBLEM_LIBRARY)
-                )
-            }
+        if (enableMemoryAutoUpdate && !isSubTask) {
+            // 保存会话记忆到记忆库
+            com.ai.assistance.operit.api.chat.library.MemoryLibrary.saveMemoryAsync(
+                this@EnhancedAIService.context,
+                toolHandler,
+                context.conversationHistory.toRoleContentPairs(),
+                content,
+                multiServiceManager.getServiceForFunction(FunctionType.MEMORY),
+                onError = { e ->
+                    AppLogger.e(TAG, "自动保存会话记忆失败", e)
+                    onNonFatalError(
+                        this@EnhancedAIService.context.getString(
+                            R.string.chat_auto_update_memory_failed,
+                            e.message ?: ""
+                        )
+                    )
+                }
+            )
         }
 
         if (!isSubTask) {
-        notifyReplyCompleted(chatId, characterName, avatarUri)
-        stopAiService(characterName, avatarUri)
+            notifyReplyCompleted(chatId, characterName, avatarUri, notifyReplyOverride)
+            stopAiService(characterName, avatarUri)
         }
     }
 
@@ -1840,7 +1973,8 @@ class EnhancedAIService private constructor(private val context: Context) {
         isSubTask: Boolean,
         chatId: String? = null,
         characterName: String? = null,
-        avatarUri: String? = null
+        avatarUri: String? = null,
+        notifyReplyOverride: Boolean? = null
     ) {
         // Mark conversation as complete
         context.isConversationActive.set(false)
@@ -1853,15 +1987,15 @@ class EnhancedAIService private constructor(private val context: Context) {
 
         // Ensure input processing state is updated to completed
         if (!isSubTask) {
-        withContext(Dispatchers.Main) {
-            _inputProcessingState.value = InputProcessingState.Completed
+            withContext(Dispatchers.Main) {
+                _inputProcessingState.value = InputProcessingState.Completed
             }
         }
 
         AppLogger.d(TAG, "Wait for user need - skipping problem library analysis")
         if (!isSubTask) {
-        notifyReplyCompleted(chatId, characterName, avatarUri)
-        stopAiService(characterName, avatarUri)
+            notifyReplyCompleted(chatId, characterName, avatarUri, notifyReplyOverride)
+            stopAiService(characterName, avatarUri)
         }
     }
 
@@ -1872,7 +2006,7 @@ class EnhancedAIService private constructor(private val context: Context) {
         functionType: FunctionType = FunctionType.CHAT,
         collector: StreamCollector<String>,
         enableThinking: Boolean = false,
-        enableMemoryQuery: Boolean = true,
+        enableMemoryAutoUpdate: Boolean = true,
         onNonFatalError: suspend (error: String) -> Unit,
         onTokenLimitExceeded: (suspend () -> Unit)? = null,
         maxTokens: Int,
@@ -1883,11 +2017,13 @@ class EnhancedAIService private constructor(private val context: Context) {
         roleCardId: String? = null,
         chatId: String? = null,
         onToolInvocation: (suspend (String) -> Unit)? = null,
+        notifyReplyOverride: Boolean? = null,
         chatModelConfigIdOverride: String? = null,
         chatModelIndexOverride: Int? = null,
         stream: Boolean = true,
         enableGroupOrchestrationHint: Boolean = false,
-        toolResultOverrideMessage: String? = null
+        toolResultOverrideMessage: String? = null,
+        disableWarning: Boolean = false
     ) {
         val startTime = messageTimingNow()
 
@@ -1918,9 +2054,10 @@ class EnhancedAIService private constructor(private val context: Context) {
                 AppLogger.d(TAG, "所有工具结果收集完毕，准备最终处理。")
                 processToolResults(
                     allToolResults, context, functionType, collector, enableThinking,
-                    enableMemoryQuery, onNonFatalError, onTokenLimitExceeded, maxTokens, tokenUsageThreshold, isSubTask,
-                    characterName, avatarUri, roleCardId, chatId, onToolInvocation,
-                    chatModelConfigIdOverride, chatModelIndexOverride, stream, enableGroupOrchestrationHint
+                    enableMemoryAutoUpdate, onNonFatalError, onTokenLimitExceeded, maxTokens, tokenUsageThreshold, isSubTask,
+                    characterName, avatarUri, roleCardId, chatId, onToolInvocation, notifyReplyOverride,
+                    chatModelConfigIdOverride, chatModelIndexOverride, stream, enableGroupOrchestrationHint,
+                    disableWarning = disableWarning
                 )
             } else if (!toolResultOverrideMessage.isNullOrEmpty()) {
                 AppLogger.d(TAG, "0工具路由命中，使用覆盖消息继续请求AI。")
@@ -1930,7 +2067,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                     functionType = functionType,
                     collector = collector,
                     enableThinking = enableThinking,
-                    enableMemoryQuery = enableMemoryQuery,
+                    enableMemoryAutoUpdate = enableMemoryAutoUpdate,
                     onNonFatalError = onNonFatalError,
                     onTokenLimitExceeded = onTokenLimitExceeded,
                     maxTokens = maxTokens,
@@ -1941,11 +2078,13 @@ class EnhancedAIService private constructor(private val context: Context) {
                     roleCardId = roleCardId,
                     chatId = chatId,
                     onToolInvocation = onToolInvocation,
+                    notifyReplyOverride = notifyReplyOverride,
                     chatModelConfigIdOverride = chatModelConfigIdOverride,
                     chatModelIndexOverride = chatModelIndexOverride,
                     stream = stream,
                     enableGroupOrchestrationHint = enableGroupOrchestrationHint,
-                    toolResultMessageOverride = toolResultOverrideMessage
+                    toolResultMessageOverride = toolResultOverrideMessage,
+                    disableWarning = disableWarning
                 )
             }
 
@@ -1974,7 +2113,7 @@ class EnhancedAIService private constructor(private val context: Context) {
             functionType: FunctionType = FunctionType.CHAT,
             collector: StreamCollector<String>,
             enableThinking: Boolean = false,
-            enableMemoryQuery: Boolean = true,
+            enableMemoryAutoUpdate: Boolean = true,
             onNonFatalError: suspend (error: String) -> Unit,
             onTokenLimitExceeded: (suspend () -> Unit)? = null,
             maxTokens: Int,
@@ -1985,11 +2124,13 @@ class EnhancedAIService private constructor(private val context: Context) {
             roleCardId: String? = null,
             chatId: String? = null,
             onToolInvocation: (suspend (String) -> Unit)? = null,
+            notifyReplyOverride: Boolean? = null,
             chatModelConfigIdOverride: String? = null,
             chatModelIndexOverride: Int? = null,
             stream: Boolean = true,
             enableGroupOrchestrationHint: Boolean = false,
-            toolResultMessageOverride: String? = null
+            toolResultMessageOverride: String? = null,
+            disableWarning: Boolean = false
     ) {
         val startTime = messageTimingNow()
         val toolNames = results.joinToString(", ") { it.toolName }
@@ -2102,6 +2243,9 @@ class EnhancedAIService private constructor(private val context: Context) {
 
         // 清空之前的单次请求token计数
         _perRequestTokenCounts.value = null
+        currentRequestInputTokenCount = 0
+        currentRequestOutputTokenCount = 0
+        currentRequestCachedInputTokenCount = 0
         
         // 使用新的Stream API处理工具执行结果
         withContext(Dispatchers.IO) {
@@ -2117,6 +2261,9 @@ class EnhancedAIService private constructor(private val context: Context) {
                                 stream = stream,
                                 availableTools = availableTools,
                                 onTokensUpdated = { input, cachedInput, output ->
+                                    currentRequestInputTokenCount = input.coerceAtLeast(0)
+                                    currentRequestOutputTokenCount = output.coerceAtLeast(0)
+                                    currentRequestCachedInputTokenCount = cachedInput.coerceAtLeast(0)
                                     _perRequestTokenCounts.value = Pair(input, output)
                                 },
                                 onNonFatalError = onNonFatalError
@@ -2212,6 +2359,9 @@ class EnhancedAIService private constructor(private val context: Context) {
                 accumulatedInputTokenCount += inputTokens
                 accumulatedOutputTokenCount += outputTokens
                 accumulatedCachedInputTokenCount += cachedInputTokens
+                currentRequestInputTokenCount = 0
+                currentRequestOutputTokenCount = 0
+                currentRequestCachedInputTokenCount = 0
                 apiPreferences.updateTokensForProviderModel(serviceForFunction.providerModel, inputTokens, outputTokens, cachedInputTokens)
                 
                 // Update request count
@@ -2234,7 +2384,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                     functionType,
                     collector,
                     enableThinking,
-                    enableMemoryQuery,
+                    enableMemoryAutoUpdate,
                     onNonFatalError,
                     onTokenLimitExceeded,
                     maxTokens,
@@ -2245,10 +2395,12 @@ class EnhancedAIService private constructor(private val context: Context) {
                     roleCardId,
                     chatId,
                     onToolInvocation,
+                    notifyReplyOverride,
                     chatModelConfigIdOverride,
                     chatModelIndexOverride,
                     stream,
-                    enableGroupOrchestrationHint
+                    enableGroupOrchestrationHint,
+                    disableWarning
                 )
             } catch (e: CancellationException) {
                 AppLogger.d(TAG, "处理工具执行结果被取消")
@@ -2290,6 +2442,34 @@ class EnhancedAIService private constructor(private val context: Context) {
      */
     fun getCurrentCachedInputTokenCount(): Int {
         return accumulatedCachedInputTokenCount
+    }
+
+    fun captureCurrentTurnTokenSnapshot(): TurnTokenSnapshot {
+        return TurnTokenSnapshot(
+            inputTokens = (accumulatedInputTokenCount + currentRequestInputTokenCount).coerceAtLeast(0),
+            outputTokens = (accumulatedOutputTokenCount + currentRequestOutputTokenCount).coerceAtLeast(0),
+            cachedInputTokens =
+                (accumulatedCachedInputTokenCount + currentRequestCachedInputTokenCount).coerceAtLeast(0)
+        )
+    }
+
+    fun setCurrentTurnTokenCounts(
+        inputTokens: Int,
+        outputTokens: Int,
+        cachedInputTokens: Int = 0
+    ) {
+        accumulatedInputTokenCount = inputTokens.coerceAtLeast(0)
+        accumulatedOutputTokenCount = outputTokens.coerceAtLeast(0)
+        accumulatedCachedInputTokenCount = cachedInputTokens.coerceAtLeast(0)
+        currentRequestInputTokenCount = 0
+        currentRequestOutputTokenCount = 0
+        currentRequestCachedInputTokenCount = 0
+        _perRequestTokenCounts.value =
+            Pair(accumulatedInputTokenCount, accumulatedOutputTokenCount)
+        AppLogger.d(
+            TAG,
+            "Current turn token counts overridden. Input: $accumulatedInputTokenCount, Output: $accumulatedOutputTokenCount, CachedInput: $accumulatedCachedInputTokenCount"
+        )
     }
 
     /** Reset token counters to zero Use this when starting a new conversation */
@@ -2373,9 +2553,7 @@ class EnhancedAIService private constructor(private val context: Context) {
             workspacePath: String?,
             workspaceEnv: String?,
             promptFunctionType: PromptFunctionType,
-            thinkingGuidance: Boolean,
             customSystemPromptTemplate: String? = null,
-            enableMemoryQuery: Boolean,
             roleCardId: String?,
             enableGroupOrchestrationHint: Boolean,
             groupParticipantNamesText: String? = null,
@@ -2416,9 +2594,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                 workspaceEnv,
                 packageManager,
                 promptFunctionType,
-                thinkingGuidance,
                 customSystemPromptTemplate,
-                enableMemoryQuery,
                 roleCardId,
                 enableGroupOrchestrationHint,
                 groupParticipantNamesText,
@@ -2512,6 +2688,9 @@ class EnhancedAIService private constructor(private val context: Context) {
         accumulatedInputTokenCount = 0
         accumulatedOutputTokenCount = 0
         accumulatedCachedInputTokenCount = 0
+        currentRequestInputTokenCount = 0
+        currentRequestOutputTokenCount = 0
+        currentRequestCachedInputTokenCount = 0
 
         // Clear callback references
         currentResponseCallback = null
@@ -2539,9 +2718,8 @@ class EnhancedAIService private constructor(private val context: Context) {
         chatModelIndexOverride: Int? = null
     ): List<ToolPrompt>? {
         return try {
-            // 先读取全局工具和记忆开关
+            // 先读取全局工具开关
             val enableTools = apiPreferences.enableToolsFlow.first()
-            val enableMemoryQuery = apiPreferences.enableMemoryQueryFlow.first()
             val toolPromptVisibility = runCatching {
                 apiPreferences.toolPromptVisibilityFlow.first()
             }.getOrElse { emptyMap() }
@@ -2551,9 +2729,8 @@ class EnhancedAIService private constructor(private val context: Context) {
                 globalToolVisibility = toolPromptVisibility
             )
 
-            // 如果同时关闭了普通工具和记忆相关工具，则完全不提供Tool Call工具
-            if (!enableTools && !enableMemoryQuery) {
-                AppLogger.d(TAG, "全局设置已禁用工具和记忆，本次调用不提供任何Tool Call工具")
+            if (!enableTools) {
+                AppLogger.d(TAG, "全局设置已禁用工具，本次调用不提供任何Tool Call工具")
                 return null
             }
 
@@ -2610,29 +2787,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                 )
             }
 
-            // 按类别拆分记忆工具和非记忆工具，以与 SystemPromptConfig 中的语义保持一致
-            val memoryCategoryName = context.getString(R.string.enhanced_memory_tools_category)
-
-            val memoryTools = categories
-                .firstOrNull { it.categoryName == memoryCategoryName }
-                ?.tools
-                ?: emptyList()
-
-            val nonMemoryTools = categories
-                .filter { it.categoryName != memoryCategoryName }
-                .flatMap { it.tools }
-
-            // 根据开关组合最终可用工具：
-            // - enableTools && enableMemoryQuery      -> 所有工具
-            // - enableTools && !enableMemoryQuery     -> 仅非记忆工具
-            // - !enableTools && enableMemoryQuery     -> 仅记忆工具
-            val selectedTools = mutableListOf<ToolPrompt>()
-            if (enableTools) {
-                selectedTools.addAll(nonMemoryTools)
-            }
-            if (enableMemoryQuery) {
-                selectedTools.addAll(memoryTools)
-            }
+            val selectedTools = categories.flatMap { it.tools }.toMutableList()
 
             selectedTools.retainAll { tool ->
                 roleCardToolAccess.isBuiltinToolAllowed(tool.name)
@@ -2662,13 +2817,13 @@ class EnhancedAIService private constructor(private val context: Context) {
             }
 
             if (selectedTools.isEmpty()) {
-                AppLogger.d(TAG, "根据当前工具/记忆开关，未选择任何Tool Call工具")
+                AppLogger.d(TAG, "根据当前工具开关，未选择任何Tool Call工具")
                 return null
             }
 
             AppLogger.d(
                 TAG,
-                "Tool Call已启用，提供 ${selectedTools.size} 个工具 (enableTools=$enableTools, enableMemoryQuery=$enableMemoryQuery, visibleToolOverrides=${toolPromptVisibility.size}, roleCardCustomTools=${roleCardToolAccess.customEnabled})"
+                "Tool Call已启用，提供 ${selectedTools.size} 个工具 (enableTools=$enableTools, visibleToolOverrides=${toolPromptVisibility.size}, roleCardCustomTools=${roleCardToolAccess.customEnabled})"
             )
             selectedTools
         } catch (e: Exception) {
@@ -2720,14 +2875,16 @@ class EnhancedAIService private constructor(private val context: Context) {
     private fun notifyReplyCompleted(
         chatId: String?,
         characterName: String? = null,
-        avatarUri: String? = null
+        avatarUri: String? = null,
+        notifyReplyOverride: Boolean? = null
     ) {
         AIForegroundService.notifyReplyCompleted(
             context = context,
             chatId = chatId,
             characterName = characterName,
             rawReplyContent = lastReplyContent,
-            avatarUri = avatarUri
+            avatarUri = avatarUri,
+            notifyReplyOverride = notifyReplyOverride
         )
     }
 
@@ -2820,24 +2977,36 @@ class EnhancedAIService private constructor(private val context: Context) {
      * @param conversationHistory The history of the conversation to save.
      * @param lastContent The content of the last message in the conversation.
      */
-    suspend fun saveConversationToMemory(
+    fun saveConversationToMemoryAsync(
         conversationHistory: List<Pair<String, String>>,
-        lastContent: String
+        lastContent: String,
+        onSuccess: (suspend () -> Unit)? = null,
+        onError: (suspend (Exception) -> Unit)? = null
     ) {
         AppLogger.d(TAG, "手动触发记忆更新...")
-        withContext(Dispatchers.IO) {
+        toolProcessingScope.launch {
             try {
-                com.ai.assistance.operit.api.chat.library.ProblemLibrary.saveProblemAsync(
-                    context,
-                    toolHandler,
-                    conversationHistory,
-                    lastContent,
-                    multiServiceManager.getServiceForFunction(FunctionType.PROBLEM_LIBRARY)
+                val memoryService = multiServiceManager.getServiceForFunction(FunctionType.MEMORY)
+                com.ai.assistance.operit.api.chat.library.MemoryLibrary.saveMemoryAsync(
+                    context = context,
+                    toolHandler = toolHandler,
+                    conversationHistory = conversationHistory,
+                    content = lastContent,
+                    aiService = memoryService,
+                    onSuccess = {
+                        AppLogger.d(TAG, "手动记忆更新成功")
+                        onSuccess?.invoke()
+                    },
+                    onError = { e ->
+                        AppLogger.e(TAG, "手动记忆更新失败", e)
+                        onError?.invoke(e)
+                    }
                 )
-                AppLogger.d(TAG, "手动记忆更新成功")
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "手动记忆更新失败", e)
+            } catch (e: CancellationException) {
                 throw e
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "手动记忆更新初始化失败", e)
+                onError?.invoke(e)
             }
         }
     }

@@ -43,6 +43,8 @@ class DisplayPreferencesManager private constructor(private val context: Context
         private val KEY_SHOW_MODEL_NAME = booleanPreferencesKey("show_model_name")
         private val KEY_SHOW_ROLE_NAME = booleanPreferencesKey("show_role_name")
         private val KEY_SHOW_USER_NAME = booleanPreferencesKey("show_user_name")
+        private val KEY_SHOW_MESSAGE_TOKEN_STATS = booleanPreferencesKey("show_message_token_stats")
+        private val KEY_SHOW_MESSAGE_TIMING_STATS = booleanPreferencesKey("show_message_timing_stats")
         
         // 全局用户设置的 Key
         private val KEY_GLOBAL_USER_AVATAR_URI = stringPreferencesKey("global_user_avatar_uri")
@@ -56,8 +58,12 @@ class DisplayPreferencesManager private constructor(private val context: Context
         private val KEY_ENABLE_REPLY_NOTIFICATION_VIBRATION =
             booleanPreferencesKey("enable_reply_notification_vibration")
         private val KEY_ENABLE_ENTER_TO_SEND = booleanPreferencesKey("enable_enter_to_send")
+        private val KEY_ENABLE_NAVIGATION_ANIMATION =
+            booleanPreferencesKey("enable_navigation_animation")
 
         // 自动化显示与行为相关设置的 Key
+        private val KEY_ENABLE_BACKGROUND_KEEP_ALIVE =
+            booleanPreferencesKey("enable_background_keep_alive")
         private val KEY_ENABLE_EXPERIMENTAL_VIRTUAL_DISPLAY =
             booleanPreferencesKey("enable_experimental_virtual_display")
         private val KEY_HIDE_RUNTIME_TASK_VIEW =
@@ -109,6 +115,24 @@ class DisplayPreferencesManager private constructor(private val context: Context
     val showUserName: Flow<Boolean> =
         context.displayPreferencesDataStore.data.map { preferences ->
             preferences[KEY_SHOW_USER_NAME] ?: false
+        }
+
+    /**
+     * 是否显示消息 Token 统计
+     * 默认值：false
+     */
+    val showMessageTokenStats: Flow<Boolean> =
+        context.displayPreferencesDataStore.data.map { preferences ->
+            preferences[KEY_SHOW_MESSAGE_TOKEN_STATS] ?: false
+        }
+
+    /**
+     * 是否显示消息耗时统计
+     * 默认值：false
+     */
+    val showMessageTimingStats: Flow<Boolean> =
+        context.displayPreferencesDataStore.data.map { preferences ->
+            preferences[KEY_SHOW_MESSAGE_TIMING_STATS] ?: false
         }
 
     /**
@@ -172,6 +196,20 @@ class DisplayPreferencesManager private constructor(private val context: Context
             preferences[KEY_ENABLE_ENTER_TO_SEND] ?: false
         }
 
+    /**
+     * 是否启用新版导航动画
+     * 默认值：true
+     */
+    val enableNavigationAnimation: Flow<Boolean> =
+        context.displayPreferencesDataStore.data.map { preferences ->
+            preferences[KEY_ENABLE_NAVIGATION_ANIMATION] ?: true
+        }
+
+    val enableBackgroundKeepAlive: Flow<Boolean> =
+        context.displayPreferencesDataStore.data.map { preferences ->
+            preferences[KEY_ENABLE_BACKGROUND_KEEP_ALIVE] ?: false
+        }
+
     val enableExperimentalVirtualDisplay: Flow<Boolean> =
         context.displayPreferencesDataStore.data.map { preferences ->
             preferences[KEY_ENABLE_EXPERIMENTAL_VIRTUAL_DISPLAY] ?: true
@@ -184,17 +222,17 @@ class DisplayPreferencesManager private constructor(private val context: Context
 
     val screenshotFormat: Flow<String> =
         context.displayPreferencesDataStore.data.map { preferences ->
-            preferences[KEY_SCREENSHOT_FORMAT] ?: "PNG"
+            preferences[KEY_SCREENSHOT_FORMAT] ?: "JPG"
         }
 
     val screenshotQuality: Flow<Int> =
         context.displayPreferencesDataStore.data.map { preferences ->
-            preferences[KEY_SCREENSHOT_QUALITY] ?: 90
+            preferences[KEY_SCREENSHOT_QUALITY] ?: 75
         }
 
     val screenshotScalePercent: Flow<Int> =
         context.displayPreferencesDataStore.data.map { preferences ->
-            preferences[KEY_SCREENSHOT_SCALE_PERCENT] ?: 100
+            preferences[KEY_SCREENSHOT_SCALE_PERCENT] ?: 75
         }
 
     val visitWebWaitSeconds: Flow<Int> =
@@ -220,6 +258,8 @@ class DisplayPreferencesManager private constructor(private val context: Context
         showModelName: Boolean? = null,
         showRoleName: Boolean? = null,
         showUserName: Boolean? = null,
+        showMessageTokenStats: Boolean? = null,
+        showMessageTimingStats: Boolean? = null,
         globalUserAvatarUri: String? = null,
         globalUserName: String? = null,
         showFpsCounter: Boolean? = null,
@@ -227,6 +267,8 @@ class DisplayPreferencesManager private constructor(private val context: Context
         enableReplyNotificationSound: Boolean? = null,
         enableReplyNotificationVibration: Boolean? = null,
         enableEnterToSend: Boolean? = null,
+        enableNavigationAnimation: Boolean? = null,
+        enableBackgroundKeepAlive: Boolean? = null,
         enableExperimentalVirtualDisplay: Boolean? = null,
         hideRuntimeTaskView: Boolean? = null,
         screenshotFormat: String? = null,
@@ -241,6 +283,8 @@ class DisplayPreferencesManager private constructor(private val context: Context
             showModelName?.let { preferences[KEY_SHOW_MODEL_NAME] = it }
             showRoleName?.let { preferences[KEY_SHOW_ROLE_NAME] = it }
             showUserName?.let { preferences[KEY_SHOW_USER_NAME] = it }
+            showMessageTokenStats?.let { preferences[KEY_SHOW_MESSAGE_TOKEN_STATS] = it }
+            showMessageTimingStats?.let { preferences[KEY_SHOW_MESSAGE_TIMING_STATS] = it }
             globalUserAvatarUri?.let { preferences[KEY_GLOBAL_USER_AVATAR_URI] = it }
             globalUserName?.let { preferences[KEY_GLOBAL_USER_NAME] = it }
             showFpsCounter?.let { preferences[KEY_SHOW_FPS_COUNTER] = it }
@@ -252,6 +296,12 @@ class DisplayPreferencesManager private constructor(private val context: Context
                 preferences[KEY_ENABLE_REPLY_NOTIFICATION_VIBRATION] = it
             }
             enableEnterToSend?.let { preferences[KEY_ENABLE_ENTER_TO_SEND] = it }
+            enableNavigationAnimation?.let {
+                preferences[KEY_ENABLE_NAVIGATION_ANIMATION] = it
+            }
+            enableBackgroundKeepAlive?.let {
+                preferences[KEY_ENABLE_BACKGROUND_KEEP_ALIVE] = it
+            }
             enableExperimentalVirtualDisplay?.let {
                 preferences[KEY_ENABLE_EXPERIMENTAL_VIRTUAL_DISPLAY] = it
             }
@@ -312,6 +362,8 @@ class DisplayPreferencesManager private constructor(private val context: Context
             preferences[KEY_SHOW_MODEL_NAME] = false
             preferences[KEY_SHOW_ROLE_NAME] = false
             preferences[KEY_SHOW_USER_NAME] = false
+            preferences[KEY_SHOW_MESSAGE_TOKEN_STATS] = false
+            preferences[KEY_SHOW_MESSAGE_TIMING_STATS] = false
             preferences.remove(KEY_GLOBAL_USER_AVATAR_URI)
             preferences.remove(KEY_GLOBAL_USER_NAME)
             preferences[KEY_SHOW_FPS_COUNTER] = false
@@ -319,6 +371,8 @@ class DisplayPreferencesManager private constructor(private val context: Context
             preferences[KEY_ENABLE_REPLY_NOTIFICATION_SOUND] = false
             preferences[KEY_ENABLE_REPLY_NOTIFICATION_VIBRATION] = false
             preferences[KEY_ENABLE_ENTER_TO_SEND] = false
+            preferences.remove(KEY_ENABLE_NAVIGATION_ANIMATION)
+            preferences[KEY_ENABLE_BACKGROUND_KEEP_ALIVE] = false
             preferences[KEY_ENABLE_EXPERIMENTAL_VIRTUAL_DISPLAY] = true
             preferences[KEY_HIDE_RUNTIME_TASK_VIEW] = false
             preferences.remove(KEY_SCREENSHOT_FORMAT)

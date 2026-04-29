@@ -149,7 +149,7 @@ exports.apk_reverse_build = apk_reverse_build;
 exports.apk_reverse_sign = apk_reverse_sign;
 exports.apk_reverse_build_and_sign = apk_reverse_build_and_sign;
 exports.ensureHelperRuntimeLoaded = ensureHelperRuntimeLoaded;
-const PACKAGE_VERSION = "1.0.1";
+const PACKAGE_VERSION = "1.0.2";
 const APKTOOL_VERSION = "3.0.1";
 const JADX_VERSION = "1.5.2";
 const APKTOOL_RUNTIME_RESOURCE_KEY = "apktool_runtime_android_jar";
@@ -193,6 +193,7 @@ const HELPER_RUNTIME_CHILD_FIRST_PREFIXES = [
 const JVM_COMPAT_OS_NAME = "Linux";
 const JVM_COMPAT_OS_ARCH = "aarch64";
 const JVM_COMPAT_ARCH_DATA_MODEL = "64";
+let helperRuntimeLoadSequence = 0;
 function asText(value) {
     if (value === undefined || value === null) {
         return "";
@@ -382,9 +383,20 @@ async function ensureJadxRuntimeLoaded() {
         sourceArtifact: JADX_RUNTIME_SOURCE_ARTIFACT
     };
 }
-async function ensureHelperRuntimeLoaded() {
-    const runtime = await loadDexJarRuntime(HELPER_RUNTIME_RESOURCE_KEY, HELPER_RUNTIME_OUTPUT_FILE_NAME, HELPER_RUNTIME_CHILD_FIRST_PREFIXES, "Missing bundled APK reverse helper runtime resource. Run build_runtime_android_resources.ps1 and regenerate the toolpkg resources");
+async function ensureHelperRuntimeLoaded(tag) {
+    const outputFileName = nextHelperRuntimeOutputFileName(tag);
+    const runtime = await loadDexJarRuntime(HELPER_RUNTIME_RESOURCE_KEY, outputFileName, HELPER_RUNTIME_CHILD_FIRST_PREFIXES, "Missing bundled APK reverse helper runtime resource. Run build_runtime_android_resources.ps1 and regenerate the toolpkg resources");
     return runtime;
+}
+function nextHelperRuntimeOutputFileName(tag) {
+    helperRuntimeLoadSequence += 1;
+    const normalizedTag = asText(tag).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_") || "helper";
+    const extensionIndex = HELPER_RUNTIME_OUTPUT_FILE_NAME.lastIndexOf(".");
+    const suffix = `${normalizedTag}-load${helperRuntimeLoadSequence}`;
+    if (extensionIndex < 0) {
+        return `${HELPER_RUNTIME_OUTPUT_FILE_NAME}-${suffix}`;
+    }
+    return `${HELPER_RUNTIME_OUTPUT_FILE_NAME.slice(0, extensionIndex)}-${suffix}${HELPER_RUNTIME_OUTPUT_FILE_NAME.slice(extensionIndex)}`;
 }
 async function isBundledResourceAvailable(resourceKey, outputFileName) {
     try {
@@ -400,8 +412,8 @@ function getHelperBridgeClasses() {
         ApkReverseHelperFacade: Java.type("com.operit.apkreverse.runtime.ApkReverseHelperFacade")
     };
 }
-async function callHelperFacade(methodName, invoke) {
-    const runtime = await ensureHelperRuntimeLoaded();
+async function callHelperFacade(methodName, invoke, helperLoadTag) {
+    const runtime = await ensureHelperRuntimeLoaded(helperLoadTag || methodName);
     const classes = getHelperBridgeClasses();
     const raw = invoke(classes.ApkReverseHelperFacade);
     const text = asText(raw).trim();
@@ -654,7 +666,7 @@ function defaultDecodeOutputDir(inputApkPath) {
 async function decodeApkInternal(inputApkPath, outputDir, params) {
     const runtime = await ensureApktoolRuntimeLoaded();
     const frameworkJarPath = await ensureFrameworkJarPath();
-    const helper = await callHelperFacade("decodeApk", (Facade) => Facade.decodeApk(inputApkPath, outputDir, frameworkJarPath, APKTOOL_VERSION, optionalInteger(params, "jobs", undefined), optionalText(params, "frame_path") || "", optionalText(params, "frame_tag") || "", optionalBoolean(params, "force", false), optionalBoolean(params, "no_src", false), optionalBoolean(params, "no_res", false), optionalBoolean(params, "only_manifest", false), optionalBoolean(params, "no_assets", false), optionalBoolean(params, "verbose", false), optionalBoolean(params, "quiet", false)));
+    const helper = await callHelperFacade("decodeApk", (Facade) => Facade.decodeApk(inputApkPath, outputDir, frameworkJarPath, APKTOOL_VERSION, optionalInteger(params, "jobs", undefined), optionalText(params, "frame_path") || "", optionalText(params, "frame_tag") || "", optionalBoolean(params, "force", false), optionalBoolean(params, "no_src", false), optionalBoolean(params, "no_res", false), optionalBoolean(params, "only_manifest", false), optionalBoolean(params, "no_assets", false), optionalBoolean(params, "verbose", false), optionalBoolean(params, "quiet", false)), "apktool");
     return {
         runtime,
         frameworkInfo: helper.payload.frameworkInfo,
@@ -748,6 +760,7 @@ async function usage_advice() {
         notes: [
             "Primary flows are implemented with direct Java bridge calls and bundled dex-jar resources.",
             "JADX decompilation now runs through the helper runtime so Android-specific compatibility stays in Java.",
+            "Helper-backed bridge calls reload the helper jar per invocation so apktool and JADX classloader chains stay valid within a shared JS session.",
             "JADX runtime and helper runtime are expected to be produced by build_runtime_android_resources.ps1 before packaging.",
             "Search results larger than the inline limit are persisted into a temp JSON file and returned by path."
         ]
@@ -817,7 +830,7 @@ async function apk_reverse_jadx(params) {
         const inputApkPath = requireText(params, "input_apk_path");
         const outputDir = requireText(params, "output_dir");
         const jadxRuntime = await ensureJadxRuntimeLoaded();
-        const helper = await callHelperFacade("decompileJadx", (Facade) => Facade.decompileJadx(inputApkPath, outputDir, optionalInteger(params, "jobs", 1), optionalBoolean(params, "deobf", false), optionalBoolean(params, "show_inconsistent_code", false)));
+        const helper = await callHelperFacade("decompileJadx", (Facade) => Facade.decompileJadx(inputApkPath, outputDir, optionalInteger(params, "jobs", 1), optionalBoolean(params, "deobf", false), optionalBoolean(params, "show_inconsistent_code", false)), "jadx");
         return {
             ...baseSuccessPayload({
                 jadxRuntimeJarPath: jadxRuntime.runtimeJarPath,

@@ -2,6 +2,8 @@ package com.ai.assistance.operit.ui.features.toolbox.screens.texttospeech
 
 import android.annotation.SuppressLint
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,8 +23,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.ai.assistance.operit.R
+import com.ai.assistance.operit.api.voice.SimpleVoiceProvider
 import com.ai.assistance.operit.api.voice.VoiceServiceFactory
 import com.ai.assistance.operit.api.voice.VoiceService
+import com.ai.assistance.operit.data.preferences.SpeechServicesPreferences
 import kotlinx.coroutines.launch
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -39,9 +43,13 @@ fun TextToSpeechScreen(navController: NavController) {
         val context = LocalContext.current
         val coroutineScope = rememberCoroutineScope()
         val scrollState = rememberScrollState()
-
-        // 获取VoiceService实例
-        val voiceService = remember { VoiceServiceFactory.getInstance(context) }
+        val prefs = remember { SpeechServicesPreferences(context) }
+        val ttsServiceType by prefs.ttsServiceTypeFlow.collectAsState(initial = VoiceServiceFactory.VoiceServiceType.SIMPLE_TTS)
+        val httpConfig by prefs.ttsHttpConfigFlow.collectAsState(initial = SpeechServicesPreferences.DEFAULT_HTTP_TTS_PRESET)
+        var voiceServiceVersion by remember { mutableStateOf(0) }
+        var voiceService by remember(voiceServiceVersion) {
+                mutableStateOf(VoiceServiceFactory.getInstance(context))
+        }
         
         // 状态变量
         var inputText by remember { mutableStateOf("") }
@@ -52,26 +60,85 @@ fun TextToSpeechScreen(navController: NavController) {
         var error by remember { mutableStateOf<String?>(null) }
         var errorDetails by remember { mutableStateOf<String?>(null) }
         var debugInfo by remember { mutableStateOf<String?>(null) }
+        var ttsLocaleTagInput by remember(httpConfig) { mutableStateOf(httpConfig.localeTag) }
+        var ttsVoiceIdInput by remember(httpConfig) { mutableStateOf(httpConfig.voiceId) }
+        var simpleTtsVoices by remember { mutableStateOf<List<VoiceService.Voice>>(emptyList()) }
+        var simpleTtsVoicesLoading by remember { mutableStateOf(false) }
+        var simpleTtsVoicesError by remember { mutableStateOf<String?>(null) }
+        var simpleTtsLocaleExpanded by remember { mutableStateOf(false) }
+        var simpleTtsShowVoiceDialog by remember { mutableStateOf(false) }
+
+        val simpleTtsLocaleOptions = remember(simpleTtsVoices) {
+                simpleTtsVoices.map { it.locale.trim() }.filter { it.isNotBlank() }.distinct().sorted()
+        }
+        val simpleTtsSelectedVoice = remember(simpleTtsVoices, ttsVoiceIdInput) {
+                simpleTtsVoices.firstOrNull { it.id == ttsVoiceIdInput }
+        }
+        val simpleTtsFilteredVoices = remember(simpleTtsVoices, ttsLocaleTagInput) {
+                if (ttsLocaleTagInput.isBlank()) {
+                        simpleTtsVoices
+                } else {
+                        simpleTtsVoices.filter { it.locale.equals(ttsLocaleTagInput, ignoreCase = true) }
+                                .ifEmpty { simpleTtsVoices }
+                }
+        }
+
+        fun refreshVoiceService(): VoiceService {
+                val latestVoiceService = VoiceServiceFactory.getInstance(context)
+                if (voiceService !== latestVoiceService) {
+                        voiceService = latestVoiceService
+                }
+                return voiceService
+        }
 
         // 监听语音服务状态
-        LaunchedEffect(Unit) {
-                // 初始化语音服务
-                coroutineScope.launch {
-                        try {
-                                isInitialized = voiceService.initialize()
-                                if (!isInitialized) {
-                                        error = context.getString(R.string.tts_init_failed)
-                                        errorDetails = context.getString(R.string.tts_init_error_details)
-                                }
-                        } catch (e: Exception) {
-                                error = context.getString(R.string.tts_init_error)
-                                errorDetails = handleTtsError(e)
-                                debugInfo = context.getString(R.string.tts_debug_service_type, voiceService.javaClass.simpleName)
+        LaunchedEffect(voiceService) {
+                try {
+                        isInitialized = voiceService.initialize()
+                        if (!isInitialized) {
+                                error = context.getString(R.string.tts_init_failed)
+                                errorDetails = context.getString(R.string.tts_init_error_details)
                         }
+                } catch (e: Exception) {
+                        error = context.getString(R.string.tts_init_error)
+                        errorDetails = handleTtsError(e)
+                        debugInfo = context.getString(R.string.tts_debug_service_type, voiceService.javaClass.simpleName)
                 }
 
-                // 监听发言状态
                 voiceService.speakingStateFlow.collect { speaking -> isSpeaking = speaking }
+        }
+
+        LaunchedEffect(ttsServiceType) {
+                if (ttsServiceType != VoiceServiceFactory.VoiceServiceType.SIMPLE_TTS) return@LaunchedEffect
+                simpleTtsVoicesLoading = true
+                simpleTtsVoicesError = null
+                var provider: SimpleVoiceProvider? = null
+                try {
+                        provider = SimpleVoiceProvider(
+                                context = context.applicationContext,
+                                initialLocaleTag = ttsLocaleTagInput,
+                                initialVoiceId = ttsVoiceIdInput
+                        )
+                        simpleTtsVoices = provider.getAvailableVoices()
+                } catch (e: Exception) {
+                        simpleTtsVoices = emptyList()
+                        simpleTtsVoicesError = e.message
+                } finally {
+                        provider?.shutdown()
+                        simpleTtsVoicesLoading = false
+                }
+        }
+
+        fun saveSimpleTtsSelection(localeTag: String, voiceId: String) {
+                coroutineScope.launch {
+                        prefs.saveTtsSettings(
+                                serviceType = ttsServiceType,
+                                httpConfig = httpConfig.copy(localeTag = localeTag, voiceId = voiceId)
+                        )
+                        VoiceServiceFactory.resetInstance()
+                        voiceService = VoiceServiceFactory.getInstance(context)
+                        voiceServiceVersion++
+                }
         }
 
         // 播放文本
@@ -91,8 +158,9 @@ fun TextToSpeechScreen(navController: NavController) {
 
                 coroutineScope.launch {
                         try {
+                                val currentVoiceService = refreshVoiceService()
                                 val success =
-                                        voiceService.speak(inputText, true, speechRate, speechPitch)
+                                        currentVoiceService.speak(inputText, true, speechRate, speechPitch)
                                 if (!success) {
                                         error = context.getString(R.string.tts_speak_failed)
                                         errorDetails = context.getString(R.string.tts_speak_error_details)
@@ -101,7 +169,7 @@ fun TextToSpeechScreen(navController: NavController) {
                         } catch (e: Exception) {
                                 error = context.getString(R.string.tts_speak_error, e.message ?: "Unknown error")
                                 errorDetails = handleTtsError(e)
-                                debugInfo = context.getString(R.string.tts_debug_params_with_service, inputText, speechRate, speechPitch, voiceService.javaClass.simpleName)
+                                debugInfo = context.getString(R.string.tts_debug_params_with_service, inputText, speechRate, speechPitch, refreshVoiceService().javaClass.simpleName)
                         }
                 }
         }
@@ -110,7 +178,7 @@ fun TextToSpeechScreen(navController: NavController) {
         fun stopSpeaking() {
                 coroutineScope.launch {
                         try {
-                                voiceService.stop()
+                                refreshVoiceService().stop()
                         } catch (e: Exception) {
                                 error = context.getString(R.string.tts_stop_error, e.message ?: "Unknown error")
                         }
@@ -219,6 +287,140 @@ fun TextToSpeechScreen(navController: NavController) {
                                         steps = 5,
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
                                 )
+
+                                if (ttsServiceType == VoiceServiceFactory.VoiceServiceType.SIMPLE_TTS) {
+                                        Spacer(modifier = Modifier.height(16.dp))
+
+                                        Text(
+                                                text = stringResource(R.string.speech_services_simple_tts_settings),
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                        )
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        Text(
+                                                text = stringResource(R.string.speech_services_simple_tts_desc),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        ExposedDropdownMenuBox(
+                                                expanded = simpleTtsLocaleExpanded,
+                                                onExpandedChange = { simpleTtsLocaleExpanded = it }
+                                        ) {
+                                                OutlinedTextField(
+                                                        value = if (ttsLocaleTagInput.isBlank()) {
+                                                                stringResource(R.string.speech_services_simple_tts_locale_follow_system)
+                                                        } else {
+                                                                ttsLocaleTagInput
+                                                        },
+                                                        onValueChange = {},
+                                                        readOnly = true,
+                                                        label = { Text(stringResource(R.string.speech_services_simple_tts_locale)) },
+                                                        trailingIcon = {
+                                                                Icon(
+                                                                        Icons.Default.ArrowDropDown,
+                                                                        contentDescription = stringResource(R.string.speech_services_dropdown_expand)
+                                                                )
+                                                        },
+                                                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                                                )
+                                                ExposedDropdownMenu(
+                                                        expanded = simpleTtsLocaleExpanded,
+                                                        onDismissRequest = { simpleTtsLocaleExpanded = false }
+                                                ) {
+                                                        DropdownMenuItem(
+                                                                text = { Text(stringResource(R.string.speech_services_simple_tts_locale_follow_system)) },
+                                                                onClick = {
+                                                                        ttsLocaleTagInput = ""
+                                                                        ttsVoiceIdInput = ""
+                                                                        saveSimpleTtsSelection("", "")
+                                                                        simpleTtsLocaleExpanded = false
+                                                                }
+                                                        )
+                                                        simpleTtsLocaleOptions.forEach { localeTag ->
+                                                                DropdownMenuItem(
+                                                                        text = { Text(localeTag) },
+                                                                        onClick = {
+                                                                                val nextVoiceId =
+                                                                                        if (simpleTtsSelectedVoice?.locale?.equals(localeTag, ignoreCase = true) == true) {
+                                                                                                ttsVoiceIdInput
+                                                                                        } else {
+                                                                                                ""
+                                                                                        }
+                                                                                ttsLocaleTagInput = localeTag
+                                                                                ttsVoiceIdInput = nextVoiceId
+                                                                                saveSimpleTtsSelection(localeTag, nextVoiceId)
+                                                                                simpleTtsLocaleExpanded = false
+                                                                        }
+                                                                )
+                                                        }
+                                                }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        OutlinedTextField(
+                                                value = simpleTtsSelectedVoice?.let { "${it.name} (${it.locale})" }
+                                                        ?: stringResource(R.string.speech_services_simple_tts_voice_default),
+                                                onValueChange = {},
+                                                readOnly = true,
+                                                label = { Text(stringResource(R.string.speech_services_simple_tts_voice)) },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                trailingIcon = {
+                                                        Row {
+                                                                if (ttsVoiceIdInput.isNotBlank()) {
+                                                                        IconButton(
+                                                                                onClick = {
+                                                                                        ttsVoiceIdInput = ""
+                                                                                        saveSimpleTtsSelection(ttsLocaleTagInput, "")
+                                                                                }
+                                                                        ) {
+                                                                                Icon(
+                                                                                        imageVector = Icons.Default.Clear,
+                                                                                        contentDescription = stringResource(R.string.speech_services_simple_tts_voice_clear)
+                                                                                )
+                                                                        }
+                                                                }
+                                                                IconButton(onClick = { simpleTtsShowVoiceDialog = true }) {
+                                                                        Icon(
+                                                                                imageVector = Icons.Filled.FormatListBulleted,
+                                                                                contentDescription = stringResource(R.string.speech_services_simple_tts_voice_select)
+                                                                        )
+                                                                }
+                                                        }
+                                                }
+                                        )
+
+                                        if (simpleTtsVoicesLoading) {
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        CircularProgressIndicator(
+                                                                modifier = Modifier.size(16.dp),
+                                                                strokeWidth = 2.dp
+                                                        )
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Text(
+                                                                text = stringResource(R.string.speech_services_simple_tts_loading),
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                }
+                                        }
+
+                                        simpleTtsVoicesError?.let { msg ->
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text(
+                                                        text = msg,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.error
+                                                )
+                                        }
+                                }
                         }
                 }
 
@@ -466,6 +668,53 @@ fun TextToSpeechScreen(navController: NavController) {
                                 )
                         }
                 }
+        }
+
+        if (simpleTtsShowVoiceDialog) {
+                AlertDialog(
+                        onDismissRequest = { simpleTtsShowVoiceDialog = false },
+                        title = { Text(stringResource(R.string.speech_services_simple_tts_voice_select)) },
+                        text = {
+                                LazyColumn(
+                                        modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(max = 360.dp)
+                                ) {
+                                        item {
+                                                TextButton(
+                                                        onClick = {
+                                                                ttsVoiceIdInput = ""
+                                                                saveSimpleTtsSelection(ttsLocaleTagInput, "")
+                                                                simpleTtsShowVoiceDialog = false
+                                                        },
+                                                        modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                        Text(stringResource(R.string.speech_services_simple_tts_voice_default))
+                                                }
+                                        }
+                                        items(simpleTtsFilteredVoices) { voice ->
+                                                TextButton(
+                                                        onClick = {
+                                                                ttsVoiceIdInput = voice.id
+                                                                if (ttsLocaleTagInput.isBlank()) {
+                                                                        ttsLocaleTagInput = voice.locale
+                                                                }
+                                                                saveSimpleTtsSelection(ttsLocaleTagInput.ifBlank { voice.locale }, voice.id)
+                                                                simpleTtsShowVoiceDialog = false
+                                                        },
+                                                        modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                        Text("${voice.name} (${voice.locale})")
+                                                }
+                                        }
+                                }
+                        },
+                        confirmButton = {
+                                TextButton(onClick = { simpleTtsShowVoiceDialog = false }) {
+                                        Text(stringResource(android.R.string.cancel))
+                                }
+                        }
+                )
         }
 }
 

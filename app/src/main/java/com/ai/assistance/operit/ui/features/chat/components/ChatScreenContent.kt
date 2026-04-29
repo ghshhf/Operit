@@ -3,6 +3,7 @@ package com.ai.assistance.operit.ui.features.chat.components
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import com.ai.assistance.operit.util.AppLogger
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -52,6 +53,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Send
@@ -114,17 +117,19 @@ fun ChatScreenContent(
         chatHeaderHistoryIconColor: Int?,
           chatHeaderPipIconColor: Int?,
           chatHeaderOverlayMode: Boolean,
-        chatStyle: ChatStyle, // Add chatStyle parameter
+        chatStyle: ChatStyle,
         cursorUserBubbleLiquidGlass: Boolean = false,
         cursorUserBubbleWaterGlass: Boolean = false,
         bubbleUserBubbleLiquidGlass: Boolean = false,
         bubbleUserBubbleWaterGlass: Boolean = false,
+        bubbleAiBubbleLiquidGlass: Boolean = false,
+        bubbleAiBubbleWaterGlass: Boolean = false,
         historyListState: LazyListState,
         showCharacterSelector: Boolean,
         onShowCharacterSelectorChange: (Boolean) -> Unit,
         onSwitchCharacter: (CharacterSelectorTarget) -> Unit,
         onOpenCharacterSettings: () -> Unit,
-        chatAreaHorizontalPadding: Float = 16f, // 聊天区域水平内边距
+        chatAreaHorizontalPadding: Float = 16f,
         bubbleUserImageStyle: BubbleImageStyleConfig? = null,
         bubbleAiImageStyle: BubbleImageStyleConfig? = null,
         bubbleUserRoundedCornersEnabled: Boolean = true,
@@ -138,7 +143,7 @@ fun ChatScreenContent(
     val density = LocalDensity.current
     var headerHeight by remember { mutableStateOf(0.dp) }
 
-    // 多选模式状态
+    // Multi-select mode state
     var isMultiSelectMode by remember { mutableStateOf(false) }
     var selectedMessageIndices by remember { mutableStateOf(setOf<Int>()) }
     val selectableMessageIndices = remember(chatHistory) {
@@ -147,8 +152,15 @@ fun ChatScreenContent(
         }.toSet()
     }
     var isGeneratingImage by remember { mutableStateOf(false) }
+    var showSharePreviewDialog by remember { mutableStateOf(false) }
+    var showDeleteSelectedConfirmDialog by remember { mutableStateOf(false) }
+    var sharePreviewUri by remember { mutableStateOf<Uri?>(null) }
+    var sharePreviewThinkingExpanded by remember { mutableStateOf(false) }
+    var sharePreviewExpandThinkToolsGroups by remember { mutableStateOf(false) }
+    var sharePreviewIncludeBackground by remember { mutableStateOf(hasBackgroundImage) }
+    var sharePreviewBorderWidth by remember { mutableStateOf(1.5f) }
 
-    // 导出相关状态
+    // Export state
     val context = LocalContext.current
     var showExportPlatformDialog by remember { mutableStateOf(false) }
     var showAndroidExportDialog by remember { mutableStateOf(false) }
@@ -170,8 +182,15 @@ fun ChatScreenContent(
     var hasHiddenNewerMessages by remember { mutableStateOf(false) }
     
     // 监听朗读状态
-    val isPlaying by actualViewModel.isPlaying.collectAsState()
+    val isSpeechSessionActive by actualViewModel.isSpeechSessionActive.collectAsState()
+    val isSpeechPaused by actualViewModel.isSpeechPaused.collectAsState()
     val isAutoReadEnabled by actualViewModel.isAutoReadEnabled.collectAsState()
+    LaunchedEffect(isSpeechSessionActive, isSpeechPaused, isAutoReadEnabled) {
+        AppLogger.d(
+            "ChatScreenContent",
+            "speechControls session=$isSpeechSessionActive paused=$isSpeechPaused autoRead=$isAutoReadEnabled visible=${isSpeechSessionActive || isSpeechPaused || isAutoReadEnabled}"
+        )
+    }
     LaunchedEffect(pendingRollbackIndex) {
         val index = pendingRollbackIndex
         if (index != null) {
@@ -220,24 +239,33 @@ fun ChatScreenContent(
                         modifier = Modifier.fillMaxSize(),
                         onSelectMessageToEdit = onSelectMessageToEditCallback,
                         onDeleteMessage = { index -> actualViewModel.deleteMessage(index) },
+                        onDeleteCurrentMessageVariant = { index ->
+                            actualViewModel.deleteCurrentMessageVariant(index)
+                        },
                         onDeleteMessagesFrom = { index -> actualViewModel.deleteMessagesFrom(index) },
                         onRollbackToMessage = { index -> pendingRollbackIndex = index },
-                        onSpeakMessage = { content -> actualViewModel.speakMessage(content) }, // 添加朗读回调
-                        onAutoReadMessage = { content -> actualViewModel.enableAutoReadAndSpeak(content) }, // 添加自动朗读回调
-                        onReplyToMessage = { message -> actualViewModel.setReplyToMessage(message) }, // 添加回复回调
-                        onCreateBranch = { timestamp -> actualViewModel.createBranch(timestamp) }, // 添加创建分支回调
-                        onInsertSummary = { index, message -> actualViewModel.insertSummary(index, message) }, // 添加插入总结回调
+                        onRegenerateMessage = { index -> actualViewModel.regenerateSingleAiMessage(index) },
+                        onSwitchMessageVariant = { index, targetVariantIndex ->
+                            actualViewModel.switchMessageVariant(index, targetVariantIndex)
+                        },
+                        onSpeakMessage = { content -> actualViewModel.speakMessage(content) },
+                        onAutoReadMessage = { content -> actualViewModel.enableAutoReadAndSpeak(content) },
+                        onReplyToMessage = { message -> actualViewModel.setReplyToMessage(message) },
+                        onCreateBranch = { timestamp -> actualViewModel.createBranch(timestamp) },
+                        onInsertSummary = { index, message -> actualViewModel.insertSummary(index, message) },
                         onMentionRoleFromAvatar = { roleName -> actualViewModel.insertRoleMention(roleName) },
                         autoScrollToBottom = autoScrollToBottom,
                         onHasHiddenNewerMessagesChange = { hasHiddenNewerMessages = it },
                         onAutoScrollToBottomChange = onAutoScrollToBottomChange,
                         topPadding = headerHeight,
                         bottomPadding = bottomInset,
-                        chatStyle = chatStyle, // Pass chat style
+                        chatStyle = chatStyle,
                         cursorUserBubbleLiquidGlass = cursorUserBubbleLiquidGlass,
                         cursorUserBubbleWaterGlass = cursorUserBubbleWaterGlass,
                         bubbleUserBubbleLiquidGlass = bubbleUserBubbleLiquidGlass,
                         bubbleUserBubbleWaterGlass = bubbleUserBubbleWaterGlass,
+                        bubbleAiBubbleLiquidGlass = bubbleAiBubbleLiquidGlass,
+                        bubbleAiBubbleWaterGlass = bubbleAiBubbleWaterGlass,
                         isMultiSelectMode = isMultiSelectMode,
                         selectedMessageIndices = selectedMessageIndices,
                         onToggleMultiSelectMode = { initialIndex ->
@@ -281,7 +309,6 @@ fun ChatScreenContent(
                 )
             }
         } else {
-            // 正常模式：Header和ChatArea在Column中顺序排列
             Column(modifier = Modifier.fillMaxSize()) {
                 ChatScreenHeader(
                         actualViewModel = actualViewModel,
@@ -309,23 +336,32 @@ fun ChatScreenContent(
                         modifier = Modifier.fillMaxSize(),
                         onSelectMessageToEdit = onSelectMessageToEditCallback,
                         onDeleteMessage = { index -> actualViewModel.deleteMessage(index) },
+                        onDeleteCurrentMessageVariant = { index ->
+                            actualViewModel.deleteCurrentMessageVariant(index)
+                        },
                         onDeleteMessagesFrom = { index -> actualViewModel.deleteMessagesFrom(index) },
                         onRollbackToMessage = { index -> pendingRollbackIndex = index },
-                        onSpeakMessage = { content -> actualViewModel.speakMessage(content) }, // 添加朗读回调
-                        onReplyToMessage = { message -> actualViewModel.setReplyToMessage(message) }, // 添加回复回调
-                        onCreateBranch = { timestamp -> actualViewModel.createBranch(timestamp) }, // 添加创建分支回调
-                        onInsertSummary = { index, message -> actualViewModel.insertSummary(index, message) }, // 添加插入总结回调
-                        onAutoReadMessage = { content -> actualViewModel.enableAutoReadAndSpeak(content) }, // 添加自动朗读回调
+                        onRegenerateMessage = { index -> actualViewModel.regenerateSingleAiMessage(index) },
+                        onSwitchMessageVariant = { index, targetVariantIndex ->
+                            actualViewModel.switchMessageVariant(index, targetVariantIndex)
+                        },
+                        onSpeakMessage = { content -> actualViewModel.speakMessage(content) },
+                        onReplyToMessage = { message -> actualViewModel.setReplyToMessage(message) },
+                        onCreateBranch = { timestamp -> actualViewModel.createBranch(timestamp) },
+                        onInsertSummary = { index, message -> actualViewModel.insertSummary(index, message) },
+                        onAutoReadMessage = { content -> actualViewModel.enableAutoReadAndSpeak(content) },
                         onMentionRoleFromAvatar = { roleName -> actualViewModel.insertRoleMention(roleName) },
                         autoScrollToBottom = autoScrollToBottom,
                         onHasHiddenNewerMessagesChange = { hasHiddenNewerMessages = it },
                         onAutoScrollToBottomChange = onAutoScrollToBottomChange,
                         bottomPadding = bottomInset,
-                        chatStyle = chatStyle, // Pass chat style
+                        chatStyle = chatStyle,
                         cursorUserBubbleLiquidGlass = cursorUserBubbleLiquidGlass,
                         cursorUserBubbleWaterGlass = cursorUserBubbleWaterGlass,
                         bubbleUserBubbleLiquidGlass = bubbleUserBubbleLiquidGlass,
                         bubbleUserBubbleWaterGlass = bubbleUserBubbleWaterGlass,
+                        bubbleAiBubbleLiquidGlass = bubbleAiBubbleLiquidGlass,
+                        bubbleAiBubbleWaterGlass = bubbleAiBubbleWaterGlass,
                         isMultiSelectMode = isMultiSelectMode,
                         selectedMessageIndices = selectedMessageIndices,
                         horizontalPadding = chatAreaHorizontalPadding.dp,
@@ -448,56 +484,13 @@ fun ChatScreenContent(
                         FilledIconButton(
                             onClick = {
                                 if (selectedMessageIndices.isNotEmpty() && !isGeneratingImage) {
-                                    isGeneratingImage = true
-                                    
-                                    actualViewModel.shareMessages(
-                                        context = context,
-                                        messageIndices = selectedMessageIndices,
-                                        userMessageColor = userMessageColor,
-                                        aiMessageColor = aiMessageColor,
-                                        userTextColor = userTextColor,
-                                        aiTextColor = aiTextColor,
-                                        systemMessageColor = systemMessageColor,
-                                        systemTextColor = systemTextColor,
-                                        thinkingBackgroundColor = thinkingBackgroundColor,
-                                        thinkingTextColor = thinkingTextColor,
-                                        chatStyle = chatStyle,
-                                        onSuccess = { uri ->
-                                            isGeneratingImage = false
-                                            
-                                            // 调用系统分享
-                                            try {
-                                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                    type = "image/png"
-                                                    putExtra(Intent.EXTRA_STREAM, uri)
-                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                }
-                                                context.startActivity(
-                                                    Intent.createChooser(shareIntent, context.getString(R.string.share_selected))
-                                                )
-                                                
-                                                // 退出多选模式
-                                                isMultiSelectMode = false
-                                                selectedMessageIndices = emptySet()
-                                            } catch (e: Exception) {
-                                                AppLogger.e("ChatScreenContent", "分享失败", e)
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    context.getString(R.string.share_failed),
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        },
-                                        onError = { error ->
-                                            isGeneratingImage = false
-                                            AppLogger.e("ChatScreenContent", "生成图片失败: $error")
-                                            android.widget.Toast.makeText(
-                                                context,
-                                                error,
-                                                android.widget.Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                    )
+                                    // 预览参数仅对本次截图生效，不污染正常聊天展示状态
+                                    sharePreviewUri = null
+                                    sharePreviewThinkingExpanded = false
+                                    sharePreviewExpandThinkToolsGroups = false
+                                    sharePreviewIncludeBackground = hasBackgroundImage
+                                    sharePreviewBorderWidth = 1.5f
+                                    showSharePreviewDialog = true
                                 }
                             },
                             enabled = selectedMessageIndices.isNotEmpty() && !isGeneratingImage,
@@ -520,9 +513,7 @@ fun ChatScreenContent(
                         FilledIconButton(
                             onClick = {
                                 if (selectedMessageIndices.isNotEmpty()) {
-                                    actualViewModel.deleteMessages(selectedMessageIndices)
-                                    selectedMessageIndices = emptySet()
-                                    isMultiSelectMode = false
+                                    showDeleteSelectedConfirmDialog = true
                                 }
                             },
                             enabled = selectedMessageIndices.isNotEmpty(),
@@ -545,7 +536,7 @@ fun ChatScreenContent(
             }
         }
 
-        // 停止朗读按钮
+        // Stop reading button
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val density = LocalDensity.current
             val endPadding = 16.dp
@@ -575,7 +566,7 @@ fun ChatScreenContent(
             }
 
             AnimatedVisibility(
-                visible = isPlaying || isAutoReadEnabled,
+                visible = isSpeechSessionActive || isSpeechPaused || isAutoReadEnabled,
                 enter = fadeIn() + slideInHorizontally(initialOffsetX = { it }),
                 exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it }),
                 modifier = Modifier
@@ -593,23 +584,196 @@ fun ChatScreenContent(
                         }
                     }
             ) {
-                SmallFloatingActionButton(
-                    onClick = {
-                        actualViewModel.stopSpeaking()
-                    },
-                    containerColor = MaterialTheme.colorScheme.secondary,
-                    contentColor = MaterialTheme.colorScheme.onSecondary
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Stop,
-                        contentDescription = stringResource(R.string.stop_reading),
-                        modifier = Modifier.size(24.dp)
-                    )
+                    SmallFloatingActionButton(
+                        modifier = Modifier.align(Alignment.Top),
+                        onClick = {
+                            AppLogger.d(
+                                "ChatScreenContent",
+                                "speechControls pauseClick session=$isSpeechSessionActive paused=$isSpeechPaused autoRead=$isAutoReadEnabled"
+                            )
+                            actualViewModel.pauseSpeaking()
+                        },
+                        containerColor = MaterialTheme.colorScheme.secondary,
+                        contentColor = MaterialTheme.colorScheme.onSecondary
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Pause,
+                            contentDescription = stringResource(R.string.pause_reading),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    AnimatedVisibility(
+                        visible = isSpeechPaused,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                        modifier = Modifier.align(Alignment.Top)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SmallFloatingActionButton(
+                                onClick = {
+                                    AppLogger.d(
+                                        "ChatScreenContent",
+                                        "speechControls resumeClick session=$isSpeechSessionActive paused=$isSpeechPaused autoRead=$isAutoReadEnabled"
+                                    )
+                                    actualViewModel.resumeSpeaking()
+                                },
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PlayArrow,
+                                    contentDescription = stringResource(R.string.resume_reading),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            SmallFloatingActionButton(
+                                onClick = {
+                                    AppLogger.d(
+                                        "ChatScreenContent",
+                                        "speechControls stopClick session=$isSpeechSessionActive paused=$isSpeechPaused autoRead=$isAutoReadEnabled"
+                                    )
+                                    actualViewModel.stopSpeaking()
+                                },
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Stop,
+                                    contentDescription = stringResource(R.string.stop_reading),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // 滚动到底部按钮
+        if (showDeleteSelectedConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showDeleteSelectedConfirmDialog = false },
+                title = { Text(stringResource(R.string.confirm_delete)) },
+                text = { Text("Delete ${selectedMessageIndices.size} selected messages? This cannot be undone.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            actualViewModel.deleteMessages(selectedMessageIndices)
+                            selectedMessageIndices = emptySet()
+                            isMultiSelectMode = false
+                            showDeleteSelectedConfirmDialog = false
+                        }
+                    ) { Text(stringResource(R.string.confirm_delete_action)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteSelectedConfirmDialog = false }) {
+                        Text(stringResource(R.string.common_cancel))
+                    }
+                }
+            )
+        }
+
+        if (showSharePreviewDialog) {
+            LaunchedEffect(
+                showSharePreviewDialog,
+                selectedMessageIndices,
+                sharePreviewThinkingExpanded,
+                sharePreviewExpandThinkToolsGroups,
+                sharePreviewIncludeBackground,
+                sharePreviewBorderWidth
+            ) {
+                if (showSharePreviewDialog && selectedMessageIndices.isNotEmpty() && !isGeneratingImage) {
+                    isGeneratingImage = true
+                    actualViewModel.shareMessages(
+                        context = context,
+                        messageIndices = selectedMessageIndices,
+                        userMessageColor = userMessageColor,
+                        aiMessageColor = aiMessageColor,
+                        userTextColor = userTextColor,
+                        aiTextColor = aiTextColor,
+                        systemMessageColor = systemMessageColor,
+                        systemTextColor = systemTextColor,
+                        thinkingBackgroundColor = thinkingBackgroundColor,
+                        thinkingTextColor = thinkingTextColor,
+                        chatStyle = chatStyle,
+                        cursorUserBubbleLiquidGlass = cursorUserBubbleLiquidGlass,
+                        cursorUserBubbleWaterGlass = cursorUserBubbleWaterGlass,
+                        bubbleUserBubbleLiquidGlass = bubbleUserBubbleLiquidGlass,
+                        bubbleUserBubbleWaterGlass = bubbleUserBubbleWaterGlass,
+                        bubbleAiBubbleLiquidGlass = bubbleAiBubbleLiquidGlass,
+                        bubbleAiBubbleWaterGlass = bubbleAiBubbleWaterGlass,
+                        initialThinkingExpanded = sharePreviewThinkingExpanded,
+                        expandThinkToolsGroups = sharePreviewExpandThinkToolsGroups,
+                        includeBackground = sharePreviewIncludeBackground,
+                        borderWidthDp = sharePreviewBorderWidth,
+                        forceShowThinkingProcess = true,
+                        onSuccess = { uri ->
+                            sharePreviewUri = uri
+                            isGeneratingImage = false
+                        },
+                        onError = { error ->
+                            isGeneratingImage = false
+                            AppLogger.e("ChatScreenContent", "Generate share image failed: $error")
+                            android.widget.Toast.makeText(context, error, android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+            }
+            ShareImagePreviewDialog(
+                imageUri = sharePreviewUri,
+                isGenerating = isGeneratingImage,
+                thinkingExpanded = sharePreviewThinkingExpanded,
+                expandThinkToolsGroups = sharePreviewExpandThinkToolsGroups,
+                includeBackground = sharePreviewIncludeBackground,
+                borderWidth = sharePreviewBorderWidth,
+                onThinkingExpandedChange = { sharePreviewThinkingExpanded = it },
+                onExpandThinkToolsGroupsChange = { sharePreviewExpandThinkToolsGroups = it },
+                onIncludeBackgroundChange = { sharePreviewIncludeBackground = it },
+                onBorderWidthChange = { sharePreviewBorderWidth = it },
+                onDismiss = {
+                    showSharePreviewDialog = false
+                    sharePreviewUri = null
+                },
+                onShare = {
+                    sharePreviewUri?.let { uri ->
+                        try {
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "image/png"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.share_selected)))
+                            showSharePreviewDialog = false
+                            isMultiSelectMode = false
+                            selectedMessageIndices = emptySet()
+                            sharePreviewUri = null
+                        } catch (e: Exception) {
+                            AppLogger.e("ChatScreenContent", "Share failed", e)
+                            android.widget.Toast.makeText(context, context.getString(R.string.share_failed), android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onSave = {
+                    sharePreviewUri?.let { uri ->
+                        coroutineScope.launch {
+                            val saved = saveShareImageToGallery(context, uri)
+                            android.widget.Toast.makeText(
+                                context,
+                                if (saved) context.getString(R.string.image_saved) else context.getString(R.string.save_failed),
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            )
+        }
+
+        // Scroll to bottom button
         ScrollToBottomButton(
             scrollState = scrollState,
             coroutineScope = coroutineScope,
@@ -761,7 +925,7 @@ fun ChatScreenContent(
                         val editedMessage =
                             chatHistory[index].copy(
                                 content = editingMessageContent.value,
-                                contentStream = null // 修复：清除stream，强制UI使用content
+                                contentStream = null
                             )
                         actualViewModel.updateMessage(index, editedMessage)
                     }
@@ -842,7 +1006,9 @@ fun ChatHistorySelectorPanel(
         historyDisplayMode: ChatHistoryDisplayMode,
         onDisplayModeChange: (ChatHistoryDisplayMode) -> Unit,
         autoSwitchCharacterCard: Boolean,
-        onAutoSwitchCharacterCardChange: (Boolean) -> Unit
+        onAutoSwitchCharacterCardChange: (Boolean) -> Unit,
+        autoSwitchChatOnCharacterSelect: Boolean,
+        onAutoSwitchChatOnCharacterSelectChange: (Boolean) -> Unit
 ) {
     // 历史选择器面板（不再包含遮罩层，遮罩层已在外部处理）
     Box(
@@ -905,6 +1071,8 @@ fun ChatHistorySelectorPanel(
                 onDisplayModeChange = onDisplayModeChange,
                 autoSwitchCharacterCard = autoSwitchCharacterCard,
                 onAutoSwitchCharacterCardChange = onAutoSwitchCharacterCardChange,
+                autoSwitchChatOnCharacterSelect = autoSwitchChatOnCharacterSelect,
+                onAutoSwitchChatOnCharacterSelectChange = onAutoSwitchChatOnCharacterSelectChange,
                 onQuickScrollInteractionChange = { consumed ->
                     GestureStateHolder.isChatScreenGestureConsumed = consumed
                     onChatScreenGestureConsumed(consumed)

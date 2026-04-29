@@ -52,6 +52,15 @@ export type ComposeCanvasNumber = number | ComposeUnitValue;
 
 export type ComposeTextOverflow = "clip" | "ellipsis";
 
+export type ComposeContentScale =
+  | "fit"
+  | "crop"
+  | "fillBounds"
+  | "fillWidth"
+  | "fillHeight"
+  | "inside"
+  | "none";
+
 export interface ComposeTextMeasureRequest {
   text: string;
   fontSize?: number;
@@ -109,6 +118,31 @@ export interface ComposeCanvasTransformEvent {
 export interface ComposeCanvasSizeEvent {
   width: number;
   height: number;
+}
+
+export interface ComposeWebViewPageEvent {
+  url?: string | null;
+  title?: string | null;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+}
+
+export interface ComposeWebViewNavigationEvent {
+  url?: string | null;
+  isMainFrame?: boolean;
+  method?: string | null;
+}
+
+export interface ComposeWebViewProgressEvent {
+  progress: number;
+  url?: string | null;
+  title?: string | null;
+}
+
+export interface ComposeWebViewErrorEvent {
+  errorCode: number;
+  description?: string | null;
+  url?: string | null;
 }
 
 declare global {
@@ -321,8 +355,11 @@ export interface ComposeTextFieldStyle {
 export interface ComposeCommonProps {
   key?: string;
   onLoad?: () => void | Promise<void>;
+  topBarTitle?: ComposeChildren;
   modifier?: ComposeModifierValue;
+  zIndex?: number;
   weight?: number;
+  weightFill?: boolean;
   width?: number;
   height?: number;
   padding?: number | ComposePadding;
@@ -337,17 +374,20 @@ export interface ComposeCommonProps {
 }
 
 export interface ColumnProps extends ComposeCommonProps {
+  content?: ComposeChildren;
   horizontalAlignment?: ComposeAlignment;
   verticalArrangement?: ComposeArrangement;
 }
 
 export interface RowProps extends ComposeCommonProps {
+  content?: ComposeChildren;
   horizontalArrangement?: ComposeArrangement;
   verticalAlignment?: ComposeAlignment;
   onClick?: () => void | Promise<void>;
 }
 
 export interface BoxProps extends ComposeCommonProps {
+  content?: ComposeChildren;
   contentAlignment?: ComposeAlignment;
 }
 
@@ -363,16 +403,26 @@ export interface TextProps extends ComposeCommonProps {
   fontWeight?: string;
   fontSize?: number;
   maxLines?: number;
+  softWrap?: boolean;
+  overflow?: ComposeTextOverflow;
   weight?: number;
 }
 
 export interface TextFieldProps extends ComposeCommonProps {
-  label?: string;
-  placeholder?: string;
+  label?: string | ComposeChildren;
+  placeholder?: string | ComposeChildren;
+  leadingIcon?: ComposeChildren;
+  trailingIcon?: ComposeChildren;
+  prefix?: ComposeChildren;
+  suffix?: ComposeChildren;
+  supportingText?: ComposeChildren;
   value: string;
   onValueChange: (value: string) => void;
   singleLine?: boolean;
   minLines?: number;
+  maxLines?: number;
+  readOnly?: boolean;
+  isError?: boolean;
   isPassword?: boolean;
   style?: ComposeTextFieldStyle;
 }
@@ -381,6 +431,11 @@ export interface SwitchProps extends ComposeCommonProps {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   enabled?: boolean;
+  thumbContent?: ComposeChildren;
+  checkedThumbColor?: ComposeColor;
+  checkedTrackColor?: ComposeColor;
+  uncheckedThumbColor?: ComposeColor;
+  uncheckedTrackColor?: ComposeColor;
 }
 
 export interface CheckboxProps extends ComposeCommonProps {
@@ -390,19 +445,23 @@ export interface CheckboxProps extends ComposeCommonProps {
 }
 
 export interface ButtonProps extends ComposeCommonProps {
+  content?: ComposeChildren;
   text?: string;
   enabled?: boolean;
   onClick: () => void | Promise<void>;
+  contentPadding?: ComposePadding;
   shape?: ComposeShape;
 }
 
 export interface IconButtonProps extends ComposeCommonProps {
+  content?: ComposeChildren;
   icon?: string;
   enabled?: boolean;
   onClick: () => void | Promise<void>;
 }
 
 export interface CardProps extends ComposeCommonProps {
+  content?: ComposeChildren;
   containerColor?: ComposeColor;
   containerAlpha?: number;
   contentColor?: ComposeColor;
@@ -413,19 +472,24 @@ export interface CardProps extends ComposeCommonProps {
 }
 
 export interface SurfaceProps extends ComposeCommonProps {
+  content?: ComposeChildren;
   containerColor?: ComposeColor;
   contentColor?: ComposeColor;
   shape?: ComposeShape;
   alpha?: number;
+  onClick?: () => void | Promise<void>;
 }
 
 export interface IconProps extends ComposeCommonProps {
   name?: string;
   tint?: ComposeColor;
   size?: number;
+  spin?: boolean;
+  spinDurationMs?: number;
 }
 
 export interface LazyColumnProps extends ComposeCommonProps {
+  content?: ComposeChildren;
   spacing?: number;
 }
 
@@ -445,6 +509,29 @@ export interface CanvasProps extends ComposeCommonProps {
   transform?: ComposeCanvasTransform;
   onTransform?: (event: ComposeCanvasTransformEvent) => void;
   onSizeChanged?: (event: ComposeCanvasSizeEvent) => void;
+}
+
+export interface WebViewProps extends ComposeCommonProps {
+  url?: string;
+  html?: string;
+  baseUrl?: string;
+  mimeType?: string;
+  encoding?: string;
+  headers?: Record<string, string>;
+  javaScriptEnabled?: boolean;
+  domStorageEnabled?: boolean;
+  allowFileAccess?: boolean;
+  allowContentAccess?: boolean;
+  userAgent?: string;
+  nestedScrollInterop?: boolean;
+  supportZoom?: boolean;
+  useWideViewPort?: boolean;
+  loadWithOverviewMode?: boolean;
+  onPageStarted?: (event: ComposeWebViewPageEvent) => void | Promise<void>;
+  onPageFinished?: (event: ComposeWebViewPageEvent) => void | Promise<void>;
+  onReceivedError?: (event: ComposeWebViewErrorEvent) => void | Promise<void>;
+  onUrlChanged?: (event: ComposeWebViewNavigationEvent) => void | Promise<void>;
+  onProgressChanged?: (event: ComposeWebViewProgressEvent) => void | Promise<void>;
 }
 
 export interface ComposeNode {
@@ -479,6 +566,7 @@ export interface ComposeUiFactoryRegistry {
   CircularProgressIndicator: ComposeNodeFactory<CircularProgressIndicatorProps>;
   SnackbarHost: ComposeNodeFactory<SnackbarHostProps>;
   Canvas: ComposeNodeFactory<CanvasProps>;
+  WebView: ComposeNodeFactory<WebViewProps>;
 }
 
 export interface ComposeTemplateValues {
@@ -502,6 +590,14 @@ export interface ComposeResolveToolNameRequest {
   subpackageId?: string;
   toolName: string;
   preferImported?: boolean;
+}
+
+export interface ComposeRouteInfo {
+  routeId: string;
+  runtime: string;
+  title?: string | null;
+  ownerPackageName?: string | null;
+  toolPkgUiModuleId?: string | null;
 }
 
 export interface ComposeDslContext {
@@ -540,6 +636,12 @@ export interface ComposeDslContext {
    * Batch environment writes; host may implement atomically.
    */
   setEnvs?(values: Record<string, string>): Promise<void> | void;
+
+  /**
+   * Discover available route ids that can be used with ctx.navigate(...).
+   */
+  listRoutes?(): ComposeRouteInfo[];
+  getHostRoutes?(): ComposeRouteInfo[];
 
   /**
    * Optional toolCall-compatible bridge so compose_dsl script can use package-tool style calls.

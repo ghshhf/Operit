@@ -254,8 +254,6 @@ class ConversationService(
      * @param workspacePath 当前绑定的工作区路径，可以为null
      * @param packageManager 包管理器
      * @param promptFunctionType 提示函数类型
-     * @param thinkingGuidance 是否需要思考指导
-     * @param enableMemoryQuery Whether the AI is allowed to query memories.
      * @param hasImageRecognition Whether a backend image recognition service is configured
      * @return 准备好的对话历史列表
      */
@@ -267,9 +265,7 @@ class ConversationService(
             workspaceEnv: String? = null,
             packageManager: PackageManager,
             promptFunctionType: PromptFunctionType,
-            thinkingGuidance: Boolean = false,
             customSystemPromptTemplate: String? = null,
-            enableMemoryQuery: Boolean = true,
             roleCardId: String? = null,
             enableGroupOrchestrationHint: Boolean = false,
             groupParticipantNamesText: String? = null,
@@ -297,9 +293,7 @@ class ConversationService(
                         mapOf(
                             "workspacePath" to workspacePath,
                             "workspaceEnv" to workspaceEnv,
-                            "thinkingGuidance" to thinkingGuidance,
                             "customSystemPromptTemplate" to customSystemPromptTemplate,
-                            "enableMemoryQuery" to enableMemoryQuery,
                             "roleCardId" to roleCardId,
                             "enableGroupOrchestrationHint" to enableGroupOrchestrationHint,
                             "groupParticipantNamesText" to groupParticipantNamesText,
@@ -356,7 +350,6 @@ class ConversationService(
                 val enableTools = apiPreferences.enableToolsFlow.first()
                 val disableUserPreferenceDescription =
                         apiPreferences.disableUserPreferenceDescriptionFlow.first()
-                val disableLatexDescription = apiPreferences.disableLatexDescriptionFlow.first()
                 val disableStatusTags = apiPreferences.disableStatusTagsFlow.first()
                 val toolPromptVisibility = runCatching {
                     apiPreferences.toolPromptVisibilityFlow.first()
@@ -383,10 +376,8 @@ class ConversationService(
                     safBookmarkNames = safBookmarkNames,
                     customIntroPrompt = introPrompt,
                     useEnglish = useEnglish,
-                    thinkingGuidance = thinkingGuidance,
                     customSystemPromptTemplate = finalCustomSystemPromptTemplate,
                     enableTools = enableTools,
-                    enableMemoryQuery = enableMemoryQuery,
                     hasImageRecognition = hasImageRecognition,
                     chatModelHasDirectImage = chatModelHasDirectImage,
                     hasAudioRecognition = hasAudioRecognition,
@@ -394,7 +385,6 @@ class ConversationService(
                     chatModelHasDirectAudio = chatModelHasDirectAudio,
                     chatModelHasDirectVideo = chatModelHasDirectVideo,
                     useToolCallApi = useToolCallApi,
-                    disableLatexDescription = disableLatexDescription,
                     disableStatusTags = disableStatusTags,
                     toolVisibility = roleCardToolAccess.effectiveBuiltinToolVisibility,
                     allowedPackageNames = roleCardToolAccess.allowedPackageNames,
@@ -833,16 +823,12 @@ class ConversationService(
      */
     private suspend fun buildWaifuRulesText(): String {
         val activePrompt = activePromptManager.getActivePrompt()
-        val waifuDisableActions = waifuPreferences.waifuDisableActionsFlow.first()
         val waifuEnableEmoticons = waifuPreferences.waifuEnableEmoticonsFlow.first()
         val waifuEnableSelfie = waifuPreferences.waifuEnableSelfieFlow.first()
+        val waifuCustomPrompt = waifuPreferences.waifuCustomPromptFlow.first()
         val waifuSelfiePrompt = waifuPreferences.waifuSelfiePromptFlow.first()
         val waifuRules = mutableListOf<String>()
-        
-        if (waifuDisableActions) {
-            waifuRules.add(FunctionalPrompts.waifuDisableActionsRule())
-        }
-        
+
         if (waifuEnableEmoticons) {
             // 动态获取当前可用的表情分组
             val availableCategories = try {
@@ -865,7 +851,11 @@ class ConversationService(
         if (waifuEnableSelfie) {
             waifuRules.add(FunctionalPrompts.waifuSelfieRule(waifuSelfiePrompt))
         }
-        
+
+        if (waifuCustomPrompt.isNotBlank()) {
+            waifuRules.add(FunctionalPrompts.waifuCustomPromptRule(waifuCustomPrompt))
+        }
+
         return if (waifuRules.isNotEmpty()) {
             buildString {
                 append("\n\n[Extra Rules]")
@@ -943,8 +933,10 @@ class ConversationService(
         
         // 根据当前语言确定目标语言
         val targetLanguage = when (currentLanguage) {
-            "zh" -> context.getString(R.string.conversation_language_chinese)
-            "en" -> "English"
+            LocaleUtils.LanguageCodes.CHINESE -> context.getString(R.string.conversation_language_chinese)
+            LocaleUtils.LanguageCodes.ENGLISH -> "English"
+            LocaleUtils.LanguageCodes.MALAY -> "Malay"
+            LocaleUtils.LanguageCodes.INDONESIAN -> "Indonesian"
             else -> context.getString(R.string.conversation_language_chinese) // 默认翻译为中文
         }
         

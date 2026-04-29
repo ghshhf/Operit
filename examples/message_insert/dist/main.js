@@ -9,6 +9,35 @@ exports.onPromptFinalize = onPromptFinalize;
 exports.onInputMenuToggle = onInputMenuToggle;
 const index_ui_js_1 = __importDefault(require("./ui/index.ui.js"));
 const shared_1 = require("./shared");
+const EnhancedAIService = Java.com.ai.assistance.operit.api.chat.EnhancedAIService;
+const InputProcessingStateBase = "com.ai.assistance.operit.data.model.InputProcessingState$";
+function resolveInjectionStatusText() {
+    const locale = typeof getLang === "function" ? String(getLang() || "").trim().toLowerCase() : "";
+    return locale.startsWith("en")
+        ? "Injecting extra info"
+        : "正在注入额外信息";
+}
+function pushInjectionProcessingState(chatId) {
+    try {
+        const context = (0, shared_1.getAppContext)();
+        if (!context) {
+            return;
+        }
+        const resolvedChatId = String(chatId ?? getChatId() ?? "").trim();
+        const service = resolvedChatId
+            ? EnhancedAIService.getChatInstance(context, resolvedChatId)
+            : EnhancedAIService.getInstance(context);
+        const state = Java.newInstance(InputProcessingStateBase + "Processing", resolveInjectionStatusText());
+        service.setInputProcessingState(state);
+    }
+    catch (error) {
+        console.log("message_insert pushInjectionProcessingState error", String(error));
+    }
+}
+async function appendExtraInfoWithStatus(processedInput, chatId) {
+    pushInjectionProcessingState(chatId);
+    return (0, shared_1.appendExtraInfoToMessage)(processedInput, chatId || undefined);
+}
 function registerToolPkg() {
     ToolPkg.registerToolboxUiModule({
         id: "message_insert_settings",
@@ -47,7 +76,7 @@ async function onPromptInput(input) {
         return null;
     }
     const chatId = String(input.eventPayload.chatId ?? getChatId() ?? "").trim();
-    return (0, shared_1.appendExtraInfoToMessage)(processedInput, chatId || undefined);
+    return appendExtraInfoWithStatus(processedInput, chatId || undefined);
 }
 async function onPromptFinalize(input) {
     const stage = String(input.eventPayload.stage ?? input.eventName ?? "");
@@ -62,7 +91,7 @@ async function onPromptFinalize(input) {
         return null;
     }
     const chatId = String(input.eventPayload.chatId ?? getChatId() ?? "").trim();
-    return (0, shared_1.appendExtraInfoToMessage)(processedInput, chatId || undefined);
+    return appendExtraInfoWithStatus(processedInput, chatId || undefined);
 }
 function onInputMenuToggle(input) {
     const action = String(input.eventPayload.action ?? "").toLowerCase();

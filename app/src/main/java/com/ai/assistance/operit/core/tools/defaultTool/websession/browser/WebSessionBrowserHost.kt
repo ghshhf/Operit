@@ -77,6 +77,7 @@ internal class WebSessionBrowserHost(
         fun onOpenDownloadLocation(taskId: String)
         fun onConfirmExternalOpen(requestId: String)
         fun onCancelExternalOpen(requestId: String)
+        fun onHandlePendingDialog(accept: Boolean, promptText: String?)
     }
 
     private val windowManager = appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -169,7 +170,8 @@ internal class WebSessionBrowserHost(
                             onOpenDownloadedFile = callbacks::onOpenDownloadedFile,
                             onOpenDownloadLocation = callbacks::onOpenDownloadLocation,
                             onConfirmExternalOpen = callbacks::onConfirmExternalOpen,
-                            onCancelExternalOpen = callbacks::onCancelExternalOpen
+                            onCancelExternalOpen = callbacks::onCancelExternalOpen,
+                            onHandlePendingDialog = callbacks::onHandlePendingDialog
                         )
                     }
                 }

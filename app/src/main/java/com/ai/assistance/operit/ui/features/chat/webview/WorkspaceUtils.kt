@@ -10,6 +10,15 @@ fun createAndGetDefaultWorkspace(context: Context, chatId: String): File {
     return createAndGetDefaultWorkspace(context, chatId, null)
 }
 
+fun createAndResetWorkspaceDirectory(context: Context, chatId: String): File {
+    val workspaceDir = File(getWorkspacePath(context, chatId))
+    if (workspaceDir.exists()) {
+        workspaceDir.deleteRecursively()
+    }
+    workspaceDir.mkdirs()
+    return workspaceDir
+}
+
 fun createAndGetDefaultWorkspace(context: Context, chatId: String, projectType: String?): File {
     // 创建内部存储工作区
     val workspacePath = getWorkspacePath(context, chatId)

@@ -188,6 +188,7 @@ private object ToolPkgMessageProcessingBridgePlugin : MessageProcessingPlugin {
         probeOnly: Boolean
     ): Map<String, Any?> {
         return mapOf(
+            "chatId" to params.chatId,
             "messageContent" to params.messageContent,
             "chatHistory" to params.chatHistory.map(::promptTurnToMap),
             "workspacePath" to params.workspacePath,
@@ -317,15 +318,20 @@ private object ToolPkgMessageProcessingBridgePlugin : MessageProcessingPlugin {
                                         runCatching { decodeHookResult(intermediateRaw) }
                                             .getOrNull() ?: intermediateRaw
                                     extractMessageChunks(intermediateDecoded)
+                                        .filter { it.isNotEmpty() }
                                         .forEach { chunk ->
-                                            if (chunk.isNotEmpty()) {
-                                                chunkQueue.trySend(chunk)
-                                            }
+                                            chunkQueue.trySend(chunk)
                                         }
                                 }
                             )
                         val parsed = parseMessageProcessingResult(finalDecoded)
                         if (parsed != null && parsed.matched && !emittedAny) {
+                            AppLogger.i(
+                                TOOLPKG_LOG_TAG,
+                                "message-processing final fallback hook=${
+                                    hook.containerPackageName
+                                }:${hook.pluginId}:${hook.functionName} chunkCount=${parsed.chunks.size}"
+                            )
                             parsed.chunks
                                 .filter { it.isNotEmpty() }
                                 .forEach { chunk ->
@@ -450,7 +456,11 @@ private object ToolPkgXmlRenderBridgePlugin : XmlRenderPlugin {
     internal fun replaceHooksByTag(
         updatedHooksByTag: Map<String, List<ToolPkgXmlRenderHookRegistration>>
     ) {
+        if (hooksByTag == updatedHooksByTag) {
+            return
+        }
         hooksByTag = updatedHooksByTag
+        XmlRenderPluginRegistry.notifyChanged()
     }
 
     override fun supports(tagName: String): Boolean {
@@ -677,6 +687,7 @@ private object ToolPkgInputMenuToggleBridgePlugin : InputMenuTogglePlugin {
                 title = spec.title,
                 description = spec.description,
                 isChecked = resolvedChecked,
+                slot = spec.slot,
                 onToggle = {
                     if (params.featureStates.containsKey(spec.id)) {
                         params.onToggleFeature(spec.id)
@@ -793,7 +804,8 @@ private object ToolPkgInputMenuToggleBridgePlugin : InputMenuTogglePlugin {
         val id: String,
         val title: String,
         val description: String,
-        val isChecked: Boolean
+        val isChecked: Boolean,
+        val slot: String?
     )
 
     private fun parseInputMenuDefinitions(
@@ -827,7 +839,8 @@ private object ToolPkgInputMenuToggleBridgePlugin : InputMenuTogglePlugin {
                     id = id,
                     title = title,
                     description = item.optString("description").trim(),
-                    isChecked = item.optBoolean("isChecked", false)
+                    isChecked = item.optBoolean("isChecked", false),
+                    slot = item.optString("slot").trim().takeIf { it.isNotEmpty() }
                 )
             )
         }
@@ -840,7 +853,7 @@ object ToolPkgCommonBridgePlugin : OperitPlugin {
     private val installed = AtomicBoolean(false)
     private val runtimeChangeListener =
         PackageManager.ToolPkgRuntimeChangeListener {
-            syncToolPkgRegistrations(toolPkgPackageManager().getImportedToolPkgContainerRuntimes())
+            syncToolPkgRegistrations(toolPkgPackageManager().getEnabledToolPkgContainerRuntimes())
         }
 
     override fun register() {
@@ -852,6 +865,7 @@ object ToolPkgCommonBridgePlugin : OperitPlugin {
         InputMenuTogglePluginRegistry.register(ToolPkgInputMenuToggleBridgePlugin)
         ToolPkgPromptHookBridge.register()
         ToolPkgToolLifecycleBridge.register()
+        ToolPkgAiProviderRegistry.register()
 
         val manager = toolPkgPackageManager()
         manager.addToolPkgRuntimeChangeListener(runtimeChangeListener)

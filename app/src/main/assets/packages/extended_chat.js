@@ -94,7 +94,11 @@
                 { "name": "message", "description": { "zh": "发送给 AI 的内容", "en": "Message to send to AI" }, "type": "string", "required": true },
                 { "name": "character_card_name", "description": { "zh": "角色卡名称", "en": "Character card name" }, "type": "string", "required": true },
                 { "name": "chat_id", "description": { "zh": "目标对话 ID（可选；为空时新建）", "en": "Target chat id (optional; create new if empty)" }, "type": "string", "required": false },
-                { "name": "timeout", "description": { "zh": "可选：等待返回的超时秒数（默认 10）", "en": "Optional timeout seconds to wait for response (default 10)" }, "type": "number", "required": false }
+                { "name": "timeout", "description": { "zh": "可选：等待返回的超时秒数（默认 180）", "en": "Optional timeout seconds to wait for response (default 180)" }, "type": "number", "required": false },
+                { "name": "persist_turn", "description": { "zh": "可选：是否持久化本轮用户消息和 AI 回复（默认 true）", "en": "Optional: whether to persist this turn's user message and AI reply (default true)" }, "type": "boolean", "required": false },
+                { "name": "notify_reply", "description": { "zh": "可选：是否覆盖本轮回复通知开关", "en": "Optional: override reply notification for this turn" }, "type": "boolean", "required": false },
+                { "name": "hide_user_message", "description": { "zh": "可选：是否在 UI 中隐藏用户消息正文并显示占位标记", "en": "Optional: hide the user message body in UI and show a placeholder marker" }, "type": "boolean", "required": false },
+                { "name": "disable_warning", "description": { "zh": "可选：是否关闭本轮 AI 生成的 warning 标记", "en": "Optional: suppress AI-generated warning markup for this turn" }, "type": "boolean", "required": false }
             ]
         },
         {
@@ -124,9 +128,6 @@ const HistoryChat = (function () {
             return m;
         return 'contains';
     }
-    function asArray(value) {
-        return Array.isArray(value) ? value : [];
-    }
     async function list_chats_impl(params) {
         const query = (params?.query ?? '').toString().trim();
         const matchMode = normalizeMatchMode(params?.match);
@@ -145,8 +146,8 @@ const HistoryChat = (function () {
             listParams.sort_by = sortBy;
         if (sortOrder)
             listParams.sort_order = sortOrder;
-        const listResult = (await toolCall('list_chats', listParams));
-        const chats = asArray(listResult?.chats);
+        const listResult = await Tools.Chat.listChats(listParams);
+        const chats = listResult.chats;
         return {
             success: true,
             message: '对话列表获取完成',
@@ -171,7 +172,7 @@ const HistoryChat = (function () {
             findParams.match = matchMode;
         if (index !== undefined)
             findParams.index = index;
-        const findResult = (await toolCall('find_chat', findParams));
+        const findResult = await Tools.Chat.findChat(findParams);
         const picked = findResult?.chat ?? null;
         if (!picked) {
             throw new Error(`Chat not found by query: ${query}`);
@@ -202,7 +203,7 @@ const HistoryChat = (function () {
         findParams.match = title ? 'exact' : matchMode;
         if (index !== undefined)
             findParams.index = index;
-        const findResult = (await toolCall('find_chat', findParams));
+        const findResult = await Tools.Chat.findChat(findParams);
         const picked = findResult?.chat ?? null;
         if (!picked?.id) {
             throw new Error(`Chat not found by query: ${needle}`);
@@ -215,12 +216,11 @@ const HistoryChat = (function () {
         const order = (orderRaw === 'asc' || orderRaw === 'desc') ? orderRaw : 'desc';
         const limitRaw = params && params.limit !== undefined ? Number(params.limit) : 20;
         const limit = isNaN(limitRaw) ? 20 : limitRaw;
-        const result = (await toolCall('get_chat_messages', {
-            chat_id: chatId,
+        const result = await Tools.Chat.getMessages(chatId, {
             order,
             limit,
-        }));
-        const rawMessages = asArray(result?.messages);
+        });
+        const rawMessages = result.messages;
         const text = rawMessages
             .map((m) => {
             const role = (m.roleName ?? m.sender ?? '').toString() || 'message';
@@ -244,10 +244,7 @@ const HistoryChat = (function () {
             throw new Error('Missing parameter: new_title');
         }
         const chatId = await resolveChatId(params || {});
-        const result = (await toolCall('update_chat_title', {
-            chat_id: chatId,
-            title: newTitle,
-        }));
+        const result = await Tools.Chat.updateTitle(chatId, newTitle);
         return {
             success: true,
             message: '对话重命名完成',
@@ -260,9 +257,7 @@ const HistoryChat = (function () {
     }
     async function delete_chat_impl(params) {
         const chatId = await resolveChatId(params || {});
-        const result = (await toolCall('delete_chat', {
-            chat_id: chatId,
-        }));
+        const result = await Tools.Chat.deleteChat(chatId);
         return {
             success: true,
             message: '对话删除完成',
@@ -277,7 +272,7 @@ const HistoryChat = (function () {
         if (!chatId) {
             throw new Error('Missing parameter: chat_id');
         }
-        const result = await toolCall('agent_status', { chat_id: chatId });
+        const result = await Tools.Chat.agentStatus(chatId);
         return {
             success: true,
             message: '对话状态查询完成',
@@ -287,8 +282,8 @@ const HistoryChat = (function () {
         };
     }
     async function list_character_cards_impl() {
-        const result = (await toolCall('list_character_cards', {}));
-        const cards = asArray(result?.cards);
+        const result = await Tools.Chat.listCharacterCards();
+        const cards = result.cards;
         return {
             success: true,
             message: '角色卡列表获取完成',
@@ -310,8 +305,8 @@ const HistoryChat = (function () {
         let characterCardName = characterCardNameInput;
         let characterCardId = '';
         try {
-            const cardResult = (await toolCall('list_character_cards', {}));
-            const cards = asArray(cardResult?.cards);
+            const cardResult = await Tools.Chat.listCharacterCards();
+            const cards = cardResult.cards;
             const targetCard = cards.find((card) => card.name === characterCardNameInput);
             if (!targetCard) {
                 throw new Error(`Character card not found: ${characterCardNameInput}`);
@@ -325,10 +320,7 @@ const HistoryChat = (function () {
             }
         }
         try {
-            await toolCall('start_chat_service', {
-                initial_mode: 'BALL',
-                keep_if_exists: true,
-            });
+            await Tools.Chat.startService();
         }
         catch {
             // ignore service start errors to avoid blocking agent message
@@ -337,36 +329,41 @@ const HistoryChat = (function () {
         if (!chatId) {
             const lang = (getLang() || '').toLowerCase();
             const group = lang === 'zh' ? '子任务' : 'subTask';
-            const creation = (await toolCall('create_new_chat', {
-                group,
-                set_as_current_chat: false,
-                character_card_id: characterCardId,
-            }));
+            const creation = await Tools.Chat.createNew(group, false, characterCardId);
             chatId = (creation?.chatId ?? '').toString().trim();
             if (!chatId) {
                 throw new Error('Failed to create new chat');
             }
         }
         else {
-            const findResult = (await toolCall('find_chat', {
+            const findResult = await Tools.Chat.findChat({
                 query: chatId,
                 match: 'exact',
                 index: 0,
-            }));
+            });
             const boundName = findResult?.chat?.characterCardName ?? null;
             if (boundName && boundName !== characterCardName) {
                 throw new Error(`Chat ${chatId} 已绑定角色 ${boundName}，不能与 ${characterCardName} 共用会话`);
             }
         }
-        const timeoutRaw = params?.timeout !== undefined ? Number(params.timeout) : 10;
-        const timeoutSec = isNaN(timeoutRaw) || timeoutRaw <= 0 ? 10 : timeoutRaw;
-        const timeoutMs = Math.min(timeoutSec, 60) * 1000;
-        const sendPromise = toolCall('send_message_to_ai', {
-            message,
-            chat_id: chatId,
-            role_card_id: characterCardId,
-            sender_name: getCallerName() || characterCardName,
-        });
+        const timeoutRaw = params?.timeout !== undefined ? Number(params.timeout) : 180;
+        const timeoutSec = isNaN(timeoutRaw) || timeoutRaw <= 0 ? 180 : timeoutRaw;
+        const timeoutMs = timeoutSec * 1000;
+        const sendMessageOptions = {};
+        if (params?.persist_turn !== undefined) {
+            sendMessageOptions.persist_turn = params.persist_turn;
+        }
+        if (params?.notify_reply !== undefined) {
+            sendMessageOptions.notify_reply = params.notify_reply;
+        }
+        if (params?.hide_user_message !== undefined) {
+            sendMessageOptions.hide_user_message = params.hide_user_message;
+        }
+        if (params?.disable_warning !== undefined) {
+            sendMessageOptions.disable_warning = params.disable_warning;
+        }
+        sendMessageOptions.timeout_ms = timeoutMs;
+        const sendPromise = Tools.Chat.sendMessage(message, chatId, characterCardId, getCallerName() || characterCardName, sendMessageOptions);
         const timeoutPromise = new Promise((resolve) => {
             setTimeout(() => resolve(null), timeoutMs);
         });

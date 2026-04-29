@@ -4,31 +4,30 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.ai.assistance.operit.data.dao.ChatDao
 import com.ai.assistance.operit.data.dao.MessageDao
+import com.ai.assistance.operit.data.dao.MessageVariantDao
 import com.ai.assistance.operit.data.model.ChatEntity
 import com.ai.assistance.operit.data.model.MessageEntity
+import com.ai.assistance.operit.data.model.MessageVariantEntity
 
-/** 应用数据库，包含问题记录表、聊天表和消息表 */
+/** 应用数据库，包含聊天表和消息表 */
 @Database(
-    entities = [ProblemEntity::class, ChatEntity::class, MessageEntity::class],
-    version = 13,
+    entities = [ChatEntity::class, MessageEntity::class, MessageVariantEntity::class],
+    version = 16,
     exportSchema = false
 )
-@TypeConverters(StringListConverter::class)
 abstract class AppDatabase : RoomDatabase() {
-
-    /** 获取问题记录DAO */
-    abstract fun problemDao(): ProblemDao
 
     /** 获取聊天DAO */
     abstract fun chatDao(): ChatDao
 
     /** 获取消息DAO */
     abstract fun messageDao(): MessageDao
+
+    abstract fun messageVariantDao(): MessageVariantDao
 
     companion object {
         @Volatile
@@ -127,6 +126,58 @@ abstract class AppDatabase : RoomDatabase() {
                         db.execSQL("ALTER TABLE messages ADD COLUMN `waitDurationMs` INTEGER NOT NULL DEFAULT 0")
                     } catch (_: Exception) {
                     }
+                }
+            }
+
+        private val MIGRATION_13_14 =
+            object : Migration(13, 14) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("DROP TABLE IF EXISTS `problem_records`")
+                }
+            }
+
+        private val MIGRATION_14_15 =
+            object : Migration(14, 15) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE messages ADD COLUMN `selectedVariantIndex` INTEGER NOT NULL DEFAULT 0"
+                    )
+                    db.execSQL(
+                        """
+                            CREATE TABLE IF NOT EXISTS `message_variants` (
+                                `variantId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                                `chatId` TEXT NOT NULL,
+                                `messageTimestamp` INTEGER NOT NULL,
+                                `variantIndex` INTEGER NOT NULL,
+                                `content` TEXT NOT NULL,
+                                `roleName` TEXT NOT NULL DEFAULT '',
+                                `provider` TEXT NOT NULL DEFAULT '',
+                                `modelName` TEXT NOT NULL DEFAULT '',
+                                `inputTokens` INTEGER NOT NULL DEFAULT 0,
+                                `outputTokens` INTEGER NOT NULL DEFAULT 0,
+                                `cachedInputTokens` INTEGER NOT NULL DEFAULT 0,
+                                `sentAt` INTEGER NOT NULL DEFAULT 0,
+                                `outputDurationMs` INTEGER NOT NULL DEFAULT 0,
+                                `waitDurationMs` INTEGER NOT NULL DEFAULT 0,
+                                FOREIGN KEY(`chatId`) REFERENCES `chats`(`id`) ON DELETE CASCADE
+                            )
+                        """.trimIndent()
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS `index_message_variants_chatId_messageTimestamp` ON `message_variants` (`chatId`, `messageTimestamp`)"
+                    )
+                    db.execSQL(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS `index_message_variants_chatId_messageTimestamp_variantIndex` ON `message_variants` (`chatId`, `messageTimestamp`, `variantIndex`)"
+                    )
+                }
+            }
+
+        private val MIGRATION_15_16 =
+            object : Migration(15, 16) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE messages ADD COLUMN `displayMode` TEXT NOT NULL DEFAULT 'NORMAL'"
+                    )
                 }
             }
 
@@ -239,7 +290,10 @@ abstract class AppDatabase : RoomDatabase() {
                                 MIGRATION_9_10,
                                 MIGRATION_10_11,
                                 MIGRATION_11_12,
-                                MIGRATION_12_13
+                                MIGRATION_12_13,
+                                MIGRATION_13_14,
+                                MIGRATION_14_15,
+                                MIGRATION_15_16
                             ) // 添加新的迁移
                             .build()
                     INSTANCE = instance

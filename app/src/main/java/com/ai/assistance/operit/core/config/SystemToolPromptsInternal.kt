@@ -144,10 +144,11 @@ object SystemToolPromptsInternal {
                         ),
                         ToolPrompt(
                             name = "browser_click",
-                            description = "Click an element on the current page by snapshot ref.",
+                            description = "Click an element on the current page by browser_snapshot ref, including refs inside same-origin iframes.",
                             parametersStructured =
                                 listOf(
-                                    ToolParameterSchema(name = "ref", type = "string", description = "target element ref from browser_snapshot output", required = true),
+                                    ToolParameterSchema(name = "ref", type = "string", description = "target element ref from browser_snapshot output; provide ref or selector", required = false),
+                                    ToolParameterSchema(name = "selector", type = "string", description = "optional CSS selector fallback when ref is not available", required = false),
                                     ToolParameterSchema(name = "element", type = "string", description = "optional, human-readable element description", required = false),
                                     ToolParameterSchema(name = "doubleClick", type = "boolean", description = "optional, perform a double click instead of a single click", required = false, default = "false"),
                                     ToolParameterSchema(name = "button", type = "string", description = "optional mouse button: left/right/middle", required = false, default = "left"),
@@ -157,6 +158,11 @@ object SystemToolPromptsInternal {
                         ToolPrompt(
                             name = "browser_close",
                             description = "Close the current browser tab. Closing the last tab also closes the browser overlay.",
+                            parametersStructured = emptyList()
+                        ),
+                        ToolPrompt(
+                            name = "browser_close_all",
+                            description = "Close all browser tabs. This also closes the browser overlay.",
                             parametersStructured = emptyList()
                         ),
                         ToolPrompt(
@@ -282,7 +288,7 @@ object SystemToolPromptsInternal {
                         ),
                         ToolPrompt(
                             name = "browser_snapshot",
-                            description = "Capture a structured accessibility-style snapshot of the current page.",
+                            description = "Capture a structured accessibility-style snapshot of the current page, including same-origin iframe content.",
                             parametersStructured =
                                 listOf(
                                     ToolParameterSchema(name = "filename", type = "string", description = "optional output snapshot file name", required = false),
@@ -1118,103 +1124,42 @@ object SystemToolPromptsInternal {
                                         description = "optional, role card id to use for this send",
                                         required = false
                                     ),
-                                    ToolParameterSchema(
-                                        name = "sender_name",
-                                        type = "string",
-                                        description = "optional, display name of the sender when AI sends as user",
-                                        required = false
-                                    )
-                                )
-                        ),
-                        ToolPrompt(
-                            name = "send_message_to_ai_advanced",
-                            description = "Send a user message to AI with advanced runtime controls.",
-                            parametersStructured =
-                                listOf(
-                                    ToolParameterSchema(
-                                        name = "message",
-                                        type = "string",
-                                        description = "message content",
-                                        required = true
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "chat_id",
-                                        type = "string",
-                                        description = "optional, target chat id",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "chat_history",
-                                        type = "string",
-                                        description = "optional, JSON array of [role, content]",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "workspace_path",
-                                        type = "string",
-                                        description = "optional workspace path",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "function_type",
-                                        type = "string",
-                                        description = "optional FunctionType enum name, default CHAT",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "prompt_function_type",
-                                        type = "string",
-                                        description = "optional PromptFunctionType enum name, default CHAT",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "enable_thinking",
-                                        type = "boolean",
-                                        description = "optional, enable thinking mode",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "thinking_guidance",
-                                        type = "boolean",
-                                        description = "optional, enable thinking guidance",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "enable_memory_query",
-                                        type = "boolean",
-                                        description = "optional, enable memory query",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "max_tokens",
-                                        type = "integer",
-                                        description = "max token budget for this request",
-                                        required = true
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "token_usage_threshold",
-                                        type = "number",
-                                        description = "token usage threshold in range 0..1",
-                                        required = true
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "custom_system_prompt_template",
-                                        type = "string",
-                                        description = "optional custom system prompt template",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "is_sub_task",
-                                        type = "boolean",
-                                        description = "optional, marks this request as a sub task",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "stream",
-                                        type = "boolean",
-                                        description = "optional, whether to stream output",
-                                        required = false
-                                    )
+                                      ToolParameterSchema(
+                                          name = "sender_name",
+                                          type = "string",
+                                          description = "optional, display name of the sender when AI sends as user",
+                                          required = false
+                                      ),
+                                      ToolParameterSchema(
+                                          name = "persist_turn",
+                                          type = "boolean",
+                                          description = "optional, whether this user/AI turn should be persisted to chat history; default true",
+                                          required = false
+                                      ),
+                                      ToolParameterSchema(
+                                          name = "notify_reply",
+                                          type = "boolean",
+                                          description = "optional, override whether this turn sends reply-completed notification",
+                                          required = false
+                                      ),
+                                      ToolParameterSchema(
+                                          name = "hide_user_message",
+                                          type = "boolean",
+                                          description = "optional, hide user message content in UI and show a placeholder marker while keeping original content in history/context",
+                                          required = false
+                                      ),
+                                      ToolParameterSchema(
+                                          name = "disable_warning",
+                                          type = "boolean",
+                                          description = "optional, suppress AI-generated warning markup for this turn; when true, warning-driven retry branches stop instead of continuing",
+                                          required = false
+                                      ),
+                                      ToolParameterSchema(
+                                          name = "timeout_ms",
+                                          type = "integer",
+                                          description = "optional, maximum wait time in milliseconds for this send, including response-stream acquisition and AI reply; default 180000",
+                                          required = false
+                                      )
                                 )
                         ),
                         ToolPrompt(
@@ -1734,6 +1679,12 @@ object SystemToolPromptsInternal {
                                         name = "tts_content_type",
                                         type = "string",
                                         description = "optional, TTS content type",
+                                        required = false
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "tts_locale",
+                                        type = "string",
+                                        description = "optional, TTS locale tag such as zh-CN or en-US",
                                         required = false
                                     ),
                                     ToolParameterSchema(
@@ -2289,7 +2240,7 @@ object SystemToolPromptsInternal {
                                     ToolParameterSchema(
                                         name = "function_type",
                                         type = "string",
-                                        description = "function type enum name (CHAT/SUMMARY/PROBLEM_LIBRARY/UI_CONTROLLER/TRANSLATION/GREP/IMAGE_RECOGNITION/AUDIO_RECOGNITION/VIDEO_RECOGNITION)",
+                                        description = "function type enum name (CHAT/SUMMARY/MEMORY/UI_CONTROLLER/TRANSLATION/GREP/IMAGE_RECOGNITION/AUDIO_RECOGNITION/VIDEO_RECOGNITION)",
                                         required = true
                                     )
                                 )
@@ -2302,7 +2253,7 @@ object SystemToolPromptsInternal {
                                     ToolParameterSchema(
                                         name = "function_type",
                                         type = "string",
-                                        description = "function type enum name (CHAT/SUMMARY/PROBLEM_LIBRARY/UI_CONTROLLER/TRANSLATION/GREP/IMAGE_RECOGNITION/AUDIO_RECOGNITION/VIDEO_RECOGNITION)",
+                                        description = "function type enum name (CHAT/SUMMARY/MEMORY/UI_CONTROLLER/TRANSLATION/GREP/IMAGE_RECOGNITION/AUDIO_RECOGNITION/VIDEO_RECOGNITION)",
                                         required = true
                                     ),
                                     ToolParameterSchema(
@@ -2485,6 +2436,40 @@ object SystemToolPromptsInternal {
                                         name = "include_ongoing",
                                         type = "boolean",
                                         description = "optional",
+                                        required = false,
+                                        default = "false"
+                                    )
+                                )
+                        ),
+                        ToolPrompt(
+                            name = "get_app_usage_time",
+                            description = "Get foreground app usage time from Android Usage Access. If permission is missing, ask the user to grant Usage Access first.",
+                            parametersStructured =
+                                listOf(
+                                    ToolParameterSchema(
+                                        name = "package_name",
+                                        type = "string",
+                                        description = "optional, exact app package name to query",
+                                        required = false
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "since_hours",
+                                        type = "integer",
+                                        description = "optional, look back this many hours",
+                                        required = false,
+                                        default = "24"
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "limit",
+                                        type = "integer",
+                                        description = "optional, max apps to return when package_name is not provided",
+                                        required = false,
+                                        default = "10"
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "include_system_apps",
+                                        type = "boolean",
+                                        description = "optional, include system apps when package_name is not provided",
                                         required = false,
                                         default = "false"
                                     )
@@ -2765,10 +2750,11 @@ object SystemToolPromptsInternal {
                         ),
                         ToolPrompt(
                             name = "browser_click",
-                            description = "按快照 ref 点击当前页面元素。",
+                            description = "按 browser_snapshot 的 ref 点击当前页面元素，包括同源 iframe 内的 ref。",
                             parametersStructured =
                                 listOf(
-                                    ToolParameterSchema(name = "ref", type = "string", description = "来自 browser_snapshot 输出的目标元素 ref", required = true),
+                                    ToolParameterSchema(name = "ref", type = "string", description = "来自 browser_snapshot 输出的目标元素 ref；ref 和 selector 至少提供一个", required = false),
+                                    ToolParameterSchema(name = "selector", type = "string", description = "可选，ref 不可用时的 CSS 选择器兜底", required = false),
                                     ToolParameterSchema(name = "element", type = "string", description = "可选，人类可读元素描述", required = false),
                                     ToolParameterSchema(name = "doubleClick", type = "boolean", description = "可选，是否双击", required = false, default = "false"),
                                     ToolParameterSchema(name = "button", type = "string", description = "可选鼠标按键：left/right/middle", required = false, default = "left"),
@@ -2778,6 +2764,11 @@ object SystemToolPromptsInternal {
                         ToolPrompt(
                             name = "browser_close",
                             description = "关闭当前浏览器 tab。关闭最后一个 tab 时也会关闭浏览器浮窗。",
+                            parametersStructured = emptyList()
+                        ),
+                        ToolPrompt(
+                            name = "browser_close_all",
+                            description = "关闭全部浏览器 tab，并关闭浏览器浮窗。",
                             parametersStructured = emptyList()
                         ),
                         ToolPrompt(
@@ -2903,7 +2894,7 @@ object SystemToolPromptsInternal {
                         ),
                         ToolPrompt(
                             name = "browser_snapshot",
-                            description = "抓取当前页面的结构化无障碍风格快照。",
+                            description = "抓取当前页面的结构化无障碍风格快照，包括同源 iframe 内容。",
                             parametersStructured =
                                 listOf(
                                     ToolParameterSchema(name = "filename", type = "string", description = "可选，输出快照文件名", required = false),
@@ -3739,104 +3730,43 @@ object SystemToolPromptsInternal {
                                         description = "可选，本次发送使用的角色卡 ID",
                                         required = false
                                     ),
-                                    ToolParameterSchema(
-                                        name = "sender_name",
-                                        type = "string",
-                                        description = "可选，当以用户身份发送时的显示名称",
-                                        required = false
-                                    )
-                                )
-                        ),
-                        ToolPrompt(
-                            name = "send_message_to_ai_advanced",
-                            description = "向 AI 发送消息（高级参数）。",
-                            parametersStructured =
-                                listOf(
-                                    ToolParameterSchema(
-                                        name = "message",
-                                        type = "string",
-                                        description = "消息内容",
-                                        required = true
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "chat_id",
-                                        type = "string",
-                                        description = "可选，目标对话 ID",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "chat_history",
-                                        type = "string",
-                                        description = "可选，JSON 数组，元素为 [role, content]",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "workspace_path",
-                                        type = "string",
-                                        description = "可选，工作区路径",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "function_type",
-                                        type = "string",
-                                        description = "可选，FunctionType 枚举名，默认 CHAT",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "prompt_function_type",
-                                        type = "string",
-                                        description = "可选，PromptFunctionType 枚举名，默认 CHAT",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "enable_thinking",
-                                        type = "boolean",
-                                        description = "可选，是否启用思考模式",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "thinking_guidance",
-                                        type = "boolean",
-                                        description = "可选，是否启用思考引导",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "enable_memory_query",
-                                        type = "boolean",
-                                        description = "可选，是否启用记忆查询",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "max_tokens",
-                                        type = "integer",
-                                        description = "本次请求最大 token 预算",
-                                        required = true
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "token_usage_threshold",
-                                        type = "number",
-                                        description = "token 使用阈值（0..1）",
-                                        required = true
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "custom_system_prompt_template",
-                                        type = "string",
-                                        description = "可选，自定义系统提示模板",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "is_sub_task",
-                                        type = "boolean",
-                                        description = "可选，标记为子任务",
-                                        required = false
-                                    ),
-                                    ToolParameterSchema(
-                                        name = "stream",
-                                        type = "boolean",
-                                        description = "可选，是否使用流式输出",
-                                        required = false
-                                    )
-                                )
+                                      ToolParameterSchema(
+                                          name = "sender_name",
+                                          type = "string",
+                                          description = "可选，当以用户身份发送时的显示名称",
+                                          required = false
+                                      ),
+                                      ToolParameterSchema(
+                                          name = "persist_turn",
+                                          type = "boolean",
+                                          description = "可选，本轮用户消息与 AI 回复是否持久化到聊天历史，默认 true",
+                                          required = false
+                                      ),
+                                      ToolParameterSchema(
+                                          name = "notify_reply",
+                                          type = "boolean",
+                                          description = "可选，覆盖本轮是否发送回复完成通知",
+                                          required = false
+                                      ),
+                                      ToolParameterSchema(
+                                          name = "hide_user_message",
+                                          type = "boolean",
+                                          description = "可选，仅在 UI 中隐藏用户消息正文并显示占位标记，同时保留原文进入历史与上下文",
+                                          required = false
+                                      ),
+                                      ToolParameterSchema(
+                                          name = "disable_warning",
+                                          type = "boolean",
+                                          description = "可选，关闭本轮 AI 生成的 warning 标记；为 true 时，依赖 warning 继续重试的分支会直接停止",
+                                          required = false
+                                      ),
+                                      ToolParameterSchema(
+                                          name = "timeout_ms",
+                                          type = "integer",
+                                          description = "可选，本次发送的最长等待时间（毫秒），覆盖响应流获取与 AI 回复等待；默认 180000",
+                                          required = false
+                                      )
+                                  )
                         ),
                         ToolPrompt(
                             name = "list_character_cards",
@@ -4355,6 +4285,12 @@ object SystemToolPromptsInternal {
                                         name = "tts_content_type",
                                         type = "string",
                                         description = "可选，TTS Content-Type",
+                                        required = false
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "tts_locale",
+                                        type = "string",
+                                        description = "可选，TTS 语言标签，例如 zh-CN 或 en-US",
                                         required = false
                                     ),
                                     ToolParameterSchema(
@@ -4910,7 +4846,7 @@ object SystemToolPromptsInternal {
                                     ToolParameterSchema(
                                         name = "function_type",
                                         type = "string",
-                                        description = "功能类型枚举名（CHAT/SUMMARY/PROBLEM_LIBRARY/UI_CONTROLLER/TRANSLATION/GREP/IMAGE_RECOGNITION/AUDIO_RECOGNITION/VIDEO_RECOGNITION）",
+                                        description = "功能类型枚举名（CHAT/SUMMARY/MEMORY/UI_CONTROLLER/TRANSLATION/GREP/IMAGE_RECOGNITION/AUDIO_RECOGNITION/VIDEO_RECOGNITION）",
                                         required = true
                                     )
                                 )
@@ -4923,7 +4859,7 @@ object SystemToolPromptsInternal {
                                     ToolParameterSchema(
                                         name = "function_type",
                                         type = "string",
-                                        description = "功能类型枚举名（CHAT/SUMMARY/PROBLEM_LIBRARY/UI_CONTROLLER/TRANSLATION/GREP/IMAGE_RECOGNITION/AUDIO_RECOGNITION/VIDEO_RECOGNITION）",
+                                        description = "功能类型枚举名（CHAT/SUMMARY/MEMORY/UI_CONTROLLER/TRANSLATION/GREP/IMAGE_RECOGNITION/AUDIO_RECOGNITION/VIDEO_RECOGNITION）",
                                         required = true
                                     ),
                                     ToolParameterSchema(
@@ -5106,6 +5042,40 @@ object SystemToolPromptsInternal {
                                         name = "include_ongoing",
                                         type = "boolean",
                                         description = "可选",
+                                        required = false,
+                                        default = "false"
+                                    )
+                                )
+                        ),
+                        ToolPrompt(
+                            name = "get_app_usage_time",
+                            description = "读取 Android 使用情况访问中的前台应用使用时长。若缺少权限，应先引导用户授予 Usage Access。",
+                            parametersStructured =
+                                listOf(
+                                    ToolParameterSchema(
+                                        name = "package_name",
+                                        type = "string",
+                                        description = "可选，精确应用包名",
+                                        required = false
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "since_hours",
+                                        type = "integer",
+                                        description = "可选，向前统计多少小时",
+                                        required = false,
+                                        default = "24"
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "limit",
+                                        type = "integer",
+                                        description = "可选，不传 package_name 时最多返回多少个应用",
+                                        required = false,
+                                        default = "10"
+                                    ),
+                                    ToolParameterSchema(
+                                        name = "include_system_apps",
+                                        type = "boolean",
+                                        description = "可选，不传 package_name 时是否包含系统应用",
                                         required = false,
                                         default = "false"
                                     )

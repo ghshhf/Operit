@@ -3,6 +3,7 @@ package com.ai.assistance.operit.core.tools.packTool
 import android.content.Context
 import android.provider.DocumentsContract
 import com.ai.assistance.operit.core.tools.LocalizedText
+import com.ai.assistance.operit.core.tools.StringOrStringListSerializer
 import com.ai.assistance.operit.core.tools.ToolPackage
 import java.io.File
 import java.io.InputStream
@@ -36,7 +37,32 @@ internal data class ToolPkgUiModuleRuntime(
     val id: String,
     val runtime: String,
     val screen: String,
-    val title: LocalizedText
+    val title: LocalizedText,
+    val keepAlive: Boolean = false
+)
+
+internal data class ToolPkgUiRouteRuntime(
+    val id: String,
+    val routeId: String,
+    val runtime: String,
+    val screen: String,
+    val title: LocalizedText,
+    val keepAlive: Boolean = false
+)
+
+internal data class ToolPkgNavigationEntryRuntime(
+    val id: String,
+    val routeId: String,
+    val surface: String,
+    val title: LocalizedText,
+    val action: ToolPkgNavigationActionHookRuntime? = null,
+    val icon: String? = null,
+    val order: Int = 0
+)
+
+internal data class ToolPkgNavigationActionHookRuntime(
+    val function: String,
+    val functionSource: String? = null
 )
 
 internal data class ToolPkgAppLifecycleHookRuntime(
@@ -50,6 +76,21 @@ internal data class ToolPkgFunctionHookRuntime(
     val id: String,
     val function: String,
     val functionSource: String? = null
+)
+
+internal data class ToolPkgAiProviderHandlerRuntime(
+    val function: String,
+    val functionSource: String? = null
+)
+
+internal data class ToolPkgAiProviderRuntime(
+    val id: String,
+    val displayName: String,
+    val description: String,
+    val listModelsHandler: ToolPkgAiProviderHandlerRuntime,
+    val sendMessageHandler: ToolPkgAiProviderHandlerRuntime,
+    val testConnectionHandler: ToolPkgAiProviderHandlerRuntime,
+    val calculateInputTokensHandler: ToolPkgAiProviderHandlerRuntime
 )
 
 internal data class ToolPkgTagFunctionHookRuntime(
@@ -74,12 +115,17 @@ internal data class ToolPkgContainerRuntime(
     val displayName: LocalizedText,
     val description: LocalizedText,
     val version: String,
+    val author: List<String>,
     val mainEntry: String,
     val sourceType: ToolPkgSourceType,
     val sourcePath: String,
     val subpackages: List<ToolPkgSubpackageRuntime>,
     val resources: List<ToolPkgResourceRuntime>,
+    val workflowTemplates: List<ToolPkgWorkflowTemplateRuntime>,
+    val workspaceTemplates: List<ToolPkgWorkspaceTemplateRuntime>,
     val uiModules: List<ToolPkgUiModuleRuntime>,
+    val uiRoutes: List<ToolPkgUiRouteRuntime>,
+    val navigationEntries: List<ToolPkgNavigationEntryRuntime>,
     val appLifecycleHooks: List<ToolPkgAppLifecycleHookRuntime>,
     val messageProcessingPlugins: List<ToolPkgFunctionHookRuntime>,
     val xmlRenderPlugins: List<ToolPkgTagFunctionHookRuntime>,
@@ -91,7 +137,8 @@ internal data class ToolPkgContainerRuntime(
     val systemPromptComposeHooks: List<ToolPkgFunctionHookRuntime>,
     val toolPromptComposeHooks: List<ToolPkgFunctionHookRuntime>,
     val promptFinalizeHooks: List<ToolPkgFunctionHookRuntime>,
-    val promptEstimateFinalizeHooks: List<ToolPkgFunctionHookRuntime>
+    val promptEstimateFinalizeHooks: List<ToolPkgFunctionHookRuntime>,
+    val aiProviders: List<ToolPkgAiProviderRuntime>
 )
 
 internal data class ToolPkgLoadResult(
@@ -108,9 +155,15 @@ internal data class ToolPkgManifest(
     val main: String = "",
     @SerialName("display_name") val displayName: LocalizedText = LocalizedText.of(""),
     val description: LocalizedText = LocalizedText.of(""),
+    @Serializable(with = StringOrStringListSerializer::class)
+    val author: List<String> = emptyList(),
     @SerialName("enabled_by_default") val enabledByDefault: Boolean = true,
     val subpackages: List<ToolPkgManifestSubpackage> = emptyList(),
-    val resources: List<ToolPkgManifestResource> = emptyList()
+    val resources: List<ToolPkgManifestResource> = emptyList(),
+    @SerialName("workflow_templates")
+    val workflowTemplates: List<ToolPkgManifestWorkflowTemplate> = emptyList(),
+    @SerialName("workspace_templates")
+    val workspaceTemplates: List<ToolPkgManifestWorkspaceTemplate> = emptyList()
 )
 
 @Serializable
@@ -130,7 +183,27 @@ internal data class ToolPkgRegisteredUiModule(
     val id: String,
     val runtime: String,
     val screen: String,
-    val title: LocalizedText
+    val title: LocalizedText,
+    val keepAlive: Boolean = false
+)
+
+internal data class ToolPkgRegisteredUiRoute(
+    val id: String,
+    val routeId: String,
+    val runtime: String,
+    val screen: String,
+    val title: LocalizedText,
+    val keepAlive: Boolean = false
+)
+
+internal data class ToolPkgRegisteredNavigationEntry(
+    val id: String,
+    val routeId: String,
+    val surface: String,
+    val title: LocalizedText,
+    val action: ToolPkgNavigationActionHookRuntime? = null,
+    val icon: String? = null,
+    val order: Int = 0
 )
 
 internal data class ToolPkgRegisteredAppLifecycleHook(
@@ -146,6 +219,21 @@ internal data class ToolPkgRegisteredFunctionHook(
     val functionSource: String? = null
 )
 
+internal data class ToolPkgRegisteredAiProviderHandler(
+    val function: String,
+    val functionSource: String? = null
+)
+
+internal data class ToolPkgRegisteredAiProvider(
+    val id: String,
+    val displayName: String,
+    val description: String,
+    val listModelsHandler: ToolPkgRegisteredAiProviderHandler,
+    val sendMessageHandler: ToolPkgRegisteredAiProviderHandler,
+    val testConnectionHandler: ToolPkgRegisteredAiProviderHandler,
+    val calculateInputTokensHandler: ToolPkgRegisteredAiProviderHandler
+)
+
 internal data class ToolPkgRegisteredTagFunctionHook(
     val id: String,
     val tag: String,
@@ -155,6 +243,8 @@ internal data class ToolPkgRegisteredTagFunctionHook(
 
 internal data class ToolPkgMainRegistration(
     val toolboxUiModules: List<ToolPkgRegisteredUiModule> = emptyList(),
+    val uiRoutes: List<ToolPkgRegisteredUiRoute> = emptyList(),
+    val navigationEntries: List<ToolPkgRegisteredNavigationEntry> = emptyList(),
     val appLifecycleHooks: List<ToolPkgRegisteredAppLifecycleHook> = emptyList(),
     val messageProcessingPlugins: List<ToolPkgRegisteredFunctionHook> = emptyList(),
     val xmlRenderPlugins: List<ToolPkgRegisteredTagFunctionHook> = emptyList(),
@@ -166,8 +256,19 @@ internal data class ToolPkgMainRegistration(
     val systemPromptComposeHooks: List<ToolPkgRegisteredFunctionHook> = emptyList(),
     val toolPromptComposeHooks: List<ToolPkgRegisteredFunctionHook> = emptyList(),
     val promptFinalizeHooks: List<ToolPkgRegisteredFunctionHook> = emptyList(),
-    val promptEstimateFinalizeHooks: List<ToolPkgRegisteredFunctionHook> = emptyList()
+    val promptEstimateFinalizeHooks: List<ToolPkgRegisteredFunctionHook> = emptyList(),
+    val aiProviders: List<ToolPkgRegisteredAiProvider> = emptyList()
 )
+
+internal sealed interface ToolPkgMainRegistrationParseResult {
+    data class Success(
+        val registration: ToolPkgMainRegistration
+    ) : ToolPkgMainRegistrationParseResult
+
+    data class Failure(
+        val message: String
+    ) : ToolPkgMainRegistrationParseResult
+}
 
 internal object ToolPkgArchiveParser {
     fun parseToolPkgFromEntries(
@@ -176,7 +277,7 @@ internal object ToolPkgArchiveParser {
         sourcePath: String,
         isBuiltIn: Boolean,
         parseJsPackage: (String, (String, String) -> Unit) -> ToolPackage?,
-        parseMainRegistration: (String, String, String) -> ToolPkgMainRegistration?,
+        parseMainRegistration: (String, String, String) -> ToolPkgMainRegistrationParseResult,
         reportPackageLoadError: (String, String) -> Unit
     ): ToolPkgLoadResult {
         val manifestEntryName = findManifestEntry(entries)
@@ -186,12 +287,13 @@ internal object ToolPkgArchiveParser {
                 ?: throw IllegalArgumentException("Failed to read manifest entry")
         val manifestText = manifestBytes.toString(StandardCharsets.UTF_8)
         val manifest = parseToolPkgManifest(manifestText, manifestEntryName)
+        val manifestBasePath = manifestEntryName.substringBeforeLast('/', missingDelimiterValue = "")
 
         if (manifest.toolpkgId.isBlank()) {
             throw IllegalArgumentException("manifest.toolpkg_id is required")
         }
         val normalizedMainEntry =
-            normalizeZipEntryPath(manifest.main)
+            resolveManifestRelativeZipEntryPath(manifestBasePath, manifest.main)
                 ?: throw IllegalArgumentException("manifest.main is required")
         if (!containsZipEntry(entries, normalizedMainEntry)) {
             throw IllegalArgumentException("Cannot find manifest.main entry '${manifest.main}'")
@@ -228,8 +330,13 @@ internal object ToolPkgArchiveParser {
             val packageName = normalizedSubpackageId
 
             try {
+                val normalizedSubpackageEntry =
+                    resolveManifestRelativeZipEntryPath(manifestBasePath, subpackage.entry)
+                        ?: throw IllegalArgumentException(
+                            "Invalid subpackage entry '${subpackage.entry}'"
+                        )
                 val entryBytes =
-                    findZipEntryContent(entries, subpackage.entry)
+                    findZipEntryContent(entries, normalizedSubpackageEntry)
                         ?: throw IllegalArgumentException(
                             "Cannot find subpackage entry '${subpackage.entry}'"
                         )
@@ -295,7 +402,7 @@ internal object ToolPkgArchiveParser {
                     )
                 }
                 val normalizedPath =
-                    normalizeResourcePath(resource.path)
+                    resolveManifestRelativeResourcePath(manifestBasePath, resource.path)
                         ?: throw IllegalArgumentException("Invalid resource path: ${resource.path}")
                 if (isDirectoryResourceMime(resource.mime)) {
                     if (!containsZipEntriesUnderDirectory(entries, normalizedPath)) {
@@ -311,39 +418,159 @@ internal object ToolPkgArchiveParser {
                 )
             }
 
+        val resourceByKey =
+            resources.associateBy { resource -> resource.key.lowercase() }
+        val workflowTemplateIds = linkedSetOf<String>()
+        val workflowTemplates =
+            manifest.workflowTemplates.mapIndexed { index, template ->
+                val templateId = template.id.trim()
+                if (templateId.isBlank()) {
+                    throw IllegalArgumentException("workflow_templates[$index].id is required")
+                }
+                if (!workflowTemplateIds.add(templateId.lowercase())) {
+                    throw IllegalArgumentException("Duplicate workflow template id: $templateId")
+                }
+
+                val resourceKey = template.resourceKey.trim()
+                if (resourceKey.isBlank()) {
+                    throw IllegalArgumentException(
+                        "workflow_templates[$index].resource_key is required"
+                    )
+                }
+                val resource =
+                    resourceByKey[resourceKey.lowercase()]
+                        ?: throw IllegalArgumentException(
+                            "workflow_templates[$index].resource_key not found in manifest.resources: $resourceKey"
+                        )
+                if (isDirectoryResourceMime(resource.mime)) {
+                    throw IllegalArgumentException(
+                        "workflow_templates[$index].resource_key must reference a file resource: $resourceKey"
+                    )
+                }
+
+                ToolPkgWorkflowTemplateRuntime(
+                    id = templateId,
+                    displayName = template.displayName,
+                    description = template.description,
+                    resourceKey = resource.key
+                )
+            }
+        val workspaceTemplateIds = linkedSetOf<String>()
+        val workspaceTemplates =
+            manifest.workspaceTemplates.mapIndexed { index, template ->
+                val templateId = template.id.trim()
+                if (templateId.isBlank()) {
+                    throw IllegalArgumentException("workspace_templates[$index].id is required")
+                }
+                if (!workspaceTemplateIds.add(templateId.lowercase())) {
+                    throw IllegalArgumentException("Duplicate workspace template id: $templateId")
+                }
+
+                val resourceKey = template.resourceKey.trim()
+                if (resourceKey.isBlank()) {
+                    throw IllegalArgumentException(
+                        "workspace_templates[$index].resource_key is required"
+                    )
+                }
+                val resource =
+                    resourceByKey[resourceKey.lowercase()]
+                        ?: throw IllegalArgumentException(
+                            "workspace_templates[$index].resource_key not found in manifest.resources: $resourceKey"
+                        )
+                if (!isDirectoryResourceMime(resource.mime)) {
+                    throw IllegalArgumentException(
+                        "workspace_templates[$index].resource_key must reference a directory resource: $resourceKey"
+                    )
+                }
+
+                ToolPkgWorkspaceTemplateRuntime(
+                    id = templateId,
+                    displayName = template.displayName,
+                    description = template.description,
+                    resourceKey = resource.key,
+                    projectType = template.projectType.trim()
+                )
+            }
+
         val containerDisplayName =
             if (hasLocalizedTextContent(manifest.displayName)) {
                 manifest.displayName
             } else {
                 LocalizedText.of(manifest.toolpkgId)
             }
-        val mainRegistration =
+        val mainRegistrationResult =
             parseMainRegistration(mainScriptText, manifest.toolpkgId, normalizedMainEntry)
-                ?: throw IllegalArgumentException(
-                    "Failed to parse main registration from '${manifest.main}'. " +
-                        "main script must export registerToolPkg()"
-                )
+        val mainRegistration =
+            when (mainRegistrationResult) {
+                is ToolPkgMainRegistrationParseResult.Success -> mainRegistrationResult.registration
+                is ToolPkgMainRegistrationParseResult.Failure ->
+                    throw IllegalArgumentException(
+                        "Failed to parse main registration from '${manifest.main}': ${mainRegistrationResult.message}"
+                    )
+            }
+
+        val registeredUiRoutes =
+            buildList {
+                mainRegistration.toolboxUiModules.forEach { module ->
+                    add(
+                        ToolPkgRegisteredUiRoute(
+                            id = module.id,
+                            routeId = buildToolPkgRouteId(manifest.toolpkgId, module.id),
+                            runtime = module.runtime,
+                            screen = module.screen,
+                            title = module.title,
+                            keepAlive = module.keepAlive
+                        )
+                    )
+                }
+                addAll(mainRegistration.uiRoutes)
+            }
+
+        val registeredNavigationEntries =
+            buildList {
+                mainRegistration.toolboxUiModules.forEachIndexed { index, module ->
+                    add(
+                        ToolPkgRegisteredNavigationEntry(
+                            id = "toolbox_${module.id}",
+                            routeId = buildToolPkgRouteId(manifest.toolpkgId, module.id),
+                            surface = TOOLPKG_NAV_SURFACE_TOOLBOX,
+                            title = module.title,
+                            order = index
+                        )
+                    )
+                }
+                addAll(mainRegistration.navigationEntries)
+            }
 
         val uiModules = mutableListOf<ToolPkgUiModuleRuntime>()
+        val uiRoutes = mutableListOf<ToolPkgUiRouteRuntime>()
         val uiModuleIds = linkedSetOf<String>()
-        mainRegistration.toolboxUiModules.forEachIndexed { index, module ->
+        val routeIds = linkedSetOf<String>()
+        registeredUiRoutes.forEachIndexed { index, module ->
             val id = module.id.trim()
             if (id.isBlank()) {
-                throw IllegalArgumentException("$TOOLPKG_REGISTRATION_TOOLBOX_UI_MODULE[$index].id is required")
+                throw IllegalArgumentException("$TOOLPKG_REGISTRATION_UI_ROUTE[$index].id is required")
             }
             if (!uiModuleIds.add(id.lowercase())) {
-                throw IllegalArgumentException("Duplicate toolbox ui module id: $id")
+                throw IllegalArgumentException("Duplicate toolpkg ui route id: $id")
             }
 
             val runtimeName = module.runtime.trim().ifBlank { TOOLPKG_RUNTIME_COMPOSE_DSL }
+            val routeId = module.routeId.trim()
+            if (routeId.isBlank()) {
+                throw IllegalArgumentException("$TOOLPKG_REGISTRATION_UI_ROUTE[$index].route is required")
+            }
+            if (!routeIds.add(routeId.lowercase())) {
+                throw IllegalArgumentException("Duplicate toolpkg route id: $routeId")
+            }
             val normalizedScreenPath =
                 normalizeZipEntryPath(module.screen)
                     ?: throw IllegalArgumentException(
-                        "$TOOLPKG_REGISTRATION_TOOLBOX_UI_MODULE[$index].screen is invalid: ${module.screen}"
+                        "$TOOLPKG_REGISTRATION_UI_ROUTE[$index].screen is invalid: ${module.screen}"
                     )
             if (!containsZipEntry(entries, normalizedScreenPath)) {
                 throw IllegalArgumentException(
-                    "$TOOLPKG_REGISTRATION_TOOLBOX_UI_MODULE[$index].screen not found: ${module.screen}"
+                    "$TOOLPKG_REGISTRATION_UI_ROUTE[$index].screen not found: ${module.screen}"
                 )
             }
 
@@ -352,7 +579,62 @@ internal object ToolPkgArchiveParser {
                     id = id,
                     runtime = runtimeName,
                     screen = normalizedScreenPath,
-                    title = module.title
+                    title = module.title,
+                    keepAlive = module.keepAlive
+                )
+            )
+            uiRoutes.add(
+                ToolPkgUiRouteRuntime(
+                    id = id,
+                    routeId = routeId,
+                    runtime = runtimeName,
+                    screen = normalizedScreenPath,
+                    title = module.title,
+                    keepAlive = module.keepAlive
+                )
+            )
+        }
+
+        val navigationEntries = mutableListOf<ToolPkgNavigationEntryRuntime>()
+        val navigationEntryIds = linkedSetOf<String>()
+        registeredNavigationEntries.forEachIndexed { index, entry ->
+            val id = entry.id.trim()
+            val routeId = entry.routeId.trim()
+            val surface = entry.surface.trim().lowercase()
+            val action = entry.action
+            if (id.isBlank()) {
+                throw IllegalArgumentException("$TOOLPKG_REGISTRATION_NAVIGATION_ENTRY[$index].id is required")
+            }
+            if (!navigationEntryIds.add(id.lowercase())) {
+                throw IllegalArgumentException("Duplicate toolpkg navigation entry id: $id")
+            }
+            if (routeId.isBlank() && action == null) {
+                throw IllegalArgumentException(
+                    "$TOOLPKG_REGISTRATION_NAVIGATION_ENTRY[$index].route or action is required"
+                )
+            }
+            if (routeId.isNotBlank() && uiRoutes.none { it.routeId.equals(routeId, ignoreCase = true) }) {
+                throw IllegalArgumentException(
+                    "$TOOLPKG_REGISTRATION_NAVIGATION_ENTRY[$index].route not found: $routeId"
+                )
+            }
+            if (
+                surface != TOOLPKG_NAV_SURFACE_TOOLBOX &&
+                    surface != TOOLPKG_NAV_SURFACE_MAIN_SIDEBAR_PLUGINS
+            ) {
+                throw IllegalArgumentException(
+                    "$TOOLPKG_REGISTRATION_NAVIGATION_ENTRY[$index].surface is unsupported: $surface"
+                )
+            }
+            navigationEntries.add(
+                ToolPkgNavigationEntryRuntime(
+                    id = id,
+                    routeId = routeId,
+                    surface = surface,
+                    title = entry.title,
+                    action = action,
+                    icon = entry.icon,
+                    order = entry.order
                 )
             )
         }
@@ -656,6 +938,51 @@ internal object ToolPkgArchiveParser {
             )
         }
 
+        val aiProviders = mutableListOf<ToolPkgAiProviderRuntime>()
+        val aiProviderIds = linkedSetOf<String>()
+        mainRegistration.aiProviders.forEachIndexed { index, provider ->
+            val id = provider.id.trim()
+            if (id.isBlank()) {
+                throw IllegalArgumentException("$TOOLPKG_REGISTRATION_AI_PROVIDER[$index].id is required")
+            }
+            if (!aiProviderIds.add(id.lowercase())) {
+                throw IllegalArgumentException("Duplicate ai provider id: $id")
+            }
+
+            fun buildHandler(
+                fieldName: String,
+                handler: ToolPkgRegisteredAiProviderHandler
+            ): ToolPkgAiProviderHandlerRuntime {
+                val function = handler.function.trim()
+                if (function.isBlank()) {
+                    throw IllegalArgumentException(
+                        "$TOOLPKG_REGISTRATION_AI_PROVIDER[$index].$fieldName is required"
+                    )
+                }
+                return ToolPkgAiProviderHandlerRuntime(
+                    function = function,
+                    functionSource = handler.functionSource
+                )
+            }
+
+            aiProviders.add(
+                ToolPkgAiProviderRuntime(
+                    id = id,
+                    displayName = provider.displayName.trim().ifBlank { id },
+                    description = provider.description.trim(),
+                    listModelsHandler = buildHandler("listModels", provider.listModelsHandler),
+                    sendMessageHandler = buildHandler("sendMessage", provider.sendMessageHandler),
+                    testConnectionHandler =
+                        buildHandler("testConnection", provider.testConnectionHandler),
+                    calculateInputTokensHandler =
+                        buildHandler(
+                            "calculateInputTokens",
+                            provider.calculateInputTokensHandler
+                        )
+                )
+            )
+        }
+
         val containerDescription =
             when {
                 hasLocalizedTextContent(manifest.description) -> manifest.description
@@ -671,7 +998,8 @@ internal object ToolPkgArchiveParser {
                 isBuiltIn = isBuiltIn,
                 enabledByDefault = manifest.enabledByDefault,
                 displayName = containerDisplayName,
-                category = "ToolPkg"
+                category = "ToolPkg",
+                author = manifest.author
             )
 
         val runtime =
@@ -680,12 +1008,17 @@ internal object ToolPkgArchiveParser {
                 displayName = containerDisplayName,
                 description = containerDescription,
                 version = manifest.version,
+                author = manifest.author,
                 mainEntry = normalizedMainEntry,
                 sourceType = sourceType,
                 sourcePath = sourcePath,
                 subpackages = subpackageRuntimes,
                 resources = resources,
+                workflowTemplates = workflowTemplates,
+                workspaceTemplates = workspaceTemplates,
                 uiModules = uiModules,
+                uiRoutes = uiRoutes,
+                navigationEntries = navigationEntries,
                 appLifecycleHooks = appLifecycleHooks,
                 messageProcessingPlugins = messageProcessingPlugins,
                 xmlRenderPlugins = xmlRenderPlugins,
@@ -697,7 +1030,8 @@ internal object ToolPkgArchiveParser {
                 systemPromptComposeHooks = systemPromptComposeHooks,
                 toolPromptComposeHooks = toolPromptComposeHooks,
                 promptFinalizeHooks = promptFinalizeHooks,
-                promptEstimateFinalizeHooks = promptEstimateFinalizeHooks
+                promptEstimateFinalizeHooks = promptEstimateFinalizeHooks,
+                aiProviders = aiProviders
             )
 
         return ToolPkgLoadResult(
@@ -733,9 +1067,25 @@ internal object ToolPkgArchiveParser {
         return normalized
     }
 
+    fun resolveManifestRelativeZipEntryPath(manifestBasePath: String, rawPath: String): String? {
+        val normalized = normalizeZipEntryPath(rawPath) ?: return null
+        if (manifestBasePath.isBlank()) {
+            return normalized
+        }
+        return normalizeZipEntryPath("$manifestBasePath/$normalized")
+    }
+
     fun normalizeResourcePath(rawPath: String): String? {
         val normalized = normalizeZipEntryPath(rawPath) ?: return null
         return normalized.trimEnd('/').ifBlank { null }
+    }
+
+    fun resolveManifestRelativeResourcePath(manifestBasePath: String, rawPath: String): String? {
+        val normalized = normalizeResourcePath(rawPath) ?: return null
+        if (manifestBasePath.isBlank()) {
+            return normalized
+        }
+        return normalizeResourcePath("$manifestBasePath/$normalized")
     }
 
     fun isDirectoryResourceMime(mime: String?): Boolean {

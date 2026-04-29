@@ -10,8 +10,10 @@ import kotlinx.serialization.Transient
 data class ChatMessage(
         val sender: String, // "user" or "ai"
         var content: String = "",
-        val timestamp: Long = System.currentTimeMillis(),
+        val timestamp: Long = ChatMessageTimestampAllocator.next(),
         val roleName: String = "", // 角色名字字段
+        val selectedVariantIndex: Int = 0, // 当前选中的回答版本，0 表示原始回答
+        val variantCount: Int = 1, // 当前消息可切换的回答版本数量
         val provider: String = "", // 供应商
         val modelName: String = "", // 模型名称
         val inputTokens: Int = 0, // 本轮输入 token
@@ -20,10 +22,17 @@ data class ChatMessage(
         val sentAt: Long = 0L, // 本轮请求发送时间（时间戳）
         val outputDurationMs: Long = 0L, // 本轮输出耗时
         val waitDurationMs: Long = 0L, // 本轮等待首包耗时
+        val displayMode: ChatMessageDisplayMode = ChatMessageDisplayMode.NORMAL,
+        @Transient
+        val isVariantPreview: Boolean = false,
         @Transient
         var contentStream: Stream<String>? =
                 null // 修改为Stream<String>类型，与EnhancedAIService.sendMessage返回类型匹配
 ) : Parcelable {
+    init {
+        ChatMessageTimestampAllocator.observe(timestamp)
+    }
+
     constructor(
             parcel: Parcel
     ) : this(
@@ -31,6 +40,8 @@ data class ChatMessage(
         parcel.readString() ?: "", 
         parcel.readLong(),
         parcel.readString() ?: "",
+        parcel.readInt(),
+        parcel.readInt(),
         parcel.readString() ?: "",
         parcel.readString() ?: "",
         parcel.readInt(),
@@ -38,7 +49,8 @@ data class ChatMessage(
         parcel.readInt(),
         parcel.readLong(),
         parcel.readLong(),
-        parcel.readLong()
+        parcel.readLong(),
+        readDisplayModeFromParcel(parcel)
     )
 
     override fun writeToParcel(parcel: Parcel, flags: Int) {
@@ -46,6 +58,8 @@ data class ChatMessage(
         parcel.writeString(content)
         parcel.writeLong(timestamp)
         parcel.writeString(roleName)
+        parcel.writeInt(selectedVariantIndex)
+        parcel.writeInt(variantCount)
         parcel.writeString(provider)
         parcel.writeString(modelName)
         parcel.writeInt(inputTokens)
@@ -54,6 +68,7 @@ data class ChatMessage(
         parcel.writeLong(sentAt)
         parcel.writeLong(outputDurationMs)
         parcel.writeLong(waitDurationMs)
+        parcel.writeString(displayMode.name)
         // 不需要序列化contentStream，因为它是暂时性的
     }
 
@@ -62,6 +77,14 @@ data class ChatMessage(
     }
 
     companion object CREATOR : Parcelable.Creator<ChatMessage> {
+        private fun readDisplayModeFromParcel(parcel: Parcel): ChatMessageDisplayMode {
+            return runCatching {
+                ChatMessageDisplayMode.valueOf(
+                    parcel.readString() ?: ChatMessageDisplayMode.NORMAL.name
+                )
+            }.getOrDefault(ChatMessageDisplayMode.NORMAL)
+        }
+
         override fun createFromParcel(parcel: Parcel): ChatMessage {
             return ChatMessage(parcel)
         }

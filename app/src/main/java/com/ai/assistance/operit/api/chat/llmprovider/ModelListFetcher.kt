@@ -90,6 +90,7 @@ object ModelListFetcher {
                     }
                     ApiProviderType.DEEPSEEK -> "${extractBaseUrl(apiEndpoint)}/v1/models"
                     ApiProviderType.OPENROUTER -> "${extractBaseUrl(apiEndpoint)}/v1/models"
+                    ApiProviderType.NOUS_PORTAL -> "${extractBaseUrl(apiEndpoint)}/v1/models"
                     ApiProviderType.MOONSHOT -> "${extractBaseUrl(apiEndpoint)}/v1/models"
                     ApiProviderType.SILICONFLOW -> "${extractBaseUrl(apiEndpoint)}/v1/models"
                     ApiProviderType.IFLOW -> "${extractBaseUrl(apiEndpoint)}/v1/models"
@@ -235,6 +236,13 @@ object ModelListFetcher {
                             requestBuilder.addHeader("HTTP-Referer", "ai.assistance.operit")
                             requestBuilder.addHeader("X-Title", "Assistance App")
                         }
+                        ApiProviderType.NOUS_PORTAL -> {
+                            // Nous Portal 当前沿用 OpenRouter 兼容接入，保持同一组默认头
+                            AppLogger.d(TAG, "使用Bearer认证方式并添加Nous Portal兼容请求头")
+                            requestBuilder.addHeader("Authorization", "Bearer $apiKey")
+                            requestBuilder.addHeader("HTTP-Referer", "ai.assistance.operit")
+                            requestBuilder.addHeader("X-Title", "Assistance App")
+                        }
                         ApiProviderType.ANTHROPIC,
                         ApiProviderType.ANTHROPIC_GENERIC -> {
                             AppLogger.d(TAG, "使用Anthropic x-api-key认证方式")
@@ -264,7 +272,7 @@ object ModelListFetcher {
                         val errorBody = response.body?.string() ?: context.getString(R.string.model_fetch_no_error_details)
                         val responseCode = response.code
                         response.close()
-                        if ((apiProviderType == ApiProviderType.OPENAI || apiProviderType == ApiProviderType.OPENAI_RESPONSES || apiProviderType == ApiProviderType.OPENAI_RESPONSES_GENERIC || apiProviderType == ApiProviderType.OPENAI_GENERIC || apiProviderType == ApiProviderType.IFLOW || apiProviderType == ApiProviderType.NVIDIA || apiProviderType == ApiProviderType.LMSTUDIO || apiProviderType == ApiProviderType.OLLAMA) &&
+                        if ((apiProviderType == ApiProviderType.OPENAI || apiProviderType == ApiProviderType.OPENAI_RESPONSES || apiProviderType == ApiProviderType.OPENAI_RESPONSES_GENERIC || apiProviderType == ApiProviderType.OPENAI_GENERIC || apiProviderType == ApiProviderType.IFLOW || apiProviderType == ApiProviderType.NVIDIA || apiProviderType == ApiProviderType.LMSTUDIO || apiProviderType == ApiProviderType.OLLAMA || apiProviderType == ApiProviderType.NOUS_PORTAL) &&
                                         modelsUrl.endsWith("/v1/models")) {
                             val fallbackUrl = modelsUrl.removeSuffix("/v1/models") + "/models"
                             AppLogger.w(TAG, "API请求失败，尝试兼容路径: $fallbackUrl")
@@ -327,6 +335,7 @@ object ModelListFetcher {
                                     ApiProviderType.NVIDIA,
                                     ApiProviderType.BAICHUAN,
                                     ApiProviderType.OPENROUTER,
+                                    ApiProviderType.NOUS_PORTAL,
                                     ApiProviderType.INFINIAI,
                                     ApiProviderType.ALIPAY_BAILING,
                                     ApiProviderType.LMSTUDIO,

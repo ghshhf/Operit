@@ -2,7 +2,6 @@ package com.ai.assistance.operit.ui.features.packages.screens.mcp.viewmodel
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -11,26 +10,46 @@ import com.ai.assistance.operit.R
 import com.ai.assistance.operit.data.api.GitHubApiService
 import com.ai.assistance.operit.data.api.GitHubIssue
 import com.ai.assistance.operit.data.api.GitHubComment
+import com.ai.assistance.operit.data.api.MarketStatsApiService
 
 import com.ai.assistance.operit.data.mcp.MCPRepository
 import com.ai.assistance.operit.data.mcp.MCPLocalServer
 import com.ai.assistance.operit.data.preferences.GitHubAuthPreferences
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.ai.assistance.operit.util.AppLogger
 import android.content.SharedPreferences
+import android.net.Uri
 
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import com.ai.assistance.operit.ui.features.packages.utils.MCPPluginParser
+import com.ai.assistance.operit.ui.features.packages.utils.IssueBodyMetadataParser
+import com.ai.assistance.operit.ui.features.packages.market.CommentPostSuccessBehavior
+import com.ai.assistance.operit.ui.features.packages.market.GitHubIssueMarketDefinition
+import com.ai.assistance.operit.ui.features.packages.market.GitHubIssueMarketService
+import com.ai.assistance.operit.ui.features.packages.market.IssueInteractionController
+import com.ai.assistance.operit.ui.features.packages.market.IssueInteractionMessages
+import com.ai.assistance.operit.ui.features.packages.market.McpMarketBrowseItem
+import com.ai.assistance.operit.ui.features.packages.market.MarketEntryStats
+import com.ai.assistance.operit.ui.features.packages.market.MarketSortOption
+import com.ai.assistance.operit.ui.features.packages.market.MarketStatsType
+import com.ai.assistance.operit.ui.features.packages.market.buildMarketDisplayState
+import com.ai.assistance.operit.ui.features.packages.market.loadMarketStatsMap
+import com.ai.assistance.operit.ui.features.packages.market.resolveMarketDownloadTarget
+import com.ai.assistance.operit.ui.features.packages.market.resolveMcpMarketEntryId
+import com.ai.assistance.operit.ui.features.packages.market.toMarketEntryStats
+import com.ai.assistance.operit.ui.features.packages.market.toMcpMarketBrowseItem
+import com.ai.assistance.operit.ui.features.packages.market.toRankMetric
+import com.ai.assistance.operit.ui.features.packages.market.updateMarketEntryStats
+import com.ai.assistance.operit.ui.features.github.GitHubOAuthCoordinator
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNames
 import java.time.LocalDateTime
@@ -63,6 +82,8 @@ class MCPMarketViewModel(
     )
 
     private val githubApiService = GitHubApiService(context)
+    private val marketStatsApiService = MarketStatsApiService()
+    private val marketService = GitHubIssueMarketService(githubApiService, MARKET_DEFINITION)
     val githubAuth = GitHubAuthPreferences.getInstance(context)
 
     // UI状态
@@ -76,7 +97,9 @@ class MCPMarketViewModel(
     val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
 
     private var currentPage: Int = 1
+    private var totalPages: Int = 1
     private var searchJob: Job? = null
+    private var marketStatsRefreshJob: Job? = null
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
@@ -97,63 +120,73 @@ class MCPMarketViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
     // MCP市场数据
-    private val _mcpIssues = MutableStateFlow<List<GitHubIssue>>(emptyList())
-    private val _searchResultIssues = MutableStateFlow<List<GitHubIssue>>(emptyList())
+    private val _mcpItems = MutableStateFlow<List<McpMarketBrowseItem>>(emptyList())
+    private val _searchResultItems = MutableStateFlow<List<McpMarketBrowseItem>>(emptyList())
 
     // 搜索查询
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    val mcpIssues: StateFlow<List<GitHubIssue>> =
-        combine(_mcpIssues, _searchQuery, _searchResultIssues) { issues, query, searchIssues ->
-            if (query.isBlank()) {
-                issues
-            } else {
-                searchIssues
-            }
-        }.stateIn(
+    private val _sortOption = MutableStateFlow(MarketSortOption.UPDATED)
+    val sortOption: StateFlow<MarketSortOption> = _sortOption.asStateFlow()
+
+    private val _marketStats = MutableStateFlow<Map<String, MarketEntryStats>>(emptyMap())
+    val marketStats: StateFlow<Map<String, MarketEntryStats>> = _marketStats.asStateFlow()
+
+    val mcpItems: StateFlow<List<McpMarketBrowseItem>> =
+        buildMarketDisplayState(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
+            baseItems = _mcpItems,
+            searchQuery = _searchQuery,
+            searchResults = _searchResultItems,
+            sortOption = _sortOption,
+            stats = _marketStats,
+            idSelector = { it.entryId },
+            updatedAtSelector = { it.issue.updated_at },
+            titleSelector = { it.title },
+            likesSelector = { it.issue.reactions?.thumbs_up ?: 0 }
         )
 
     // 用户已发布的插件
     private val _userPublishedPlugins = MutableStateFlow<List<GitHubIssue>>(emptyList())
     val userPublishedPlugins: StateFlow<List<GitHubIssue>> = _userPublishedPlugins.asStateFlow()
-
-    // 评论相关状态
-    private val _issueComments = MutableStateFlow<Map<Int, List<GitHubComment>>>(emptyMap())
-    val issueComments: StateFlow<Map<Int, List<GitHubComment>>> = _issueComments.asStateFlow()
-
-    private val _isLoadingComments = MutableStateFlow<Set<Int>>(emptySet())
-    val isLoadingComments: StateFlow<Set<Int>> = _isLoadingComments.asStateFlow()
-
-    private val _isPostingComment = MutableStateFlow<Set<Int>>(emptySet())
-    val isPostingComment: StateFlow<Set<Int>> = _isPostingComment.asStateFlow()
-
-    // 用户头像缓存
-    private val _userAvatarCache = MutableStateFlow<Map<String, String>>(emptyMap())
-    val userAvatarCache: StateFlow<Map<String, String>> = _userAvatarCache.asStateFlow()
-
-    // Reactions相关状态
-    private val _issueReactions = MutableStateFlow<Map<Int, List<com.ai.assistance.operit.data.api.GitHubReaction>>>(emptyMap())
-    val issueReactions: StateFlow<Map<Int, List<com.ai.assistance.operit.data.api.GitHubReaction>>> = _issueReactions.asStateFlow()
-
-    private val _isLoadingReactions = MutableStateFlow<Set<Int>>(emptySet())
-    val isLoadingReactions: StateFlow<Set<Int>> = _isLoadingReactions.asStateFlow()
-
-    private val _isReacting = MutableStateFlow<Set<Int>>(emptySet())
-    val isReacting: StateFlow<Set<Int>> = _isReacting.asStateFlow()
-
-    // 仓库信息缓存（包含星数）
-    private val _repositoryCache = MutableStateFlow<Map<String, com.ai.assistance.operit.data.api.GitHubRepository>>(emptyMap())
-    val repositoryCache: StateFlow<Map<String, com.ai.assistance.operit.data.api.GitHubRepository>> = _repositoryCache.asStateFlow()
+    private val _hasLoadedUserPublishedPlugins = MutableStateFlow(false)
+    val hasLoadedUserPublishedPlugins: StateFlow<Boolean> =
+        _hasLoadedUserPublishedPlugins.asStateFlow()
 
     // 草稿保存
     private val sharedPrefs: SharedPreferences = context.getSharedPreferences("mcp_publish_draft", Context.MODE_PRIVATE)
 
     // 用户头像URL持久化缓存
     private val avatarCachePrefs: SharedPreferences = context.getSharedPreferences("github_avatar_cache", Context.MODE_PRIVATE)
+
+    private val issueInteractionController = IssueInteractionController(
+        scope = viewModelScope,
+        context = context,
+        marketService = marketService,
+        logTag = TAG,
+        onError = { _errorMessage.value = it },
+        messages = IssueInteractionMessages(
+            commentLoadFailed = { context.getString(R.string.mcp_market_load_comments_failed_with_error, it) },
+            commentLoadError = { context.getString(R.string.mcp_market_load_comments_error_with_error, it) },
+            commentPostFailed = { context.getString(R.string.mcp_market_comment_post_failed_with_error, it) },
+            commentPostError = { context.getString(R.string.mcp_market_comment_post_error_with_error, it) },
+            reactionFailed = { context.getString(R.string.mcp_market_reaction_failed_with_error, it) },
+            reactionError = { context.getString(R.string.mcp_market_reaction_error_with_error, it) },
+            commentPostSuccess = context.getString(R.string.mcp_market_comment_post_success),
+            reactionSuccess = context.getString(R.string.mcp_market_reaction_success)
+        ),
+        avatarCachePrefs = avatarCachePrefs
+    )
+
+    val issueComments = issueInteractionController.issueComments
+    val isLoadingComments = issueInteractionController.isLoadingComments
+    val isPostingComment = issueInteractionController.isPostingComment
+    val userAvatarCache = issueInteractionController.userAvatarCache
+    val issueReactions = issueInteractionController.issueReactions
+    val isLoadingReactions = issueInteractionController.isLoadingReactions
+    val isReacting = issueInteractionController.isReacting
+    val repositoryCache = issueInteractionController.repositoryCache
 
     // 发布草稿数据类
     data class PublishDraft(
@@ -176,11 +209,6 @@ class MCPMarketViewModel(
             category = sharedPrefs.getString("category", "") ?: ""
         )
 
-    init {
-        // 加载持久化的头像缓存
-        loadAvatarCacheFromPrefs()
-    }
-
     class Factory(
         private val context: Context,
         private val mcpRepository: MCPRepository
@@ -196,10 +224,12 @@ class MCPMarketViewModel(
 
     companion object {
         private const val TAG = "MCPMarketViewModel"
-        private const val MARKET_REPO_OWNER = "AAswordman"
-        private const val MARKET_REPO_NAME = "OperitMCPMarket"
-        private const val MCP_PLUGIN_LABEL = "mcp-plugin"
-        private const val MARKET_PAGE_SIZE = 50
+        private val MARKET_DEFINITION = GitHubIssueMarketDefinition(
+            owner = "AAswordman",
+            repo = "OperitMCPMarket",
+            label = "mcp-plugin",
+            pageSize = 50
+        )
     }
 
     /**
@@ -212,7 +242,7 @@ class MCPMarketViewModel(
         val trimmedQuery = query.trim()
         if (trimmedQuery.isBlank()) {
             _isLoading.value = false
-            _searchResultIssues.value = emptyList()
+            _searchResultItems.value = emptyList()
             _errorMessage.value = null
             _isRateLimitError.value = false
             return
@@ -221,6 +251,24 @@ class MCPMarketViewModel(
         searchJob = viewModelScope.launch {
             delay(350)
             searchMCPMarketIssues(trimmedQuery)
+        }
+    }
+
+    fun onSortOptionChanged(option: MarketSortOption) {
+        _sortOption.value = option
+        loadMCPMarketData()
+    }
+
+    fun ensureMarketStatsLoaded(entryId: String? = null) {
+        if (entryId != null && _marketStats.value.containsKey(entryId)) {
+            return
+        }
+        if (entryId == null && _marketStats.value.isNotEmpty()) {
+            return
+        }
+
+        viewModelScope.launch {
+            refreshMarketStats()
         }
     }
 
@@ -235,47 +283,33 @@ class MCPMarketViewModel(
             false
         }
 
-        val qualifiedQuery = buildString {
-            append(rawQuery)
-            append(" repo:")
-            append(MARKET_REPO_OWNER)
-            append("/")
-            append(MARKET_REPO_NAME)
-            append(" is:issue is:open label:")
-            append(MCP_PLUGIN_LABEL)
-        }
-
         try {
-            val result = githubApiService.searchIssues(
-                query = qualifiedQuery,
-                sort = "updated",
-                order = "desc",
-                page = 1,
-                perPage = MARKET_PAGE_SIZE
-            )
+            val result = marketService.searchOpenIssues(rawQuery = rawQuery, page = 1)
 
             if (rawQuery != _searchQuery.value.trim()) return
 
             result.fold(
                 onSuccess = { issues ->
-                    _searchResultIssues.value = issues
+                    _searchResultItems.value = issues.map { it.toMcpMarketBrowseItem() }
                 },
                 onFailure = { error ->
                     val errorMessage = error.message ?: ""
-                    if (errorMessage.contains("HTTP 403") && !isLoggedIn) {
+                    if (marketService.isLoggedOutRateLimit(errorMessage, isLoggedIn)) {
                         _errorMessage.value = context.getString(R.string.mcp_market_api_rate_limited_login_required)
                         _isRateLimitError.value = true
                     } else {
                         _errorMessage.value = context.getString(R.string.mcp_market_load_failed_with_error, errorMessage)
                     }
-                    _searchResultIssues.value = emptyList()
+                    _searchResultItems.value = emptyList()
                     AppLogger.e(TAG, "Failed to search MCP market data", error)
                 }
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             if (rawQuery == _searchQuery.value.trim()) {
                 _errorMessage.value = context.getString(R.string.mcp_market_network_error_with_error, e.message ?: "")
-                _searchResultIssues.value = emptyList()
+                _searchResultItems.value = emptyList()
                 AppLogger.e(TAG, "Network error while searching MCP market data", e)
             }
         } finally {
@@ -294,19 +328,19 @@ class MCPMarketViewModel(
             _isLoadingMore.value = false
             _errorMessage.value = null
             _isRateLimitError.value = false // 重置状态
-            _issueReactions.value = emptyMap() // 刷新时清除旧的Reactions缓存
-            _hasMore.value = true
+            issueInteractionController.clearReactionsCache() // 刷新时清除旧的Reactions缓存
+            _hasMore.value = false
             currentPage = 1
+            totalPages = 1
 
             try {
-                val result = githubApiService.getRepositoryIssues(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    state = "open",
-                    labels = MCP_PLUGIN_LABEL,
-                    page = 1,
-                    perPage = MARKET_PAGE_SIZE
-                )
+                refreshMarketStatsInBackground()
+                val result =
+                    marketStatsApiService.getRankPage(
+                        type = MarketStatsType.MCP.wireValue,
+                        metric = _sortOption.value.toRankMetric(),
+                        page = 1
+                    )
 
                 val isLoggedIn = try {
                     githubAuth.isLoggedIn()
@@ -315,13 +349,20 @@ class MCPMarketViewModel(
                 }
 
                 result.fold(
-                    onSuccess = { issues ->
-                        _mcpIssues.value = issues
-                        _hasMore.value = issues.size >= MARKET_PAGE_SIZE
+                    onSuccess = { rankPage ->
+                        currentPage = rankPage.page
+                        totalPages = rankPage.totalPages.coerceAtLeast(1)
+                        rankPage.items.forEach { entry ->
+                            _marketStats.updateMarketEntryStats(entry.id) {
+                                entry.toMarketEntryStats()
+                            }
+                        }
+                        _mcpItems.value = rankPage.items.map { it.toMcpMarketBrowseItem() }
+                        _hasMore.value = currentPage < totalPages
                     },
                     onFailure = { error ->
                         val errorMessage = error.message ?: ""
-                        if (errorMessage.contains("HTTP 403") && !isLoggedIn) {
+                        if (marketService.isLoggedOutRateLimit(errorMessage, isLoggedIn)) {
                             _errorMessage.value = context.getString(R.string.mcp_market_api_rate_limited_login_required)
                             _isRateLimitError.value = true
                         } else {
@@ -342,60 +383,66 @@ class MCPMarketViewModel(
     }
 
     fun loadMoreMCPMarketData() {
+        if (_searchQuery.value.isNotBlank() || _isLoading.value || _isLoadingMore.value || !_hasMore.value) {
+            return
+        }
+
         viewModelScope.launch {
-            if (_isLoading.value || _isLoadingMore.value || !_hasMore.value) return@launch
-
             _isLoadingMore.value = true
-            _errorMessage.value = null
-            _isRateLimitError.value = false
-
-            val isLoggedIn = try {
-                githubAuth.isLoggedIn()
-            } catch (_: Exception) {
-                false
-            }
-
-            val nextPage = currentPage + 1
-
             try {
-                val result = githubApiService.getRepositoryIssues(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    state = "open",
-                    labels = MCP_PLUGIN_LABEL,
-                    page = nextPage,
-                    perPage = MARKET_PAGE_SIZE
-                )
+                val isLoggedIn = try {
+                    githubAuth.isLoggedIn()
+                } catch (_: Exception) {
+                    false
+                }
+
+                val result =
+                    marketStatsApiService.getRankPage(
+                        type = MarketStatsType.MCP.wireValue,
+                        metric = _sortOption.value.toRankMetric(),
+                        page = currentPage + 1
+                    )
 
                 result.fold(
-                    onSuccess = { issues ->
-                        if (issues.isEmpty()) {
-                            _hasMore.value = false
-                            return@fold
+                    onSuccess = { rankPage ->
+                        currentPage = rankPage.page
+                        totalPages = rankPage.totalPages.coerceAtLeast(1)
+                        rankPage.items.forEach { entry ->
+                            _marketStats.updateMarketEntryStats(entry.id) {
+                                entry.toMarketEntryStats()
+                            }
                         }
-
-                        currentPage = nextPage
-                        _mcpIssues.value = (_mcpIssues.value + issues).distinctBy { it.id }
-                        _hasMore.value = issues.size >= MARKET_PAGE_SIZE
+                        _mcpItems.value =
+                            (_mcpItems.value + rankPage.items.map { it.toMcpMarketBrowseItem() })
+                                .distinctBy { it.issue.id }
+                        _hasMore.value = currentPage < totalPages
                     },
                     onFailure = { error ->
                         val errorMessage = error.message ?: ""
-                        if (errorMessage.contains("HTTP 403") && !isLoggedIn) {
+                        if (marketService.isLoggedOutRateLimit(errorMessage, isLoggedIn)) {
                             _errorMessage.value = context.getString(R.string.mcp_market_api_rate_limited_login_required)
                             _isRateLimitError.value = true
                         } else {
-                            _errorMessage.value = context.getString(R.string.mcp_market_load_more_failed_with_error, errorMessage)
+                            _errorMessage.value = context.getString(R.string.mcp_market_load_failed_with_error, errorMessage)
                         }
-
+                        _hasMore.value = false
                         AppLogger.e(TAG, "Failed to load more MCP market data", error)
                     }
                 )
             } catch (e: Exception) {
                 _errorMessage.value = context.getString(R.string.mcp_market_network_error_with_error, e.message ?: "")
+                _hasMore.value = false
                 AppLogger.e(TAG, "Network error while loading more MCP market data", e)
             } finally {
                 _isLoadingMore.value = false
             }
+        }
+    }
+
+    private fun refreshMarketStatsInBackground() {
+        marketStatsRefreshJob?.cancel()
+        marketStatsRefreshJob = viewModelScope.launch {
+            refreshMarketStats()
         }
     }
 
@@ -411,10 +458,14 @@ class MCPMarketViewModel(
 
                 if (installInfo != null) {
                     val pluginInfo = MCPPluginParser.parsePluginInfo(issue)
+                    val statsId = resolveMcpMarketEntryId(issue)
+                    val downloadTarget =
+                        resolveMarketDownloadTarget(pluginInfo.repositoryUrl, issue.html_url)
                     val pluginId = generateMCPId(issue)
 
                     // 标记插件开始安装
                     _installingPlugins.value = _installingPlugins.value + pluginId
+                    trackMcpDownload(statsId, downloadTarget)
 
                     // 如果提供了安装配置，检查是否需要物理安装
                     if (installInfo.installConfig != null && installInfo.installConfig.isNotBlank()) {
@@ -453,7 +504,7 @@ class MCPMarketViewModel(
                     }
 
                     // 获取作者头像，如果缓存中没有，则使用分享者的头像作为备用
-                    val authorAvatarUrl = _userAvatarCache.value[pluginInfo.repositoryOwner] ?: issue.user.avatarUrl
+                    val authorAvatarUrl = userAvatarCache.value[pluginInfo.repositoryOwner] ?: issue.user.avatarUrl
 
                     // 创建MCP服务器对象
                     val server = MCPLocalServer.PluginMetadata(
@@ -512,6 +563,35 @@ class MCPMarketViewModel(
         }
     }
 
+    fun installMcp(item: McpMarketBrowseItem) {
+        installMCPFromIssue(item.issue)
+    }
+
+    private suspend fun refreshMarketStats() {
+        val loadedStats =
+            loadMarketStatsMap(
+                marketStatsApiService = marketStatsApiService,
+                type = MarketStatsType.MCP,
+                logTag = TAG,
+                errorLabel = "mcp"
+            )
+        _marketStats.value = _marketStats.value + loadedStats
+    }
+
+    private suspend fun trackMcpDownload(statsId: String, targetUrl: String) {
+        marketStatsApiService.trackDownload(
+            type = MarketStatsType.MCP.wireValue,
+            id = statsId,
+            targetUrl = targetUrl
+        ).onSuccess {
+            _marketStats.updateMarketEntryStats(statsId) { current ->
+                current.copy(downloads = current.downloads + 1)
+            }
+        }.onFailure { error ->
+            AppLogger.w(TAG, "Failed to track MCP download for $statsId: ${error.message}")
+        }
+    }
+
     /**
      * 发布MCP到市场
      */
@@ -532,14 +612,10 @@ class MCPMarketViewModel(
 
                 // 构建Issue内容
                 val issueBody = buildMCPIssueBody(description, repoUrl)
-                val issueLabels = (labels + MCP_PLUGIN_LABEL).distinct()
-
-                val result = githubApiService.createIssue(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
+                val result = marketService.createIssue(
                     title = title,
                     body = issueBody,
-                    labels = issueLabels
+                    extraLabels = labels
                 )
 
                 result.fold(
@@ -577,14 +653,19 @@ class MCPMarketViewModel(
      * 启动GitHub登录流程
      */
     fun initiateGitHubLogin(context: Context) {
-        try {
-            val authUrl = githubAuth.getAuthorizationUrl()
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            _errorMessage.value = context.getString(R.string.mcp_market_github_login_start_failed, e.message ?: "")
-            AppLogger.e(TAG, "Failed to initiate GitHub login", e)
+        viewModelScope.launch {
+            try {
+                val authUrl = GitHubOAuthCoordinator(context).createExternalAuthorizationUrl()
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                _errorMessage.value = context.getString(
+                    R.string.mcp_market_github_login_start_failed,
+                    e.message ?: ""
+                )
+                AppLogger.e(TAG, "Failed to initiate GitHub login", e)
+            }
         }
     }
 
@@ -597,9 +678,7 @@ class MCPMarketViewModel(
                 _isLoading.value = true
                 AppLogger.d(TAG, "Handling GitHub callback with code: $code")
 
-                // 获取访问令牌
                 val tokenResult = githubApiService.getAccessToken(code)
-
                 val tokenResponse = tokenResult.getOrElse { error ->
                     AppLogger.e(TAG, "Failed to get access token", error)
                     _errorMessage.value = context.getString(R.string.main_github_login_failed, error.message ?: "")
@@ -607,7 +686,11 @@ class MCPMarketViewModel(
                 }
 
                 AppLogger.d(TAG, "Successfully obtained access token.")
-                githubAuth.updateAccessToken(tokenResponse.access_token, tokenResponse.token_type)
+                githubAuth.updateAccessToken(
+                    accessToken = tokenResponse.access_token,
+                    tokenType = tokenResponse.token_type,
+                    grantedScope = tokenResponse.scope
+                )
 
                 val userResult = githubApiService.getCurrentUser()
                 val user = userResult.getOrElse { error ->
@@ -620,7 +703,8 @@ class MCPMarketViewModel(
                 githubAuth.saveAuthInfo(
                     accessToken = tokenResponse.access_token,
                     tokenType = tokenResponse.token_type,
-                    userInfo = user
+                    userInfo = user,
+                    grantedScope = tokenResponse.scope
                 )
 
                 Toast.makeText(
@@ -663,6 +747,12 @@ class MCPMarketViewModel(
         _errorMessage.value = null
     }
 
+    fun resetUserPublishedPluginsState() {
+        _userPublishedPlugins.value = emptyList()
+        _hasLoadedUserPublishedPlugins.value = false
+        _errorMessage.value = null
+    }
+
     /**
      * 加载用户已发布的插件
      */
@@ -683,13 +773,9 @@ class MCPMarketViewModel(
                     return@launch
                 }
 
-                val result = githubApiService.getRepositoryIssues(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    state = "all", // 获取所有状态的Issue
-                    labels = MCP_PLUGIN_LABEL,
-                    creator = userInfo.login, // 只获取当前用户创建的Issue
-                    perPage = 100
+                val result = marketService.getUserPublishedIssues(
+                    creator = userInfo.login,
+                    fallbackWithoutLabel = true
                 )
 
                 result.fold(
@@ -705,6 +791,7 @@ class MCPMarketViewModel(
                 _errorMessage.value = context.getString(R.string.mcp_market_network_error_with_error, e.message ?: "")
                 AppLogger.e(TAG, "Network error while loading user published plugins", e)
             } finally {
+                _hasLoadedUserPublishedPlugins.value = true
                 _isLoading.value = false
             }
         }
@@ -742,9 +829,7 @@ class MCPMarketViewModel(
                     version = version
                 )
 
-                val result = githubApiService.updateIssue(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
+                val result = marketService.updateIssueContent(
                     issueNumber = issueNumber,
                     title = title,
                     body = body
@@ -790,9 +875,7 @@ class MCPMarketViewModel(
             _errorMessage.value = null
 
             try {
-                val result = githubApiService.updateIssue(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
+                val result = marketService.updateIssueState(
                     issueNumber = issueNumber,
                     state = "closed"
                 )
@@ -842,9 +925,7 @@ class MCPMarketViewModel(
             _errorMessage.value = null
 
             try {
-                val result = githubApiService.updateIssue(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
+                val result = marketService.updateIssueState(
                     issueNumber = issueNumber,
                     state = "open"
                 )
@@ -963,12 +1044,9 @@ class MCPMarketViewModel(
                 version = version
             )
 
-            val result = githubApiService.createIssue(
-                owner = MARKET_REPO_OWNER,
-                repo = MARKET_REPO_NAME,
+            val result = marketService.createIssue(
                 title = title,
-                body = body,
-                labels = listOf(MCP_PLUGIN_LABEL)
+                body = body
             )
 
             result.isSuccess
@@ -1065,10 +1143,7 @@ class MCPMarketViewModel(
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
                 )
             )
-            appendLine(context.getString(R.string.mcp_publish_body_table_row_status_pending))
             appendLine()
-            appendLine("---")
-            appendLine(context.getString(R.string.mcp_publish_body_footer_note))
         }
     }
 
@@ -1103,22 +1178,12 @@ class MCPMarketViewModel(
      * 解析隐藏在Issue Body中的MCP元数据JSON
      */
     private fun parseMCPMetadata(body: String): MCPMetadata? {
-        val prefix = "<!-- operit-mcp-json: "
-        val start = body.indexOf(prefix)
-        if (start < 0) return null
-
-        val jsonStart = start + prefix.length
-        val end = body.indexOf(" -->", startIndex = jsonStart)
-        if (end <= jsonStart) return null
-
-        val jsonString = body.substring(jsonStart, end)
-        return try {
-            val json = Json { ignoreUnknownKeys = true }
-            json.decodeFromString<MCPMetadata>(jsonString)
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to parse MCP metadata JSON from issue body.", e)
-            null
-        }
+        return IssueBodyMetadataParser.parseCommentJson(
+            body = body,
+            prefix = "<!-- operit-mcp-json: ",
+            tag = TAG,
+            metadataName = "MCP metadata"
+        )
     }
 
     /**
@@ -1179,101 +1244,30 @@ class MCPMarketViewModel(
      * 加载Issue评论
      */
     fun loadIssueComments(issueNumber: Int) {
-        viewModelScope.launch {
-            try {
-                _isLoadingComments.value = _isLoadingComments.value + issueNumber
-
-                val result = githubApiService.getIssueComments(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    issueNumber = issueNumber,
-                    perPage = 100
-                )
-
-                result.fold(
-                    onSuccess = { comments ->
-                        val currentComments = _issueComments.value.toMutableMap()
-                        currentComments[issueNumber] = comments
-                        _issueComments.value = currentComments
-                        AppLogger.d(TAG, "Successfully loaded ${comments.size} comments for issue #$issueNumber")
-                    },
-                    onFailure = { error ->
-                        _errorMessage.value = context.getString(
-                            R.string.mcp_market_load_comments_failed_with_error,
-                            error.message ?: ""
-                        )
-                        AppLogger.e(TAG, "Failed to load comments for issue #$issueNumber", error)
-                    }
-                )
-            } catch (e: Exception) {
-                _errorMessage.value = context.getString(
-                    R.string.mcp_market_load_comments_error_with_error,
-                    e.message ?: ""
-                )
-                AppLogger.e(TAG, "Exception while loading comments for issue #$issueNumber", e)
-            } finally {
-                _isLoadingComments.value = _isLoadingComments.value - issueNumber
-            }
-        }
+        issueInteractionController.loadIssueComments(issueNumber, perPage = 100)
     }
 
     /**
      * 发布评论
      */
     fun postComment(issueNumber: Int, commentBody: String) {
+        if (commentBody.isBlank()) {
+            _errorMessage.value = context.getString(R.string.mcp_market_comment_empty)
+            return
+        }
+
         viewModelScope.launch {
             if (!githubAuth.isLoggedIn()) {
                 _errorMessage.value = context.getString(R.string.mcp_market_github_login_required)
                 return@launch
             }
 
-            if (commentBody.isBlank()) {
-                _errorMessage.value = context.getString(R.string.mcp_market_comment_empty)
-                return@launch
-            }
-
-            try {
-                _isPostingComment.value = _isPostingComment.value + issueNumber
-
-                val result = githubApiService.createIssueComment(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    issueNumber = issueNumber,
-                    body = commentBody
-                )
-
-                result.fold(
-                    onSuccess = { newComment ->
-                        // 将新评论添加到现有评论列表
-                        val currentComments = _issueComments.value.toMutableMap()
-                        val existingComments = currentComments[issueNumber] ?: emptyList()
-                        currentComments[issueNumber] = existingComments + newComment
-                        _issueComments.value = currentComments
-
-                        Toast.makeText(
-                            context,
-                            context.getString(R.string.mcp_market_comment_post_success),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        AppLogger.d(TAG, "Successfully posted comment to issue #$issueNumber")
-                    },
-                    onFailure = { error ->
-                        _errorMessage.value = context.getString(
-                            R.string.mcp_market_comment_post_failed_with_error,
-                            error.message ?: ""
-                        )
-                        AppLogger.e(TAG, "Failed to post comment to issue #$issueNumber", error)
-                    }
-                )
-            } catch (e: Exception) {
-                _errorMessage.value = context.getString(
-                    R.string.mcp_market_comment_post_error_with_error,
-                    e.message ?: ""
-                )
-                AppLogger.e(TAG, "Exception while posting comment to issue #$issueNumber", e)
-            } finally {
-                _isPostingComment.value = _isPostingComment.value - issueNumber
-            }
+            issueInteractionController.postIssueComment(
+                issueNumber = issueNumber,
+                body = commentBody,
+                successBehavior = CommentPostSuccessBehavior.APPEND_TO_CACHE,
+                perPage = 100
+            )
         }
     }
 
@@ -1281,294 +1275,101 @@ class MCPMarketViewModel(
      * 获取Issue的评论列表
      */
     fun getCommentsForIssue(issueNumber: Int): List<GitHubComment> {
-        return _issueComments.value[issueNumber] ?: emptyList()
+        return issueInteractionController.getCommentsForIssue(issueNumber)
     }
 
     /**
      * 检查是否正在加载评论
      */
     fun isLoadingCommentsForIssue(issueNumber: Int): Boolean {
-        return issueNumber in _isLoadingComments.value
+        return issueInteractionController.isLoadingCommentsForIssue(issueNumber)
     }
 
     /**
      * 检查是否正在发布评论
      */
     fun isPostingCommentForIssue(issueNumber: Int): Boolean {
-        return issueNumber in _isPostingComment.value
+        return issueInteractionController.isPostingCommentForIssue(issueNumber)
     }
 
     /**
      * 获取用户头像URL
      */
     fun getUserAvatarUrl(username: String): String? {
-        return _userAvatarCache.value[username]
-    }
-
-    /**
-     * 从SharedPreferences加载头像缓存
-     */
-    private fun loadAvatarCacheFromPrefs() {
-        try {
-            val cachedAvatars = avatarCachePrefs.all.mapNotNull { (key, value) ->
-                if (value is String) key to value else null
-            }.toMap()
-
-            if (cachedAvatars.isNotEmpty()) {
-                _userAvatarCache.value = cachedAvatars
-                AppLogger.d(TAG, "Loaded ${cachedAvatars.size} avatar URLs from persistent cache")
-            }
-
-            // 如果缓存过大（超过500个），清理一半
-            if (cachedAvatars.size > 500) {
-                cleanupAvatarCache()
-            }
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to load avatar cache from preferences", e)
-        }
-    }
-
-    /**
-     * 清理头像缓存（保留最近的一半）
-     */
-    private fun cleanupAvatarCache() {
-        try {
-            val allEntries = avatarCachePrefs.all
-            if (allEntries.size > 500) {
-                val editor = avatarCachePrefs.edit()
-                // 简单策略：删除前一半的键
-                allEntries.keys.take(allEntries.size / 2).forEach { key ->
-                    editor.remove(key)
-                }
-                editor.apply()
-                AppLogger.d(TAG, "Cleaned up avatar cache, removed ${allEntries.size / 2} entries")
-            }
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to cleanup avatar cache", e)
-        }
-    }
-
-    /**
-     * 保存头像URL到持久化缓存
-     */
-    private fun saveAvatarToPrefs(username: String, avatarUrl: String) {
-        try {
-            avatarCachePrefs.edit().putString(username, avatarUrl).apply()
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to save avatar to preferences", e)
-        }
+        return issueInteractionController.getUserAvatarUrl(username)
     }
 
     /**
      * 缓存用户头像URL（带持久化）
      */
     fun fetchUserAvatar(username: String) {
-        if (username.isBlank() || _userAvatarCache.value.containsKey(username)) {
-            return // 已经缓存或用户名为空
-        }
-
-        viewModelScope.launch {
-            try {
-                val result = githubApiService.getUser(username)
-                result.fold(
-                    onSuccess = { user ->
-                        val currentCache = _userAvatarCache.value.toMutableMap()
-                        currentCache[username] = user.avatarUrl
-                        _userAvatarCache.value = currentCache
-
-                        // 持久化保存
-                        saveAvatarToPrefs(username, user.avatarUrl)
-                        AppLogger.d(TAG, "Cached and persisted avatar for user: $username")
-                    },
-                    onFailure = { error ->
-                        AppLogger.w(TAG, "Failed to fetch avatar for user $username: ${error.message}")
-                        // 可以设置一个默认头像URL或者不做任何操作
-                    }
-                )
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Exception while fetching avatar for user $username", e)
-            }
-        }
+        issueInteractionController.fetchUserAvatar(username)
     }
 
     /**
      * 获取Issue的reactions
      */
     fun loadIssueReactions(issueNumber: Int, force: Boolean = false) {
-        if (issueNumber in _isLoadingReactions.value) {
-            return // 正在加载中，避免重复请求
-        }
-
-        // 如果不是强制刷新，并且缓存中已有数据，则直接返回
-        if (!force && _issueReactions.value.containsKey(issueNumber)) {
-            AppLogger.d(TAG, "Reactions for issue #$issueNumber already in cache.")
-            return
-        }
-
-        viewModelScope.launch {
-            try {
-                _isLoadingReactions.value = _isLoadingReactions.value + issueNumber
-
-                val result = githubApiService.getIssueReactions(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    issueNumber = issueNumber
-                )
-
-                result.fold(
-                    onSuccess = { reactions ->
-                        val currentReactions = _issueReactions.value.toMutableMap()
-                        currentReactions[issueNumber] = reactions
-                        _issueReactions.value = currentReactions
-                        AppLogger.d(TAG, "Successfully loaded reactions for issue #$issueNumber")
-                    },
-                    onFailure = { error ->
-                        AppLogger.e(TAG, "Failed to load reactions for issue #$issueNumber", error)
-                    }
-                )
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Exception while loading reactions for issue #$issueNumber", e)
-            } finally {
-                _isLoadingReactions.value = _isLoadingReactions.value - issueNumber
-            }
-        }
+        issueInteractionController.loadIssueReactions(issueNumber, force)
     }
 
     /**
      * 为Issue添加reaction
      */
     fun addReactionToIssue(issueNumber: Int, reactionType: String) {
-        if (issueNumber in _isReacting.value) {
-            return // 正在操作中，避免重复请求
-        }
-
-        viewModelScope.launch {
-            try {
-                _isReacting.value = _isReacting.value + issueNumber
-
-                val result = githubApiService.createIssueReaction(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    issueNumber = issueNumber,
-                    content = reactionType
-                )
-
-                result.fold(
-                    onSuccess = { newReaction ->
-                        // 将新reaction添加到现有列表
-                        val currentReactions = _issueReactions.value.toMutableMap()
-                        val existingReactions = currentReactions[issueNumber] ?: emptyList()
-                        currentReactions[issueNumber] = existingReactions + newReaction
-                        _issueReactions.value = currentReactions
-
-                        Toast.makeText(
-                            context,
-                            context.getString(R.string.mcp_market_reaction_success),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        AppLogger.d(TAG, "Successfully added reaction to issue #$issueNumber")
-                    },
-                    onFailure = { error ->
-                        _errorMessage.value = context.getString(
-                            R.string.mcp_market_reaction_failed_with_error,
-                            error.message ?: ""
-                        )
-                        AppLogger.e(TAG, "Failed to add reaction to issue #$issueNumber", error)
-                    }
-                )
-            } catch (e: Exception) {
-                _errorMessage.value = context.getString(
-                    R.string.mcp_market_reaction_error_with_error,
-                    e.message ?: ""
-                )
-                AppLogger.e(TAG, "Exception while adding reaction to issue #$issueNumber", e)
-            } finally {
-                _isReacting.value = _isReacting.value - issueNumber
-            }
-        }
+        issueInteractionController.addReactionToIssue(issueNumber, reactionType)
     }
 
     /**
      * 获取仓库信息（包含星数）
      */
     fun fetchRepositoryInfo(repositoryUrl: String) {
-        if (repositoryUrl.isBlank() || _repositoryCache.value.containsKey(repositoryUrl)) {
-            return // 已经缓存或URL为空
-        }
-
-        // 从URL中提取owner和repo名称
-        val repoPath = repositoryUrl.removePrefix("https://github.com/")
-        val parts = repoPath.split("/")
-        if (parts.size < 2) {
-            AppLogger.w(TAG, "Invalid repository URL: $repositoryUrl")
-            return
-        }
-
-        val owner = parts[0]
-        val repo = parts[1]
-
-        viewModelScope.launch {
-            try {
-                val result = githubApiService.getRepository(owner, repo)
-                result.fold(
-                    onSuccess = { repository ->
-                        val currentCache = _repositoryCache.value.toMutableMap()
-                        currentCache[repositoryUrl] = repository
-                        _repositoryCache.value = currentCache
-                        AppLogger.d(TAG, "Successfully fetched repository info for $repositoryUrl")
-                    },
-                    onFailure = { error ->
-                        AppLogger.w(TAG, "Failed to fetch repository info for $repositoryUrl: ${error.message}")
-                    }
-                )
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Exception while fetching repository info for $repositoryUrl", e)
-            }
-        }
+        issueInteractionController.fetchRepositoryInfo(repositoryUrl)
     }
 
     /**
      * 获取Issue的reactions列表
      */
     fun getReactionsForIssue(issueNumber: Int): List<com.ai.assistance.operit.data.api.GitHubReaction> {
-        return _issueReactions.value[issueNumber] ?: emptyList()
+        return issueInteractionController.getReactionsForIssue(issueNumber)
     }
 
     /**
      * 检查是否正在加载reactions
      */
     fun isLoadingReactionsForIssue(issueNumber: Int): Boolean {
-        return issueNumber in _isLoadingReactions.value
+        return issueInteractionController.isLoadingReactionsForIssue(issueNumber)
     }
 
     /**
      * 检查是否正在添加reaction
      */
     fun isReactingToIssue(issueNumber: Int): Boolean {
-        return issueNumber in _isReacting.value
+        return issueInteractionController.isReactingToIssue(issueNumber)
     }
 
     /**
      * 获取仓库信息
      */
     fun getRepositoryInfo(repositoryUrl: String): com.ai.assistance.operit.data.api.GitHubRepository? {
-        return _repositoryCache.value[repositoryUrl]
+        return issueInteractionController.getRepositoryInfo(repositoryUrl)
     }
 
     /**
      * 统计特定类型的reaction数量
      */
     fun getReactionCount(issueNumber: Int, reactionType: String): Int {
-        return getReactionsForIssue(issueNumber).count { it.content == reactionType }
+        return issueInteractionController.getReactionCount(issueNumber, reactionType)
     }
 
     /**
      * 检查当前用户是否已经对issue添加了特定类型的reaction
      */
     suspend fun hasUserReacted(issueNumber: Int, reactionType: String): Boolean {
-        val currentUser = githubAuth.getCurrentUserInfo() ?: return false
-        return getReactionsForIssue(issueNumber).any { 
-            it.content == reactionType && it.user.login == currentUser.login 
-        }
+        return issueInteractionController.hasUserReacted(
+            issueNumber = issueNumber,
+            reactionType = reactionType,
+            currentUserLogin = githubAuth.getCurrentUserInfo()?.login
+        )
     }
-} 
+}

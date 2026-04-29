@@ -26,6 +26,36 @@ internal fun buildComposeDslContextBridgeDefinition(): String {
                 return [children];
             }
 
+            function isComposeNodeLike(value) {
+                return !!(
+                    value &&
+                    typeof value === 'object' &&
+                    value.__composeNode === true &&
+                    typeof value.type === 'string'
+                );
+            }
+
+            function flattenComposeSlotValue(value, out) {
+                if (value == null) {
+                    return;
+                }
+                if (Array.isArray(value)) {
+                    for (var i = 0; i < value.length; i += 1) {
+                        flattenComposeSlotValue(value[i], out);
+                    }
+                    return;
+                }
+                if (isComposeNodeLike(value)) {
+                    out.push(value);
+                }
+            }
+
+            function normalizeSlotChildren(value) {
+                var out = [];
+                flattenComposeSlotValue(value, out);
+                return out;
+            }
+
             function invokeNative(methodName, args) {
                 try {
                     if (
@@ -123,7 +153,10 @@ internal fun buildComposeDslContextBridgeDefinition(): String {
                             : null,
                     actionStore: {},
                     actionCounter: 0,
-                    stateChangeListeners: []
+                    stateChangeListeners: [],
+                    stateChangeScheduled: false,
+                    stateDirty: false,
+                    pendingStateChangePromise: null
                 };
 
                 function registerAction(handler) {
@@ -134,6 +167,26 @@ internal fun buildComposeDslContextBridgeDefinition(): String {
                 }
 
                 function notifyStateChanged() {
+                    runtime.stateDirty = true;
+                    if (runtime.stateChangeScheduled) {
+                        return;
+                    }
+                    runtime.stateChangeScheduled = true;
+                    runtime.pendingStateChangePromise = Promise.resolve().then(function() {
+                        try {
+                            runtime.stateChangeScheduled = false;
+                            if (!runtime.stateDirty) {
+                                return;
+                            }
+                            runtime.stateDirty = false;
+                            flushStateChangeListeners();
+                        } finally {
+                            runtime.pendingStateChangePromise = null;
+                        }
+                    });
+                }
+
+                function flushStateChangeListeners() {
                     if (!runtime.stateChangeListeners || runtime.stateChangeListeners.length <= 0) {
                         return;
                     }
@@ -168,6 +221,13 @@ internal fun buildComposeDslContextBridgeDefinition(): String {
                     };
                 }
 
+                function flushPendingStateChanges() {
+                    if (runtime.pendingStateChangePromise && typeof runtime.pendingStateChangePromise.then === 'function') {
+                        return runtime.pendingStateChangePromise;
+                    }
+                    return Promise.resolve();
+                }
+
                 function normalizePropValue(value) {
                     if (typeof value === 'function') {
                         return { __actionId: registerAction(value) };
@@ -192,15 +252,25 @@ internal fun buildComposeDslContextBridgeDefinition(): String {
                 function createNode(type, props, children) {
                     var rawProps = props && typeof props === 'object' ? props : {};
                     var normalizedProps = {};
+                    var normalizedSlots = {};
                     for (var key in rawProps) {
                         if (Object.prototype.hasOwnProperty.call(rawProps, key)) {
-                            normalizedProps[key] = normalizePropValue(rawProps[key]);
+                            var rawValue = rawProps[key];
+                            var slotChildren = normalizeSlotChildren(rawValue);
+                            if (slotChildren.length > 0) {
+                                normalizedSlots[key] = slotChildren;
+                                continue;
+                            }
+                            normalizedProps[key] = normalizePropValue(rawValue);
                         }
                     }
+                    var normalizedChildren = normalizeChildren(children);
                     return {
+                        __composeNode: true,
                         type: String(type || ''),
                         props: normalizedProps,
-                        children: normalizeChildren(children)
+                        children: normalizedChildren,
+                        slots: normalizedSlots
                     };
                 }
 
@@ -383,7 +453,39 @@ internal fun buildComposeDslContextBridgeDefinition(): String {
                         return Promise.resolve();
                     },
                     navigate: function(route, args) {
+                        var routeId = String(route || '').trim();
+                        if (!routeId) {
+                            return Promise.reject(new Error('route is required'));
+                        }
+                        invokeNative('navigateToRoute', [
+                            routeId,
+                            JSON.stringify(args && typeof args === 'object' ? args : {})
+                        ]);
                         return Promise.resolve();
+                    },
+                    listRoutes: function() {
+                        var json = invokeNative('listRoutes', []);
+                        if (typeof json !== 'string' || !json.trim()) {
+                            return [];
+                        }
+                        try {
+                            var parsed = JSON.parse(json);
+                            return Array.isArray(parsed) ? parsed : [];
+                        } catch (e) {
+                            return [];
+                        }
+                    },
+                    getHostRoutes: function() {
+                        var json = invokeNative('listHostRoutes', []);
+                        if (typeof json !== 'string' || !json.trim()) {
+                            return [];
+                        }
+                        try {
+                            var parsed = JSON.parse(json);
+                            return Array.isArray(parsed) ? parsed : [];
+                        } catch (e) {
+                            return [];
+                        }
                     },
                     showToast: function(message) {
                         return toolCall('toast', { message: String(message || '') });
@@ -517,7 +619,8 @@ internal fun buildComposeDslContextBridgeDefinition(): String {
                         }
                         return handler(payload);
                     },
-                    subscribeStateChange: subscribeStateChange
+                    subscribeStateChange: subscribeStateChange,
+                    flushStateChanges: flushPendingStateChanges
                 };
             }
 

@@ -200,7 +200,29 @@ Rich MCP ecosystem
 <tr><th>Version</th><th>Release Date</th><th>Core Updates</th></tr>
 
 <tr>
-<td><b>v1.9.1</b><br><sub>Latest</sub></td>
+<td><b>v1.10.1</b><br><sub>Latest</sub></td>
+<td>2026-04-17</td>
+<td>
+• <b>In-App Browser & Web Automation</b>: Greatly expanded the built-in browser with tabs, history, bookmarks, permissions, multi-window support, minimization, and viewport control, plus browser-script import, install, storage, runtime, and page-menu support<br>
+• <b>Avatars & UI Customization</b>: Added FBX virtual avatars, upgraded the MMD preview experience, introduced liquid-glass theme effects, and expanded sidebar, chat-bubble, and input-bar appearance customization<br>
+• <b>Plugins, Workspace & Context Enhancements</b>: Added configuration-editor support for debugging and automatically writing Operit plugins, a local HTTP chat entry point, workspace renaming and rule-file pickup, plus stronger history jumping, bidirectional paging, and automatic context injection<br>
+• <b>Stability & Performance Improvements</b>: Fixed tool-permission checks, HTTP TTS compatibility, SSH/tmux long-output crashes, history jumping, GIF/formula/Markdown rendering, MCP config and stats issues, while continuing to improve conversation flow, deep search, memory, browser behavior, and package management
+</td>
+</tr>
+
+<tr>
+<td><b>v1.10.0</b></td>
+<td>2026-03-18</td>
+<td>
+• <b>Character Group Chat & AI Self-Setup</b>: Added group conversations with multiple character cards and @mentions, plus AI self-configuration to help set up MCP, skills, STT, TTS, and model settings<br>
+• <b>Theme & Interaction Upgrades</b>: Added grouped message folding, bubble-theme customization for fonts/colors/backgrounds, wider bubbles, liquid-glass input styling, long-press app-icon shortcuts, and assistant/MP4 virtual avatar support<br>
+• <b>Tools & Platform Expansion</b>: Added Ollama, NVIDIA, and OpenAI Response universal-mode providers, a standalone SSH plugin toolkit, Java Bridge, APKTool plugin, web-automation downloads, Markdown audio/video rendering, xAI video generation, workflow cancelation, custom terminal keys, and message queues<br>
+• <b>Fixes & Performance Improvements</b>: Fixed speech-recognition, memory-concurrency, floating-window interaction, terminal display, full-screen web automation, and MNN tool-call issues; also improved memory recall, marketplace search, workspace templates, grep performance, and agent retry stability
+</td>
+</tr>
+
+<tr>
+<td><b>v1.9.1</b></td>
 <td>2026-02-20</td>
 <td>
 • <b>Stability & Bugfix Release</b>: Focused fixes for multiple regressions from v1.9.0, improving overall usability and smoothness<br>

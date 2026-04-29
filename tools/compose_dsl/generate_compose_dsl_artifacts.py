@@ -296,15 +296,23 @@ def map_param_to_ts(component: str, param: Param) -> Optional[Tuple[str, str, bo
     if "->" in type_name:
         arg_type = parse_lambda_single_arg_type(type_name)
         arg_ts = map_lambda_arg_to_ts(arg_type)
-        if name == "onClick":
+        if is_action_lambda_param(param):
+            if is_zero_arg_unit_lambda_type(type_name):
+                return (name, "() => void | Promise<void>", not param.has_default)
+            if name == "onCheckedChange":
+                return ("onCheckedChange", "(checked: boolean) => void", not param.has_default)
+            if name == "onValueChange":
+                mapped = arg_ts or "string"
+                if arg_ts is not None:
+                    return ("onValueChange", f"(value: {mapped}) => void", not param.has_default)
+                return None
             if arg_ts is not None:
-                return ("onClick", f"(value: {arg_ts}) => void", not param.has_default)
-            return ("onClick", "() => void | Promise<void>", not param.has_default)
-        if name == "onCheckedChange":
-            return ("onCheckedChange", "(checked: boolean) => void", not param.has_default)
-        if name == "onValueChange":
-            mapped = arg_ts or "string"
-            return ("onValueChange", f"(value: {mapped}) => void", not param.has_default)
+                return (name, f"(value: {arg_ts}) => void", not param.has_default)
+            return None
+        if name != "content" and is_slot_lambda_param(param):
+            return (name, "ComposeChildren", not param.has_default)
+        if name != "content" and is_host_slot_lambda_param(param):
+            return (name, "ComposeChildren", not param.has_default)
         return None
 
     if name == "imageVector":
@@ -327,6 +335,8 @@ def map_param_to_ts(component: str, param: Param) -> Optional[Tuple[str, str, bo
         return ("strokeWidth", "number", False)
     if name == "progress":
         return ("progress", "number", False)
+    if "TextOverflow" in type_name:
+        return ("overflow", "ComposeTextOverflow", False)
     if name == "tint" or name == "color" or name == "contentColor":
         ts_prop = "tint" if component == "Icon" and name == "tint" else name
         return (ts_prop, "ComposeColor", False)
@@ -340,6 +350,16 @@ def map_param_to_ts(component: str, param: Param) -> Optional[Tuple[str, str, bo
         if "Vertical" in type_name:
             return ("verticalAlignment", "ComposeAlignment", False)
         return ("contentAlignment", "ComposeAlignment", False)
+    if _is_box_alignment_type(type_name):
+        return ("contentAlignment", "ComposeAlignment", False)
+    if "DpOffset" in type_name:
+        return (name, "number", False)
+    if "PopupProperties" in type_name:
+        return (
+            name,
+            "{ focusable?: boolean; dismissOnBackPress?: boolean; dismissOnClickOutside?: boolean; clippingEnabled?: boolean; usePlatformDefaultWidth?: boolean; }",
+            False,
+        )
 
     if "Dp" in type_name:
         return (name, "number", False)
@@ -384,19 +404,188 @@ def _is_lambda_type(type_name: str) -> bool:
     return "->" in type_name
 
 
+def strip_outer_wrapping_parens(type_name: str) -> str:
+    normalized = type_name.strip()
+    while normalized.startswith("(") and normalized.endswith(")"):
+        depth = 0
+        wraps_entire_value = True
+        for index, ch in enumerate(normalized):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0 and index != len(normalized) - 1:
+                    wraps_entire_value = False
+                    break
+        if depth != 0 or not wraps_entire_value:
+            break
+        normalized = normalized[1:-1].strip()
+    return normalized
+
+
 def normalize_type_name(type_name: str) -> str:
-    return type_name.strip().rstrip("?")
+    normalized = type_name.strip().rstrip("?").strip()
+    return strip_outer_wrapping_parens(normalized)
+
+
+def split_top_level_types(raw_types: str) -> List[str]:
+    parts: List[str] = []
+    current: List[str] = []
+    depth_angle = depth_round = depth_square = depth_curly = 0
+
+    for ch in raw_types:
+        if ch == "<":
+            depth_angle += 1
+        elif ch == ">":
+            depth_angle = max(0, depth_angle - 1)
+        elif ch == "(":
+            depth_round += 1
+        elif ch == ")":
+            depth_round = max(0, depth_round - 1)
+        elif ch == "[":
+            depth_square += 1
+        elif ch == "]":
+            depth_square = max(0, depth_square - 1)
+        elif ch == "{":
+            depth_curly += 1
+        elif ch == "}":
+            depth_curly = max(0, depth_curly - 1)
+
+        if ch == "," and depth_angle == 0 and depth_round == 0 and depth_square == 0 and depth_curly == 0:
+            token = "".join(current).strip()
+            if token:
+                parts.append(token)
+            current = []
+            continue
+
+        current.append(ch)
+
+    tail = "".join(current).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def parse_lambda_signature(type_name: str) -> Optional[Tuple[Optional[str], List[str], str]]:
+    normalized = normalize_type_name(type_name)
+    if "->" not in normalized:
+        return None
+
+    before_arrow, return_type = normalized.rsplit("->", 1)
+    before_arrow = before_arrow.strip()
+    return_type = normalize_type_name(return_type.strip())
+
+    receiver_type: Optional[str] = None
+    params_part: Optional[str] = None
+
+    if before_arrow.endswith(")") and ".(" in before_arrow:
+        split_index = before_arrow.rfind(".(")
+        receiver_candidate = before_arrow[:split_index].strip()
+        params_part = before_arrow[split_index + 1:].strip()
+        if receiver_candidate:
+            receiver_type = normalize_type_name(receiver_candidate)
+    elif before_arrow.startswith("(") and before_arrow.endswith(")"):
+        params_part = before_arrow
+
+    if params_part is None:
+        return None
+
+    params_raw = params_part[1:-1].strip()
+    param_types = split_top_level_types(params_raw) if params_raw else []
+    return (receiver_type, param_types, return_type)
 
 
 def parse_lambda_single_arg_type(type_name: str) -> Optional[str]:
+    signature = parse_lambda_signature(type_name)
+    if signature is None:
+        return None
+    receiver_type, param_types, _ = signature
+    if receiver_type is not None or len(param_types) != 1:
+        return None
+    return param_types[0]
+
+
+def parse_lambda_receiver_type(type_name: str) -> Optional[str]:
+    signature = parse_lambda_signature(type_name)
+    if signature is None:
+        return None
+    receiver_type, _, _ = signature
+    return receiver_type
+
+
+def parse_lambda_return_type(type_name: str) -> Optional[str]:
+    signature = parse_lambda_signature(type_name)
+    if signature is None:
+        return None
+    _, _, return_type = signature
+    return return_type
+
+
+def _is_unit_type(type_name: str) -> bool:
     normalized = normalize_type_name(type_name)
-    match = re.search(r"\(\s*([^)]+?)\s*\)\s*->", normalized)
-    if match is None:
+    return normalized in {"Unit", "kotlin.Unit"}
+
+
+def is_slot_lambda_type(type_name: str) -> bool:
+    signature = parse_lambda_signature(type_name)
+    if signature is None:
+        return False
+    _, param_types, return_type = signature
+    return len(param_types) == 0 and _is_unit_type(return_type)
+
+
+def is_zero_arg_unit_lambda_type(type_name: str) -> bool:
+    signature = parse_lambda_signature(type_name)
+    if signature is None:
+        return False
+    receiver_type, param_types, return_type = signature
+    return receiver_type is None and len(param_types) == 0 and _is_unit_type(return_type)
+
+
+def host_slot_lambda_arg_type(type_name: str) -> Optional[str]:
+    signature = parse_lambda_signature(type_name)
+    if signature is None:
         return None
-    arg = match.group(1).strip()
-    if not arg or "," in arg:
+    receiver_type, param_types, return_type = signature
+    if receiver_type is not None or len(param_types) != 1 or not _is_unit_type(return_type):
         return None
-    return arg
+    return param_types[0]
+
+
+def is_action_lambda_param(param: Param) -> bool:
+    return _is_lambda_type(param.type) and param.name.startswith("on")
+
+
+def is_slot_lambda_param(param: Param) -> bool:
+    return is_slot_lambda_type(param.type) and not is_action_lambda_param(param)
+
+
+def _is_padding_values_type(type_name: str) -> bool:
+    normalized = normalize_type_name(type_name)
+    return normalized in {
+        "PaddingValues",
+        "androidx.compose.foundation.layout.PaddingValues",
+    }
+
+
+def is_host_slot_lambda_param(param: Param) -> bool:
+    arg_type = host_slot_lambda_arg_type(param.type)
+    if arg_type is None or is_action_lambda_param(param):
+        return False
+    if param.name == "content" and _is_padding_values_type(arg_type):
+        return True
+    return False
+
+
+def scope_modifier_resolver_expr(receiver_type: Optional[str]) -> str:
+    normalized = normalize_type_name(receiver_type or "")
+    if "RowScope" in normalized:
+        return "{ base, slotProps -> rowComposeDslModifierResolver(base, slotProps) }"
+    if "ColumnScope" in normalized:
+        return "{ base, slotProps -> columnComposeDslModifierResolver(base, slotProps) }"
+    if "BoxScope" in normalized:
+        return "{ base, slotProps -> boxComposeDslModifierResolver(base, slotProps) }"
+    return "{ base, slotProps -> defaultComposeDslModifierResolver(base, slotProps) }"
 
 
 def map_lambda_arg_to_ts(arg_type: Optional[str]) -> Optional[str]:
@@ -434,17 +623,26 @@ def _is_color_type(type_name: str) -> bool:
     return normalized in {"Color", "androidx.compose.ui.graphics.Color"}
 
 
+def _is_box_alignment_type(type_name: str) -> bool:
+    normalized = normalize_type_name(type_name)
+    return normalized in {"Alignment", "androidx.compose.ui.Alignment"}
+
+
 def _is_supported_generic_param(param: Param) -> bool:
     name = param.name
     type_name = param.type
 
     if _is_lambda_type(type_name):
-        if name == "content":
+        if is_slot_lambda_param(param):
             return True
-        if name in {"onClick", "onCheckedChange", "onValueChange"}:
+        if is_host_slot_lambda_param(param):
+            return True
+        if is_action_lambda_param(param):
+            if is_zero_arg_unit_lambda_type(type_name):
+                return True
             arg_type = parse_lambda_single_arg_type(type_name)
             if arg_type is None:
-                return True
+                return False
             return map_lambda_arg_to_ts(arg_type) is not None
         return param.has_default
 
@@ -458,7 +656,7 @@ def _is_supported_generic_param(param: Param) -> bool:
         return True
     if "Dp" in type_name:
         return True
-    if "Arrangement." in type_name or "Alignment." in type_name:
+    if "Arrangement." in type_name or "Alignment." in type_name or _is_box_alignment_type(type_name):
         return True
     if "TextStyle" in type_name or "FontWeight" in type_name:
         return True
@@ -611,23 +809,40 @@ def ensure_renderer_contract(component: str, params: Sequence[Param]) -> None:
 
 def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Param]) -> str:
     component = spec.dsl_name
-    if component == "Column":
+    if component == "Image":
         return textwrap.dedent(
             """
             @Composable
-            internal fun renderColumnNode(
+            internal fun renderImageNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
-                val spacing = props.dp("spacing")
-                Column(
-                    modifier = applyCommonModifier(Modifier, props),
-                    horizontalAlignment = props.horizontalAlignment("horizontalAlignment"),
-                    verticalArrangement = props.verticalArrangement("verticalArrangement", spacing)
-                ) {
-                    renderWeightedNodeChildren(node, onAction, nodePath)
+                val imageModel = props.imageModelOrNull()
+                val alignment = props.boxAlignment("contentAlignment")
+                val alpha = props.floatOrNull("alpha") ?: 1f
+                val contentScale = props.contentScale("contentScale")
+                val modifier = applyScopedCommonModifier(Modifier, props, modifierResolver)
+                if (imageModel != null) {
+                    androidx.compose.foundation.Image(
+                        painter = rememberAsyncImagePainter(model = imageModel),
+                        contentDescription = props.stringOrNull("contentDescription"),
+                        modifier = modifier,
+                        alignment = alignment,
+                        alpha = alpha,
+                        contentScale = contentScale
+                    )
+                } else {
+                    androidx.compose.foundation.Image(
+                        painter = rememberVectorPainter(iconFromName(props.string("name", props.string("icon", "info")))),
+                        contentDescription = props.stringOrNull("contentDescription"),
+                        modifier = modifier,
+                        alignment = alignment,
+                        alpha = alpha,
+                        contentScale = contentScale
+                    )
                 }
             }
             """
@@ -640,13 +855,14 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderRowNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
                 val spacing = props.dp("spacing")
                 val onClick = ToolPkgComposeDslParser.extractActionId(props["onClick"])
                 Row(
-                    modifier = applyCommonModifier(Modifier, props).let { modifier ->
+                    modifier = applyScopedCommonModifier(Modifier, props, modifierResolver).let { modifier ->
                         if (!onClick.isNullOrBlank()) {
                             modifier.clickable { onAction(onClick, null) }
                         } else {
@@ -656,27 +872,14 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
                     horizontalArrangement = props.horizontalArrangement("horizontalArrangement", spacing),
                     verticalAlignment = props.verticalAlignment("verticalAlignment")
                 ) {
-                    renderWeightedNodeChildren(node, onAction, nodePath)
-                }
-            }
-            """
-        ).strip()
-
-    if component == "Box":
-        return textwrap.dedent(
-            """
-            @Composable
-            internal fun renderBoxNode(
-                node: ToolPkgComposeDslNode,
-                onAction: (String, Any?) -> Unit,
-                nodePath: String
-            ) {
-                val props = node.props
-                Box(
-                    modifier = applyCommonModifier(Modifier, props),
-                    contentAlignment = props.boxAlignment("contentAlignment")
-                ) {
-                    renderNodeChildren(node, onAction, nodePath)
+                    renderSlotChildren(
+                        node = node,
+                        slotName = "content",
+                        onAction = onAction,
+                        nodePath = nodePath,
+                        modifierResolver = { base, slotProps -> rowComposeDslModifierResolver(base, slotProps) },
+                        fallbackToChildren = true
+                    )
                 }
             }
             """
@@ -689,14 +892,57 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderSpacerNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
                 Spacer(
                     modifier =
-                        Modifier
+                        applyScopedCommonModifier(Modifier, props, modifierResolver)
                             .width(props.dp("width"))
                             .height(props.dp("height"))
+                )
+            }
+            """
+        ).strip()
+
+    if component == "Surface":
+        return textwrap.dedent(
+            """
+            @Composable
+            internal fun renderSurfaceNode(
+                node: ToolPkgComposeDslNode,
+                onAction: (String, Any?) -> Unit,
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
+            ) {
+                val props = node.props
+                val onClick = ToolPkgComposeDslParser.extractActionId(props["onClick"])
+                val resolvedModifier =
+                    applyScopedCommonModifier(Modifier, props, modifierResolver).let { modifier ->
+                        if (!onClick.isNullOrBlank()) {
+                            modifier.clickable { onAction(onClick, null) }
+                        } else {
+                            modifier
+                        }
+                    }
+                androidx.compose.material3.Surface(
+                    modifier = resolvedModifier,
+                    shape = props.shapeOrNull() ?: androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
+                    color = (props.colorOrNull("color") ?: props.colorOrNull("containerColor")).let { baseColor -> baseColor?.let { color -> props.floatOrNull("alpha")?.let { color.copy(alpha = it) } ?: color } ?: Color.Transparent },
+                    contentColor = props.colorOrNull("contentColor") ?: Color.Unspecified,
+                    tonalElevation = props.dp("tonalElevation"),
+                    shadowElevation = props.dp("shadowElevation"),
+                    content = {
+                        renderSlotChildren(
+                            node = node,
+                            slotName = "content",
+                            onAction = onAction,
+                            nodePath = nodePath,
+                            modifierResolver = { base, slotProps -> defaultComposeDslModifierResolver(base, slotProps) },
+                            fallbackToChildren = true
+                        )
+                    }
                 )
             }
             """
@@ -709,35 +955,37 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderLazyColumnNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
                 val spacing = props.dp("spacing")
                 val reverseLayout = props.bool("reverseLayout", false)
                 val autoScrollToEnd = props.bool("autoScrollToEnd", false)
                 val listState = rememberLazyListState()
+                val contentNodes = node.slotChildren("content", fallbackToChildren = true)
                 val autoScrollSignature =
                     if (!autoScrollToEnd) {
                         0
                     } else {
-                        node.children.fold(1) { acc, child -> 31 * acc + child.autoScrollSignature() }
+                        contentNodes.fold(1) { acc, child -> 31 * acc + child.autoScrollSignature() }
                     }
 
                 LaunchedEffect(nodePath, autoScrollToEnd, reverseLayout, autoScrollSignature) {
-                    if (autoScrollToEnd && node.children.isNotEmpty()) {
-                        listState.scrollToItem(if (reverseLayout) 0 else node.children.lastIndex)
+                    if (autoScrollToEnd && contentNodes.isNotEmpty()) {
+                        listState.scrollToItem(if (reverseLayout) 0 else contentNodes.lastIndex)
                     }
                 }
 
                 LazyColumn(
                     state = listState,
-                    modifier = applyCommonModifier(Modifier.fillMaxSize(), props),
+                    modifier = applyScopedCommonModifier(Modifier.fillMaxSize(), props, modifierResolver),
                     horizontalAlignment = props.horizontalAlignment("horizontalAlignment"),
                     reverseLayout = reverseLayout,
                     verticalArrangement = props.verticalArrangement("verticalArrangement", spacing),
                     contentPadding = PaddingValues(0.dp)
                 ) {
-                    itemsIndexed(node.children) { index, child ->
+                    itemsIndexed(contentNodes) { index, child ->
                         renderComposeDslNode(
                             node = child,
                             onAction = onAction,
@@ -756,16 +1004,18 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderLazyRowNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
                 val spacing = props.dp("spacing")
+                val contentNodes = node.slotChildren("content", fallbackToChildren = true)
                 androidx.compose.foundation.lazy.LazyRow(
-                    modifier = applyCommonModifier(Modifier, props),
+                    modifier = applyScopedCommonModifier(Modifier, props, modifierResolver),
                     horizontalArrangement = props.horizontalArrangement("horizontalArrangement", spacing),
                     verticalAlignment = props.verticalAlignment("verticalAlignment")
                 ) {
-                    itemsIndexed(node.children) { index, child ->
+                    itemsIndexed(contentNodes) { index, child ->
                         renderComposeDslNode(
                             node = child,
                             onAction = onAction,
@@ -784,19 +1034,33 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderTextNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
                 val textStyle = props.textStyle("style")
                 val textColor = props.colorOrNull("color")
                 val fontWeight = props.fontWeightOrNull("fontWeight")
+                val fontSize = props.floatOrNull("fontSize")
+                val resolvedStyle =
+                    textStyle.let { style ->
+                        var nextStyle = style
+                        if (fontWeight != null) {
+                            nextStyle = nextStyle.copy(fontWeight = fontWeight)
+                        }
+                        if (fontSize != null) {
+                            nextStyle = nextStyle.copy(fontSize = fontSize.sp)
+                        }
+                        nextStyle
+                    }
                 Text(
                     text = props.string("text"),
-                    style = if (fontWeight != null) textStyle.copy(fontWeight = fontWeight) else textStyle,
+                    style = resolvedStyle,
                     color = textColor ?: Color.Unspecified,
                     maxLines = props.int("maxLines", Int.MAX_VALUE),
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = applyCommonModifier(Modifier, props)
+                    softWrap = props.bool("softWrap", true),
+                    overflow = props.textOverflow("overflow"),
+                    modifier = applyScopedCommonModifier(Modifier, props, modifierResolver)
                 )
             }
             """
@@ -809,7 +1073,8 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderTextFieldNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
                 val actionId = ToolPkgComposeDslParser.extractActionId(props["onValueChange"])
@@ -817,7 +1082,14 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
                 val placeholder = props.stringOrNull("placeholder")
                 val externalValue = props.string("value")
                 val isPassword = props.bool("isPassword", false)
-                val hasStyle = props["style"] != null
+                val styleMap = props["style"] as? Map<*, *>
+                val hasLabelSlot = node.slotChildren("label").isNotEmpty()
+                val hasPlaceholderSlot = node.slotChildren("placeholder").isNotEmpty()
+                val hasPrefixSlot = node.slotChildren("prefix").isNotEmpty()
+                val hasSuffixSlot = node.slotChildren("suffix").isNotEmpty()
+                val hasLeadingIconSlot = node.slotChildren("leadingIcon").isNotEmpty()
+                val hasTrailingIconSlot = node.slotChildren("trailingIcon").isNotEmpty()
+                val hasSupportingTextSlot = node.slotChildren("supportingText").isNotEmpty()
 
                 var textFieldValue by remember(nodePath) {
                     mutableStateOf(
@@ -838,75 +1110,126 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
                             )
                     }
                 }
-
-                if (hasStyle) {
-                    val styleMap = props["style"] as? Map<*, *>
-                    val fontSize = (styleMap?.get("fontSize") as? Number)?.toFloat() ?: 14f
-                    val fontWeight =
-                        styleMap?.get("fontWeight")?.toString()?.let { token ->
-                            mapOf<String, Any?>("fontWeight" to token).fontWeightOrNull("fontWeight")
-                        } ?: FontWeight.SemiBold
-                    val color = styleMap?.get("color")?.toString()?.let { resolveColorToken(it) }
-                        ?: MaterialTheme.colorScheme.primary
-
-                    androidx.compose.foundation.text.BasicTextField(
-                        value = textFieldValue,
-                        onValueChange = { nextValue ->
-                            if (!actionId.isNullOrBlank()) {
-                                textFieldValue = nextValue
-                                onAction(actionId, nextValue.text)
-                            }
-                        },
-                        singleLine = props.bool("singleLine", false),
-                        visualTransformation = if (isPassword) {
-                            androidx.compose.ui.text.input.PasswordVisualTransformation()
-                        } else {
-                            androidx.compose.ui.text.input.VisualTransformation.None
-                        },
-                        textStyle = androidx.compose.ui.text.TextStyle(
+                val textStyle =
+                    styleMap?.let {
+                        val fontSize = (it["fontSize"] as? Number)?.toFloat() ?: 14f
+                        val fontWeight =
+                            it["fontWeight"]?.toString()?.let { token ->
+                                mapOf<String, Any?>("fontWeight" to token).fontWeightOrNull("fontWeight")
+                            } ?: FontWeight.SemiBold
+                        val color = it["color"]?.toString()?.let { rawColor -> resolveColorToken(rawColor) }
+                            ?: MaterialTheme.colorScheme.primary
+                        androidx.compose.ui.text.TextStyle(
                             color = color,
                             fontSize = fontSize.sp,
                             fontWeight = fontWeight
-                        ),
-                        decorationBox = { innerTextField ->
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                            ) {
-                                if (textFieldValue.text.isEmpty() && !placeholder.isNullOrBlank()) {
-                                    Text(
-                                        text = placeholder,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                OutlinedTextField(
+                    value = textFieldValue,
+                    onValueChange = { nextValue ->
+                        if (!actionId.isNullOrBlank()) {
+                            textFieldValue = nextValue
+                            onAction(actionId, nextValue.text)
+                        }
+                    },
+                    label =
+                        when {
+                            hasLabelSlot -> {
+                                {
+                                    renderSlotChildren(
+                                        node = node,
+                                        slotName = "label",
+                                        onAction = onAction,
+                                        nodePath = nodePath
                                     )
                                 }
-                                innerTextField()
                             }
+                            else -> label?.let { labelText -> { Text(labelText) } }
                         },
-                        modifier = applyCommonModifier(Modifier.fillMaxWidth(), props)
-                    )
-                } else {
-                    OutlinedTextField(
-                        value = textFieldValue,
-                        onValueChange = { nextValue ->
-                            if (!actionId.isNullOrBlank()) {
-                                textFieldValue = nextValue
-                                onAction(actionId, nextValue.text)
+                    placeholder =
+                        when {
+                            hasPlaceholderSlot -> {
+                                {
+                                    renderSlotChildren(
+                                        node = node,
+                                        slotName = "placeholder",
+                                        onAction = onAction,
+                                        nodePath = nodePath
+                                    )
+                                }
                             }
+                            else -> placeholder?.let { placeholderText -> { Text(placeholderText) } }
                         },
-                        label = label?.let { { Text(it) } },
-                        placeholder = placeholder?.let { { Text(it) } },
-                        singleLine = props.bool("singleLine", false),
-                        minLines = props.int("minLines", 1),
-                        visualTransformation = if (isPassword) {
-                            androidx.compose.ui.text.input.PasswordVisualTransformation()
-                        } else {
-                            androidx.compose.ui.text.input.VisualTransformation.None
-                        },
-                        modifier = applyCommonModifier(Modifier.fillMaxWidth(), props)
-                    )
-                }
+                    prefix =
+                        if (hasPrefixSlot) {
+                            {
+                                renderSlotChildren(
+                                    node = node,
+                                    slotName = "prefix",
+                                    onAction = onAction,
+                                    nodePath = nodePath
+                                )
+                            }
+                        } else null,
+                    suffix =
+                        if (hasSuffixSlot) {
+                            {
+                                renderSlotChildren(
+                                    node = node,
+                                    slotName = "suffix",
+                                    onAction = onAction,
+                                    nodePath = nodePath
+                                )
+                            }
+                        } else null,
+                    leadingIcon =
+                        if (hasLeadingIconSlot) {
+                            {
+                                renderSlotChildren(
+                                    node = node,
+                                    slotName = "leadingIcon",
+                                    onAction = onAction,
+                                    nodePath = nodePath
+                                )
+                            }
+                        } else null,
+                    trailingIcon =
+                        if (hasTrailingIconSlot) {
+                            {
+                                renderSlotChildren(
+                                    node = node,
+                                    slotName = "trailingIcon",
+                                    onAction = onAction,
+                                    nodePath = nodePath
+                                )
+                            }
+                        } else null,
+                    supportingText =
+                        if (hasSupportingTextSlot) {
+                            {
+                                renderSlotChildren(
+                                    node = node,
+                                    slotName = "supportingText",
+                                    onAction = onAction,
+                                    nodePath = nodePath
+                                )
+                            }
+                        } else null,
+                    singleLine = props.bool("singleLine", false),
+                    minLines = props.int("minLines", 1),
+                    maxLines = props.int("maxLines", if (props.bool("singleLine", false)) 1 else Int.MAX_VALUE),
+                    readOnly = props.bool("readOnly", false),
+                    isError = props.bool("isError", false),
+                    textStyle = textStyle ?: androidx.compose.ui.text.TextStyle.Default,
+                    visualTransformation = if (isPassword) {
+                        androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    } else {
+                        androidx.compose.ui.text.input.VisualTransformation.None
+                    },
+                    modifier = applyScopedCommonModifier(Modifier.fillMaxWidth(), props, modifierResolver)
+                )
             }
             """
         ).strip()
@@ -918,10 +1241,32 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderSwitchNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
                 val actionId = ToolPkgComposeDslParser.extractActionId(props["onCheckedChange"])
+                val checkedThumbColor = props.colorOrNull("checkedThumbColor")
+                val checkedTrackColor = props.colorOrNull("checkedTrackColor")
+                val uncheckedThumbColor = props.colorOrNull("uncheckedThumbColor")
+                val uncheckedTrackColor = props.colorOrNull("uncheckedTrackColor")
+                val hasThumbContentSlot = node.slotChildren("thumbContent").isNotEmpty()
+                val switchColors =
+                    if (
+                        checkedThumbColor != null ||
+                            checkedTrackColor != null ||
+                            uncheckedThumbColor != null ||
+                            uncheckedTrackColor != null
+                    ) {
+                        androidx.compose.material3.SwitchDefaults.colors(
+                            checkedThumbColor = checkedThumbColor ?: MaterialTheme.colorScheme.primary,
+                            checkedTrackColor = checkedTrackColor ?: MaterialTheme.colorScheme.primaryContainer,
+                            uncheckedThumbColor = uncheckedThumbColor ?: MaterialTheme.colorScheme.outline,
+                            uncheckedTrackColor = uncheckedTrackColor ?: MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    } else {
+                        androidx.compose.material3.SwitchDefaults.colors()
+                    }
                 Switch(
                     checked = props.bool("checked", false),
                     onCheckedChange = { checked ->
@@ -930,7 +1275,19 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
                         }
                     },
                     enabled = !actionId.isNullOrBlank() && props.bool("enabled", true),
-                    modifier = applyCommonModifier(Modifier, props)
+                    modifier = applyScopedCommonModifier(Modifier, props, modifierResolver),
+                    thumbContent =
+                        if (hasThumbContentSlot) {
+                            {
+                                renderSlotChildren(
+                                    node = node,
+                                    slotName = "thumbContent",
+                                    onAction = onAction,
+                                    nodePath = nodePath
+                                )
+                            }
+                        } else null,
+                    colors = switchColors
                 )
             }
             """
@@ -943,7 +1300,8 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderCheckboxNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
                 val actionId = ToolPkgComposeDslParser.extractActionId(props["onCheckedChange"])
@@ -955,75 +1313,8 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
                         }
                     },
                     enabled = !actionId.isNullOrBlank() && props.bool("enabled", true),
-                    modifier = applyCommonModifier(Modifier, props)
+                    modifier = applyScopedCommonModifier(Modifier, props, modifierResolver)
                 )
-            }
-            """
-        ).strip()
-
-    if component == "Button":
-        return textwrap.dedent(
-            """
-            @Composable
-            internal fun renderButtonNode(
-                node: ToolPkgComposeDslNode,
-                onAction: (String, Any?) -> Unit,
-                nodePath: String
-            ) {
-                val props = node.props
-                val actionId = ToolPkgComposeDslParser.extractActionId(props["onClick"])
-                val hasChildren = node.children.isNotEmpty()
-                Button(
-                    onClick = {
-                        if (!actionId.isNullOrBlank()) {
-                            onAction(actionId, null)
-                        }
-                    },
-                    enabled = !actionId.isNullOrBlank() && props.bool("enabled", true),
-                    modifier = applyCommonModifier(Modifier, props),
-                    shape = props.shapeOrNull() ?: androidx.compose.material3.ButtonDefaults.shape
-                ) {
-                    if (hasChildren) {
-                        renderNodeChildren(node, onAction, nodePath)
-                    } else {
-                        Text(props.string("text", "Button"))
-                    }
-                }
-            }
-            """
-        ).strip()
-
-    if component == "IconButton":
-        return textwrap.dedent(
-            """
-            @Composable
-            internal fun renderIconButtonNode(
-                node: ToolPkgComposeDslNode,
-                onAction: (String, Any?) -> Unit,
-                nodePath: String
-            ) {
-                val props = node.props
-                val actionId = ToolPkgComposeDslParser.extractActionId(props["onClick"])
-                val hasChildren = node.children.isNotEmpty()
-                IconButton(
-                    onClick = {
-                        if (!actionId.isNullOrBlank()) {
-                            onAction(actionId, null)
-                        }
-                    },
-                    enabled = !actionId.isNullOrBlank() && props.bool("enabled", true),
-                    modifier = applyCommonModifier(Modifier, props)
-                ) {
-                    if (hasChildren) {
-                        renderNodeChildren(node, onAction, nodePath)
-                    } else {
-                        val iconName = props.string("icon", props.string("name", "info"))
-                        Icon(
-                            imageVector = iconFromName(iconName),
-                            contentDescription = null
-                        )
-                    }
-                }
             }
             """
         ).strip()
@@ -1035,7 +1326,8 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderCardNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
                 val containerColor = props.colorOrNull("containerColor")
@@ -1043,7 +1335,6 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
                 val alpha = props.floatOrNull("alpha")
                 val contentColor = props.colorOrNull("contentColor")
                 val contentAlpha = props.floatOrNull("contentAlpha")
-                val spacing = props.dp("spacing")
                 val finalContainerColor = containerColor?.let { color ->
                     when {
                         containerAlpha != null -> color.copy(alpha = containerAlpha)
@@ -1069,48 +1360,18 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
                     }
                 Card(
                     colors = cardColors,
-                    modifier = applyCommonModifier(Modifier, props),
+                    modifier = applyScopedCommonModifier(Modifier, props, modifierResolver),
                     shape = props.shapeOrNull() ?: CardDefaults.shape,
                     border = props.borderOrNull(),
                     elevation = CardDefaults.cardElevation(defaultElevation = props.dp("elevation", 1.dp))
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(spacing)
-                    ) {
-                        renderNodeChildren(node, onAction, nodePath)
-                    }
-                }
-            }
-            """
-        ).strip()
-
-    if component == "Surface":
-        return textwrap.dedent(
-            """
-            @Composable
-            internal fun renderSurfaceNode(
-                node: ToolPkgComposeDslNode,
-                onAction: (String, Any?) -> Unit,
-                nodePath: String
-            ) {
-                val props = node.props
-                val containerColor = props.colorOrNull("containerColor")
-                val contentColor = props.colorOrNull("contentColor")
-                val alpha = props.floatOrNull("alpha") ?: 1f
-                val spacing = props.dp("spacing")
-                androidx.compose.material3.Surface(
-                    modifier = applyCommonModifier(Modifier, props),
-                    shape = props.shapeOrNull() ?: androidx.compose.foundation.shape.RoundedCornerShape(0.dp),
-                    color = containerColor?.copy(alpha = alpha) ?: Color.Transparent,
-                    contentColor = contentColor ?: MaterialTheme.colorScheme.onSurface
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(spacing)
-                    ) {
-                        renderNodeChildren(node, onAction, nodePath)
-                    }
+                    renderSlotChildren(
+                        node = node,
+                        slotName = "content",
+                        onAction = onAction,
+                        nodePath = nodePath,
+                        fallbackToChildren = true
+                    )
                 }
             }
             """
@@ -1123,7 +1384,8 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderIconNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
                 val iconName = props.string("name", props.string("icon", "info"))
@@ -1134,9 +1396,9 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
                     contentDescription = null,
                     tint = tint,
                     modifier = if (size != null) {
-                        applyCommonModifier(Modifier, props).width(size.dp).height(size.dp)
+                        applyScopedCommonModifier(Modifier, props, modifierResolver).width(size.dp).height(size.dp)
                     } else {
-                        applyCommonModifier(Modifier, props)
+                        applyScopedCommonModifier(Modifier, props, modifierResolver)
                     }
                 )
             }
@@ -1150,18 +1412,19 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderLinearProgressIndicatorNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
                 val progress = props.floatOrNull("progress")
                 if (progress != null) {
                     LinearProgressIndicator(
                         progress = { progress.coerceIn(0f, 1f) },
-                        modifier = applyCommonModifier(Modifier.fillMaxWidth(), props)
+                        modifier = applyScopedCommonModifier(Modifier.fillMaxWidth(), props, modifierResolver)
                     )
                 } else {
                     LinearProgressIndicator(
-                        modifier = applyCommonModifier(Modifier.fillMaxWidth(), props)
+                        modifier = applyScopedCommonModifier(Modifier.fillMaxWidth(), props, modifierResolver)
                     )
                 }
             }
@@ -1175,13 +1438,14 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderCircularProgressIndicatorNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
                 val props = node.props
                 val strokeWidth = props.floatOrNull("strokeWidth")
                 val color = props.colorOrNull("color")
                 CircularProgressIndicator(
-                    modifier = applyCommonModifier(Modifier, props),
+                    modifier = applyScopedCommonModifier(Modifier, props, modifierResolver),
                     strokeWidth = if (strokeWidth != null) strokeWidth.dp else 4.dp,
                     color = color ?: MaterialTheme.colorScheme.primary
                 )
@@ -1196,9 +1460,10 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
             internal fun renderSnackbarHostNode(
                 node: ToolPkgComposeDslNode,
                 onAction: (String, Any?) -> Unit,
-                nodePath: String
+                nodePath: String,
+                modifierResolver: ComposeDslModifierResolver
             ) {
-                Spacer(modifier = applyCommonModifier(Modifier, node.props))
+                Spacer(modifier = applyScopedCommonModifier(Modifier, node.props, modifierResolver))
             }
             """
         ).strip()
@@ -1206,18 +1471,38 @@ def build_component_renderer_function(spec: ComponentSpec, params: Sequence[Para
     return build_generic_renderer_function(spec, params)
 
 
-def _generic_default_value_expr(param: Param) -> Optional[str]:
+def _generic_default_value_expr(component: str, param: Param) -> Optional[str]:
     name = param.name
     type_name = param.type
 
     if name == "modifier":
-        return "applyCommonModifier(Modifier, props)"
+        return "applyScopedCommonModifier(Modifier, props, modifierResolver)"
     if name == "imageVector":
         return 'iconFromName(props.string("name", props.string("icon", "info")))'
     if name == "shape":
+        if component == "Button":
+            return "props.shapeOrNull() ?: androidx.compose.material3.ButtonDefaults.shape"
+        if component == "ElevatedButton":
+            return "props.shapeOrNull() ?: androidx.compose.material3.ButtonDefaults.elevatedShape"
+        if component == "FilledTonalButton":
+            return "props.shapeOrNull() ?: androidx.compose.material3.ButtonDefaults.filledTonalShape"
+        if component == "OutlinedButton":
+            return "props.shapeOrNull() ?: androidx.compose.material3.ButtonDefaults.outlinedShape"
+        if component == "TextButton":
+            return "props.shapeOrNull() ?: androidx.compose.material3.ButtonDefaults.textShape"
+        if component == "IconButton" or component == "IconToggleButton":
+            return "props.shapeOrNull() ?: androidx.compose.material3.IconButtonDefaults.standardShape"
+        if component in {"FilledIconButton", "FilledTonalIconButton", "FilledIconToggleButton", "FilledTonalIconToggleButton"}:
+            return "props.shapeOrNull() ?: androidx.compose.material3.IconButtonDefaults.filledShape"
+        if component in {"OutlinedIconButton", "OutlinedIconToggleButton"}:
+            return "props.shapeOrNull() ?: androidx.compose.material3.IconButtonDefaults.outlinedShape"
         return "props.shapeOrNull() ?: androidx.compose.foundation.shape.RoundedCornerShape(0.dp)"
     if name == "border":
         return "props.borderOrNull()"
+    if name == "contentPadding":
+        if component.endswith("Button") and "Icon" not in component and "FloatingAction" not in component:
+            return 'props.paddingValuesOrNull("contentPadding") ?: androidx.compose.material3.ButtonDefaults.ContentPadding'
+        return 'props.paddingValuesOrNull("contentPadding") ?: PaddingValues(0.dp)'
     if name == "contentDescription":
         return 'props.stringOrNull("contentDescription")'
     if name == "text":
@@ -1238,6 +1523,12 @@ def _generic_default_value_expr(param: Param) -> Optional[str]:
         if "Vertical" in type_name:
             return 'props.verticalAlignment("verticalAlignment")'
         return 'props.boxAlignment("contentAlignment")'
+    if _is_box_alignment_type(type_name):
+        return 'props.boxAlignment("contentAlignment")'
+    if "DpOffset" in type_name:
+        return f'DpOffset(props.dp("{name}"), 0.dp)'
+    if "PopupProperties" in type_name:
+        return f'popupPropertiesFromValue(props["{name}"])'
     if "TextStyle" in type_name:
         return 'props.textStyle("style")'
     if "FontWeight" in type_name:
@@ -1258,6 +1549,13 @@ def _generic_default_value_expr(param: Param) -> Optional[str]:
     if _is_string_type(type_name):
         return f'props.string("{name}")'
     if _is_color_type(type_name):
+        if component == "Surface" and name == "color":
+            return (
+                '(props.colorOrNull("color") ?: props.colorOrNull("containerColor"))'
+                '.let { baseColor -> '
+                'baseColor?.let { color -> props.floatOrNull("alpha")?.let { color.copy(alpha = it) } ?: color }'
+                ' ?: Color.Transparent }'
+            )
         if name == "tint":
             return 'props.colorOrNull("tint") ?: MaterialTheme.colorScheme.onSurfaceVariant'
         return f'props.colorOrNull("{name}") ?: Color.Unspecified'
@@ -1272,6 +1570,14 @@ def build_action_lambda_arg_name(param_name: str) -> str:
     return "value"
 
 
+def _supports_text_fallback_for_content(component: str) -> bool:
+    return (
+        component.endswith("Button")
+        and "Icon" not in component
+        and "FloatingAction" not in component
+    )
+
+
 def build_generic_renderer_function(spec: ComponentSpec, params: Sequence[Param]) -> str:
     component = spec.dsl_name
     func_name = f"render{component}Node"
@@ -1281,7 +1587,8 @@ def build_generic_renderer_function(spec: ComponentSpec, params: Sequence[Param]
     lines.append(f"internal fun {func_name}(")
     lines.append("    node: ToolPkgComposeDslNode,")
     lines.append("    onAction: (String, Any?) -> Unit,")
-    lines.append("    nodePath: String")
+    lines.append("    nodePath: String,")
+    lines.append("    modifierResolver: ComposeDslModifierResolver")
     lines.append(") {")
     lines.append("    val props = node.props")
 
@@ -1291,25 +1598,22 @@ def build_generic_renderer_function(spec: ComponentSpec, params: Sequence[Param]
 
     action_params: List[str] = []
     for param in params:
-        if _is_lambda_type(param.type) and param.name in {"onClick", "onCheckedChange", "onValueChange"}:
+        if is_action_lambda_param(param):
             action_params.append(param.name)
     for name in action_params:
         lines.append(f'    val {name}ActionId = ToolPkgComposeDslParser.extractActionId(props["{name}"])')
 
     arg_lines: List[str] = []
-    has_content = False
+    icon_button_like = component.endswith("IconButton") or component == "IconToggleButton"
     for param in params:
         name = param.name
         type_name = param.type
         if _is_lambda_type(type_name):
-            if name == "content":
-                has_content = True
-                continue
-            if name in {"onClick", "onCheckedChange", "onValueChange"}:
+            if is_action_lambda_param(param):
                 arg_type = parse_lambda_single_arg_type(type_name)
                 arg_ts = map_lambda_arg_to_ts(arg_type)
                 action_id_var = f"{name}ActionId"
-                if arg_type is None:
+                if is_zero_arg_unit_lambda_type(type_name):
                     arg_lines.append(
                         f"        {name} = {{\n"
                         f"            if (!{action_id_var}.isNullOrBlank()) {{\n"
@@ -1331,11 +1635,90 @@ def build_generic_renderer_function(spec: ComponentSpec, params: Sequence[Param]
                 if param.has_default:
                     continue
                 raise RuntimeError(f"unsupported lambda arg type for {component}.{name}: {type_name}")
+            if is_slot_lambda_param(param):
+                slot_modifier_resolver = scope_modifier_resolver_expr(parse_lambda_receiver_type(type_name))
+                fallback_to_children = name == "content"
+                if fallback_to_children and icon_button_like:
+                    arg_lines.append(
+                        f"        {name} = {{\n"
+                        f'            val slotNodes = node.slotChildren("{name}", fallbackToChildren = true)\n'
+                        f"            if (slotNodes.isNotEmpty()) {{\n"
+                        f"                renderComposeDslNodes(\n"
+                        f"                    nodes = slotNodes,\n"
+                        f"                    onAction = onAction,\n"
+                        f'                    nodePath = \"$nodePath:{name}\",\n'
+                        f"                    modifierResolver = {slot_modifier_resolver}\n"
+                        f"                )\n"
+                        f"            }} else {{\n"
+                        f'                val iconName = props.string("icon", props.string("name", "info"))\n'
+                        f"                Icon(\n"
+                        f"                    imageVector = iconFromName(iconName),\n"
+                        f"                    contentDescription = null\n"
+                        f"                )\n"
+                        f"            }}\n"
+                        f"        }}"
+                    )
+                elif fallback_to_children and _supports_text_fallback_for_content(component):
+                    arg_lines.append(
+                        f"        {name} = {{\n"
+                        f'            val slotNodes = node.slotChildren("{name}", fallbackToChildren = true)\n'
+                        f"            if (slotNodes.isNotEmpty()) {{\n"
+                        f"                renderComposeDslNodes(\n"
+                        f"                    nodes = slotNodes,\n"
+                        f"                    onAction = onAction,\n"
+                        f'                    nodePath = \"$nodePath:{name}\",\n'
+                        f"                    modifierResolver = {slot_modifier_resolver}\n"
+                        f"                )\n"
+                        f"            }} else {{\n"
+                        f'                Text(props.string("text", "{component}"))\n'
+                        f"            }}\n"
+                        f"        }}"
+                    )
+                else:
+                    fallback_literal = "true" if fallback_to_children else "false"
+                    arg_lines.append(
+                        f"        {name} = {{\n"
+                        f"            renderSlotChildren(\n"
+                        f"                node = node,\n"
+                        f'                slotName = "{name}",\n'
+                        f"                onAction = onAction,\n"
+                        f"                nodePath = nodePath,\n"
+                        f"                modifierResolver = " + slot_modifier_resolver + ",\n"
+                        f"                fallbackToChildren = {fallback_literal}\n"
+                        f"            )\n"
+                        f"        }}"
+                    )
+                continue
+            if is_host_slot_lambda_param(param):
+                fallback_to_children = name == "content"
+                host_arg_type = host_slot_lambda_arg_type(type_name)
+                if name == "content" and host_arg_type is not None and _is_padding_values_type(host_arg_type):
+                    arg_lines.append(
+                        f"        {name} = {{ innerPadding ->\n"
+                        f"            Box(\n"
+                        f"                modifier = Modifier\n"
+                        f"                    .padding(innerPadding)\n"
+                        f"                    .consumeWindowInsets(innerPadding)\n"
+                        f"            ) {{\n"
+                        f"                renderSlotChildren(\n"
+                        f"                    node = node,\n"
+                        f'                    slotName = "{name}",\n'
+                        f"                    onAction = onAction,\n"
+                        f"                    nodePath = nodePath,\n"
+                        f"                    fallbackToChildren = " + ("true" if fallback_to_children else "false") + "\n"
+                        f"                )\n"
+                        f"            }}\n"
+                        f"        }}"
+                    )
+                    continue
+                if param.has_default:
+                    continue
+                raise RuntimeError(f"unsupported host slot lambda param: {component}.{name}: {type_name}")
             if not param.has_default:
                 raise RuntimeError(f"unsupported required lambda param: {component}.{name}: {type_name}")
             continue
 
-        expr = _generic_default_value_expr(param)
+        expr = _generic_default_value_expr(component, param)
         if expr is None:
             if param.has_default:
                 continue
@@ -1349,22 +1732,7 @@ def build_generic_renderer_function(spec: ComponentSpec, params: Sequence[Param]
     lines.append(f"    {fq_fn}(")
     if arg_lines:
         lines.append(",\n".join(arg_lines))
-    lines.append("    )" + (" {" if has_content else ""))
-    if has_content:
-        icon_button_like = component.endswith("IconButton") or component == "IconToggleButton"
-        if icon_button_like:
-            lines.append("        if (node.children.isNotEmpty()) {")
-            lines.append("            renderNodeChildren(node, onAction, nodePath)")
-            lines.append("        } else {")
-            lines.append('            val iconName = props.string("icon", props.string("name", "info"))')
-            lines.append("            Icon(")
-            lines.append("                imageVector = iconFromName(iconName),")
-            lines.append("                contentDescription = null")
-            lines.append("            )")
-            lines.append("        }")
-        else:
-            lines.append("        renderNodeChildren(node, onAction, nodePath)")
-        lines.append("    }")
+    lines.append("    )")
     lines.append("}")
     return "\n".join(lines)
 
@@ -1396,9 +1764,11 @@ def build_ts_generated_file(
     lines.append("  ComposeAlignment,")
     lines.append("  ComposeArrangement,")
     lines.append("  ComposeBorder,")
+    lines.append("  ComposeChildren,")
     lines.append("  ComposeColor,")
     lines.append("  ComposeCommonProps,")
     lines.append("  ComposeNodeFactory,")
+    lines.append("  ComposePadding,")
     lines.append("  ComposeShape,")
     lines.append("  ComposeTextFieldStyle,")
     lines.append("  ComposeTextStyle,")
@@ -1416,6 +1786,7 @@ def build_ts_generated_file(
         iface = f"ComposeGenerated{component}Props"
         lines.append(f"export interface {iface} extends ComposeCommonProps {{")
         emitted: Dict[str, Tuple[str, bool]] = {}
+        emitted.setdefault("zIndex", ("number", False))
         for param in component_params.get(component, []):
             mapped = map_param_to_ts(component, param)
             if mapped is None:
@@ -1426,17 +1797,44 @@ def build_ts_generated_file(
                 continue
             emitted[prop_name] = (ts_type, required)
 
+        if any(param.name == "content" and (is_slot_lambda_param(param) or is_host_slot_lambda_param(param)) for param in component_params.get(component, [])):
+            emitted.setdefault("content", ("ComposeChildren", False))
+
         if component == "TextField":
-            emitted.setdefault("label", ("string", False))
-            emitted.setdefault("placeholder", ("string", False))
+            emitted["label"] = ("string | ComposeChildren", False)
+            emitted["placeholder"] = ("string | ComposeChildren", False)
+            emitted.setdefault("leadingIcon", ("ComposeChildren", False))
+            emitted.setdefault("trailingIcon", ("ComposeChildren", False))
+            emitted.setdefault("prefix", ("ComposeChildren", False))
+            emitted.setdefault("suffix", ("ComposeChildren", False))
+            emitted.setdefault("supportingText", ("ComposeChildren", False))
             emitted.setdefault("value", ("string", True))
             emitted.setdefault("isPassword", ("boolean", False))
             emitted.setdefault("style", ("ComposeTextFieldStyle", False))
 
+        if component == "Switch":
+            emitted.setdefault("checkedThumbColor", ("ComposeColor", False))
+            emitted.setdefault("checkedTrackColor", ("ComposeColor", False))
+            emitted.setdefault("uncheckedThumbColor", ("ComposeColor", False))
+            emitted.setdefault("uncheckedTrackColor", ("ComposeColor", False))
+            emitted.setdefault("thumbContent", ("ComposeChildren", False))
+
+        if component == "Scaffold":
+            emitted.setdefault("containerColor", ("ComposeColor", False))
+
         if component == "IconButton" or component.endswith("IconButton") or component == "IconToggleButton":
             emitted.setdefault("icon", ("string", False))
 
-        if component == "Card":
+        if component in {"Button", "FilledTonalButton", "OutlinedButton"}:
+            emitted.setdefault("contentPadding", ("ComposePadding", False))
+
+        if component == "Button":
+            emitted.setdefault("text", ("string", False))
+
+        if component == "Button" or component.endswith("Button"):
+            emitted.setdefault("shape", ("ComposeShape", False))
+
+        if component == "Card" or component.endswith("Card"):
             emitted.setdefault("containerColor", ("ComposeColor", False))
             emitted.setdefault("contentColor", ("ComposeColor", False))
             emitted.setdefault("shape", ("ComposeShape", False))
@@ -1448,9 +1846,23 @@ def build_ts_generated_file(
             emitted.setdefault("contentColor", ("ComposeColor", False))
             emitted.setdefault("shape", ("ComposeShape", False))
             emitted.setdefault("alpha", ("number", False))
+            emitted.setdefault("onClick", ("() => void | Promise<void>", False))
 
         if component == "Icon":
             emitted.setdefault("size", ("number", False))
+
+        if component == "Image":
+            emitted.setdefault("contentDescription", ("string", False))
+            emitted.setdefault("url", ("string", False))
+            emitted.setdefault("uri", ("string", False))
+            emitted.setdefault("path", ("string", False))
+            emitted.setdefault("fileUri", ("string", False))
+            emitted.setdefault("src", ("string", False))
+            emitted.setdefault("name", ("string", False))
+            emitted.setdefault("icon", ("string", False))
+            emitted.setdefault("alpha", ("number", False))
+            emitted.setdefault("contentAlignment", ("ComposeAlignment", False))
+            emitted.setdefault("contentScale", ("ComposeContentScale", False))
 
         if component == "Row":
             emitted.setdefault("onClick", ("() => void | Promise<void>", False))
@@ -1474,6 +1886,7 @@ def build_ts_generated_file(
     if extra_ts_components:
         for component, props in extra_ts_components.items():
             lines.append(f"export interface ComposeGenerated{component}Props extends ComposeCommonProps {{")
+            lines.append("  zIndex?: number;")
             for prop_name, ts_type, required in props:
                 opt = "" if required else "?"
                 lines.append(f"  {prop_name}{opt}: {ts_type};")
@@ -1497,7 +1910,7 @@ def build_kotlin_registry_file(components: Sequence[ComponentSpec], output_path:
     entries = [
         (
             f'    normalizeToken("{c.dsl_name}") to '
-            f'{{ node, onAction, nodePath -> render{c.dsl_name}Node(node, onAction, nodePath) }},'
+            f'{{ node, onAction, nodePath, modifierResolver -> render{c.dsl_name}Node(node, onAction, nodePath, modifierResolver) }},'
         )
         for c in components
     ]
@@ -1590,7 +2003,7 @@ def main() -> None:
         all_components,
         ts_output,
         extra_ts_components=extra_ts_components,
-        extra_ts_imports=["ComposeCanvasCommand"]
+        extra_ts_imports=["ComposeCanvasCommand", "ComposeContentScale"]
     )
     build_kotlin_registry_file(all_components, kt_output)
     build_kotlin_renderers_file(all_params, all_components, kt_renderers_output)

@@ -8,7 +8,7 @@ import {
     DirectoryListingData, FileContentData, BinaryFileContentData, FileOperationData, FileExistsData,
     FindFilesResultData, FileInfoData, FileConversionResultData, FileFormatConversionsResultData,
     HttpResponseData, VisitWebResultData,
-    SleepResultData, SystemSettingData, AppOperationData, AppListData,
+    SleepResultData, StringResultData, SystemSettingData, AppOperationData, AppListData,
     DeviceInfoResultData, NotificationData, LocationData,
     UIPageResultData, UIActionResultData, CombinedOperationResultData, AutomationExecutionResultData,
     CalculationResultData, FFmpegResultData, ADBResultData, IntentResultData, TerminalCommandResultData, HiddenTerminalCommandResultData, TerminalSessionScreenResultData,
@@ -58,6 +58,7 @@ export interface ToolResultMap {
     'visit_web': VisitWebResultData;
     'browser_click': StringResultData;
     'browser_close': StringResultData;
+    'browser_close_all': StringResultData;
     'browser_console_messages': StringResultData;
     'browser_drag': StringResultData;
     'browser_evaluate': StringResultData;
@@ -143,6 +144,7 @@ export interface ToolResultMap {
 
     // Terminal operations
     'execute_terminal': TerminalCommandResultData;
+    'execute_in_terminal_session_streaming': TerminalCommandResultData;
     'execute_hidden_terminal_command': HiddenTerminalCommandResultData;
     'get_terminal_session_screen': TerminalSessionScreenResultData;
 
@@ -166,7 +168,6 @@ export interface ToolResultMap {
     'delete_chat': ChatDeleteResultData;
 
     'send_message_to_ai': MessageSendResultData;
-    'send_message_to_ai_advanced': MessageSendResultData;
     'list_character_cards': CharacterCardListResultData;
     'get_chat_messages': ChatMessagesResultData;
 

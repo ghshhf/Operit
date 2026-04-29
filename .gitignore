@@ -30,6 +30,9 @@ build
 .env.*
 !.env.*.example
 tools/github/.env
+.wrangler/
+.dev.vars*
+.npm-cache
 
 app/src/main/assets/pets
 
@@ -58,3 +61,12 @@ operit-pc-agent.zip
 
 # generated toolpkg bundles
 *.toolpkg
+.venv
+
+# generated React web-chat build outputs
+web-chat/dist/
+app/src/main/assets/web-chat/
+
+
+.sync_example_packages_hot_reload_state.json
+debug_output

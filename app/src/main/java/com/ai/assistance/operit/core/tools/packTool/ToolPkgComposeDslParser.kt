@@ -7,7 +7,8 @@ import org.json.JSONTokener
 data class ToolPkgComposeDslNode(
     val type: String,
     val props: Map<String, Any?>,
-    val children: List<ToolPkgComposeDslNode>
+    val children: List<ToolPkgComposeDslNode>,
+    val slots: Map<String, List<ToolPkgComposeDslNode>> = emptyMap()
 )
 
 data class ToolPkgComposeDslRenderResult(
@@ -87,6 +88,7 @@ object ToolPkgComposeDslParser {
 
         val props = asMap(nodeObj.opt("props"))
         val children = mutableListOf<ToolPkgComposeDslNode>()
+        val slots = linkedMapOf<String, List<ToolPkgComposeDslNode>>()
 
         val rawChildren = nodeObj.opt("children")
         when (rawChildren) {
@@ -105,7 +107,61 @@ object ToolPkgComposeDslParser {
             }
         }
 
-        return ToolPkgComposeDslNode(type = type, props = props, children = children)
+        val rawSlots = nodeObj.opt("slots")
+        when (rawSlots) {
+            is JSONObject -> {
+                rawSlots.keys().forEach { slotName ->
+                    val slotChildren = mutableListOf<ToolPkgComposeDslNode>()
+                    when (val rawSlotValue = rawSlots.opt(slotName)) {
+                        is JSONArray -> {
+                            for (index in 0 until rawSlotValue.length()) {
+                                parseNode(rawSlotValue.opt(index))?.let { slotChildren.add(it) }
+                            }
+                        }
+                        is List<*> -> {
+                            rawSlotValue.forEach { child ->
+                                parseNode(child)?.let { slotChildren.add(it) }
+                            }
+                        }
+                        is JSONObject -> {
+                            parseNode(rawSlotValue)?.let { slotChildren.add(it) }
+                        }
+                    }
+                    if (slotChildren.isNotEmpty()) {
+                        slots[slotName] = slotChildren
+                    }
+                }
+            }
+            is Map<*, *> -> {
+                rawSlots.entries.forEach { (slotName, rawSlotValue) ->
+                    val normalizedSlotName = slotName?.toString()?.trim().orEmpty()
+                    if (normalizedSlotName.isBlank()) {
+                        return@forEach
+                    }
+                    val slotChildren = mutableListOf<ToolPkgComposeDslNode>()
+                    when (rawSlotValue) {
+                        is List<*> -> {
+                            rawSlotValue.forEach { child ->
+                                parseNode(child)?.let { slotChildren.add(it) }
+                            }
+                        }
+                        is Map<*, *> -> {
+                            parseNode(rawSlotValue)?.let { slotChildren.add(it) }
+                        }
+                    }
+                    if (slotChildren.isNotEmpty()) {
+                        slots[normalizedSlotName] = slotChildren
+                    }
+                }
+            }
+        }
+
+        return ToolPkgComposeDslNode(
+            type = type,
+            props = props,
+            children = children,
+            slots = slots
+        )
     }
 
     private fun asMap(value: Any?): Map<String, Any?> {
@@ -149,4 +205,3 @@ object ToolPkgComposeDslParser {
         }
     }
 }
-

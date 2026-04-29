@@ -26,7 +26,7 @@ import org.json.JSONObject
  * This provider keeps the shared OpenAI request/response handling while applying OpenRouter's
  * request-body conventions and default headers.
  */
-class OpenRouterProvider(
+open class OpenRouterProvider(
     apiEndpoint: String,
     apiKeyProvider: ApiKeyProvider,
     modelName: String,

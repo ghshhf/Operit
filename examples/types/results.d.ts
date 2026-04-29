@@ -280,8 +280,8 @@ export interface DeviceInfoResultData {
  * Sleep result data
  */
 export interface SleepResultData {
-    sleptMs: number;
     requestedMs: number;
+    sleptMs: number;
     toString(): string;
 }
 
@@ -312,6 +312,31 @@ export interface AppOperationData {
 export interface AppListData {
     includesSystemApps: boolean;
     packages: string[];
+    toString(): string;
+}
+
+/**
+ * Single app usage time entry
+ */
+export interface AppUsageTimeEntry {
+    packageName: string;
+    appName: string;
+    totalForegroundTimeMs: number;
+    lastTimeUsed: number;
+    isSystemApp: boolean;
+}
+
+/**
+ * App usage time result data
+ */
+export interface AppUsageTimeResultData {
+    startTime: number;
+    endTime: number;
+    sinceHours: number;
+    requestedPackageName?: string;
+    includesSystemApps: boolean;
+    totalEntries: number;
+    entries: AppUsageTimeEntry[];
     toString(): string;
 }
 
@@ -495,6 +520,32 @@ export interface TerminalCommandResultData {
     timedOut?: boolean;
 
     /** Returns a formatted string representation of the terminal execution result */
+    toString(): string;
+}
+
+/**
+ * Terminal command streaming event data
+ */
+export interface TerminalStreamEventData {
+    /** Event type, currently "start" or "chunk" */
+    type: string;
+
+    /** The command being executed */
+    command: string;
+
+    /** ID of the terminal session used for execution */
+    sessionId: string;
+
+    /** Incremental output chunk for "chunk" events */
+    chunk?: string | null;
+
+    /** Zero-based chunk index */
+    chunkIndex?: number | null;
+
+    /** Total received character count so far */
+    receivedChars?: number | null;
+
+    /** Returns a formatted string representation of the stream event */
     toString(): string;
 }
 
@@ -1103,6 +1154,7 @@ export interface SpeechTtsHttpConfigResultItem {
     httpMethod: string;
     requestBody: string;
     contentType: string;
+    localeTag: string;
     voiceId: string;
     modelName: string;
     responsePipeline: Array<{

@@ -20,6 +20,7 @@ import com.ai.assistance.operit.core.tools.packTool.PackageManager
 import com.ai.assistance.operit.data.model.AITool
 import com.ai.assistance.operit.data.model.AttachmentInfo
 import com.ai.assistance.operit.data.model.ChatMessage
+import com.ai.assistance.operit.data.model.ChatMessageTimestampAllocator
 import com.ai.assistance.operit.data.model.ToolParameter
 import com.ai.assistance.operit.data.model.PromptFunctionType
 import com.ai.assistance.operit.data.preferences.ApiPreferences
@@ -104,7 +105,6 @@ object AIMessageManager {
      *
      * @param messageText 用户输入的原始文本。
      * @param attachments 附件列表。
-     * @param enableMemoryQuery 是否允许AI查询记忆。
      * @param enableWorkspaceAttachment 是否启用工作区附着功能。
      * @param workspacePath 工作区路径。
      * @param workspaceEnv 工作区环境。
@@ -118,7 +118,6 @@ object AIMessageManager {
         messageText: String,
         proxySenderName: String? = null,
         attachments: List<AttachmentInfo>,
-        enableMemoryQuery: Boolean,
         enableWorkspaceAttachment: Boolean = false,
         workspacePath: String? = null,
         workspaceEnv: String? = null,
@@ -287,8 +286,7 @@ object AIMessageManager {
      * @param workspacePath 当前工作区路径。
      * @param promptFunctionType 提示功能类型。
      * @param enableThinking 是否启用思考过程。
-     * @param thinkingGuidance 是否启用思考引导。
-     * @param enableMemoryQuery 是否允许AI查询记忆。
+     * @param enableMemoryAutoUpdate 是否允许任务完成后自动更新记忆。
      * @param maxTokens 最大token数量。
      * @param tokenUsageThreshold token使用阈值。
      * @param onNonFatalError 非致命错误回调。
@@ -306,8 +304,7 @@ object AIMessageManager {
         workspacePath: String?,
         promptFunctionType: PromptFunctionType,
         enableThinking: Boolean,
-        thinkingGuidance: Boolean,
-        enableMemoryQuery: Boolean,
+        enableMemoryAutoUpdate: Boolean,
         maxTokens: Int,
         tokenUsageThreshold: Double,
         onNonFatalError: suspend (error: String) -> Unit,
@@ -321,8 +318,10 @@ object AIMessageManager {
         groupParticipantNamesText: String? = null,
         proxySenderName: String? = null,
         onToolInvocation: (suspend (String) -> Unit)? = null,
+        notifyReplyOverride: Boolean? = null,
         chatModelConfigIdOverride: String? = null,
-        chatModelIndexOverride: Int? = null
+        chatModelIndexOverride: Int? = null,
+        disableWarning: Boolean = false
     ): SharedStream<String> {
         val totalStartTime = messageTimingNow()
         val chatKey = chatId ?: DEFAULT_CHAT_KEY
@@ -385,6 +384,7 @@ object AIMessageManager {
                 params = MessageProcessingHookParams(
                     context = context,
                     enhancedAIService = enhancedAiService,
+                    chatId = chatId,
                     messageContent = messageContent,
                     chatHistory = memoryForRequest,
                     workspacePath = workspacePath,
@@ -432,28 +432,31 @@ object AIMessageManager {
             // 使用普通模式
             val prepareRequestStartTime = messageTimingNow()
             val responseStream = enhancedAiService.sendMessage(
-                message = messageContent,
-                chatId = chatId,
-                chatHistory = memoryForRequest, // Correct parameter name is chatHistory
-                workspacePath = workspacePath,
-                promptFunctionType = promptFunctionType,
-                enableThinking = enableThinking,
-                thinkingGuidance = thinkingGuidance,
-                enableMemoryQuery = enableMemoryQuery,
-                maxTokens = maxTokens,
-                tokenUsageThreshold = tokenUsageThreshold,
-                onNonFatalError = onNonFatalError,
-                onTokenLimitExceeded = onTokenLimitExceeded, // 传递回调
-                characterName = characterName,
-                avatarUri = avatarUri,
-                roleCardId = roleCardId,
-                enableGroupOrchestrationHint = groupOrchestrationMode,
-                groupParticipantNamesText = groupParticipantNamesText,
-                proxySenderName = proxySenderName,
-                onToolInvocation = onToolInvocation,
-                chatModelConfigIdOverride = chatModelConfigIdOverride,
-                chatModelIndexOverride = chatModelIndexOverride,
-                stream = enableStream
+                EnhancedAIService.SendMessageOptions(
+                    message = messageContent,
+                    chatId = chatId,
+                    chatHistory = memoryForRequest,
+                    workspacePath = workspacePath,
+                    promptFunctionType = promptFunctionType,
+                    enableThinking = enableThinking,
+                    enableMemoryAutoUpdate = enableMemoryAutoUpdate,
+                    maxTokens = maxTokens,
+                    tokenUsageThreshold = tokenUsageThreshold,
+                    onNonFatalError = onNonFatalError,
+                    onTokenLimitExceeded = onTokenLimitExceeded,
+                    characterName = characterName,
+                    avatarUri = avatarUri,
+                    roleCardId = roleCardId,
+                    enableGroupOrchestrationHint = groupOrchestrationMode,
+                    groupParticipantNamesText = groupParticipantNamesText,
+                    proxySenderName = proxySenderName,
+                    onToolInvocation = onToolInvocation,
+                    notifyReplyOverride = notifyReplyOverride,
+                    chatModelConfigIdOverride = chatModelConfigIdOverride,
+                    chatModelIndexOverride = chatModelIndexOverride,
+                    stream = enableStream,
+                    disableWarning = disableWarning
+                )
             ).shareRevisable(
                 scope = scope,
                 onComplete = {
@@ -483,8 +486,6 @@ object AIMessageManager {
         workspacePath: String? = null,
         workspaceEnv: String? = null,
         promptFunctionType: PromptFunctionType = PromptFunctionType.CHAT,
-        thinkingGuidance: Boolean = false,
-        enableMemoryQuery: Boolean = true,
         roleCardId: String? = null,
         currentRoleName: String? = null,
         splitHistoryByRole: Boolean = true,
@@ -516,8 +517,6 @@ object AIMessageManager {
                 workspacePath = workspacePath,
                 workspaceEnv = workspaceEnv,
                 promptFunctionType = promptFunctionType,
-                thinkingGuidance = thinkingGuidance,
-                enableMemoryQuery = enableMemoryQuery,
                 roleCardId = roleCardId,
                 enableGroupOrchestrationHint = groupOrchestrationMode,
                 groupParticipantNamesText = groupParticipantNamesText,
@@ -688,6 +687,55 @@ object AIMessageManager {
             return cleaned
         }
 
+        fun extractXmlBody(block: String): String {
+            val openingEnd = block.indexOf('>')
+            val closingStart = block.lastIndexOf("</")
+            if (openingEnd == -1 || closingStart <= openingEnd) return ""
+            return block.substring(openingEnd + 1, closingStart).trim()
+        }
+
+        fun stripXmlTagsForReview(text: String): String {
+            return ChatMarkupRegex.anyXmlTag.replace(text, " ").trim()
+        }
+
+        fun condenseToolParams(block: String, maxParams: Int = 8): String {
+            val params = ChatMarkupRegex.toolParamPattern.findAll(block).mapNotNull { match ->
+                val paramName = match.groupValues.getOrNull(1)?.trim().orEmpty()
+                val rawValue = stripXmlTagsForReview(match.groupValues.getOrNull(2).orEmpty())
+                val preview = condenseHeadTail(rawValue, headChars = 72, tailChars = 32)
+                if (paramName.isBlank() || preview.isBlank()) {
+                    null
+                } else {
+                    "$paramName=$preview"
+                }
+            }.toList()
+            if (params.isEmpty()) return ""
+            val visible = params.take(maxParams)
+            val omittedCount = (params.size - visible.size).coerceAtLeast(0)
+            return buildString {
+                append(visible.joinToString("; "))
+                if (omittedCount > 0) {
+                    append("; ...+")
+                    append(omittedCount)
+                }
+            }
+        }
+
+        fun condenseToolBodyPreview(block: String): String {
+            val bodyWithoutParams = ChatMarkupRegex.toolParamPattern.replace(extractXmlBody(block), " ")
+            val cleanedBody = stripXmlTagsForReview(bodyWithoutParams)
+            return condenseHeadTail(cleanedBody, headChars = 120, tailChars = 48)
+        }
+
+        fun condenseToolResultPreview(block: String): String {
+            val resultBody =
+                ChatMarkupRegex.contentTag.find(block)?.groupValues?.getOrNull(1)
+                    ?: ChatMarkupRegex.errorTag.find(block)?.groupValues?.getOrNull(1)
+                    ?: extractXmlBody(block)
+            val cleanedBody = stripXmlTagsForReview(resultBody)
+            return condenseHeadTail(cleanedBody, headChars = 140, tailChars = 56)
+        }
+
         fun pruneUserMessageForReview(text: String): String {
             val removedLargeTags = text
                 .replace(
@@ -710,17 +758,33 @@ object AIMessageManager {
                     ?.groupValues
                     ?.getOrNull(1)
                     ?.ifBlank { null }
-                if (name != null) {
-                    context.getString(R.string.ai_message_tool_result_omitted, name)
-                } else {
-                    context.getString(R.string.ai_message_tool_result_omitted_short)
+                val status = ChatMarkupRegex.statusAttr
+                    .find(attrs)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.ifBlank { null }
+                val statusSuffix = status?.let { " $it" }.orEmpty()
+                val preview = condenseToolResultPreview(mr.value)
+                buildString {
+                    if (name != null) {
+                        append("[结果: ")
+                        append(name)
+                        append(statusSuffix)
+                        append("]")
+                    } else {
+                        append(context.getString(R.string.ai_message_tool_result_omitted_short))
+                    }
+                    if (preview.isNotBlank()) {
+                        append(" ")
+                        append(preview)
+                    }
                 }
             }
         }
 
         fun condenseUserForReview(text: String): String {
             val pruned = pruneUserMessageForReview(text)
-            return condenseHeadTail(pruned, headChars = 60, tailChars = 20)
+            return condenseHeadTail(pruned, headChars = 240, tailChars = 96)
         }
 
         fun condenseAssistantForReview(text: String): String {
@@ -774,7 +838,7 @@ object AIMessageManager {
                 .mapNotNull { seg ->
                     when (seg.kind) {
                         "text" -> {
-                            val stripped = seg.raw.replace(Regex("<[^>]*>"), " ").trim()
+                            val stripped = stripXmlTagsForReview(seg.raw)
                             if (stripped.isBlank()) null else seg.copy(raw = stripped)
                         }
                         else -> seg
@@ -782,10 +846,10 @@ object AIMessageManager {
                 }
                 .toMutableList()
 
-            val maxSegments = 13
+            val maxSegments = 25
             if (cleanedSegments.size > maxSegments) {
-                val head = cleanedSegments.take(6)
-                val tail = cleanedSegments.takeLast(5)
+                val head = cleanedSegments.take(12)
+                val tail = cleanedSegments.takeLast(10)
                 val omitted = (cleanedSegments.size - head.size - tail.size).coerceAtLeast(0)
                 cleanedSegments.clear()
                 cleanedSegments.addAll(head)
@@ -797,11 +861,27 @@ object AIMessageManager {
             val parts = cleanedSegments.mapIndexedNotNull { index, seg ->
                 when (seg.kind) {
                     "text" -> {
-                        val headChars = if (index == lastTextIndex) 60 else 24
-                        val tailChars = if (index == lastTextIndex) 24 else 12
+                        val headChars = if (index == lastTextIndex) 280 else 120
+                        val tailChars = if (index == lastTextIndex) 120 else 48
                         condenseHeadTail(seg.raw, headChars = headChars, tailChars = tailChars).takeIf { it.isNotBlank() }
                     }
-                    "tool" -> context.getString(R.string.ai_message_tool_start, seg.toolName ?: "tool")
+                    "tool" -> {
+                        val name = seg.toolName ?: "tool"
+                        val paramsPreview = condenseToolParams(seg.raw)
+                        val bodyPreview = condenseToolBodyPreview(seg.raw)
+                        buildString {
+                            append(context.getString(R.string.ai_message_tool_start, name))
+                            if (paramsPreview.isNotBlank()) {
+                                append(" ")
+                                append(paramsPreview)
+                            }
+                            if (bodyPreview.isNotBlank()) {
+                                if (paramsPreview.isNotBlank()) append(" | ")
+                                else append(" ")
+                                append(bodyPreview)
+                            }
+                        }.trim().ifBlank { null }
+                    }
                     "tool_result" -> {
                         val s = seg.status?.lowercase()
                         val statusText = when {
@@ -811,10 +891,23 @@ object AIMessageManager {
                             else -> s
                         }
                         val name = seg.toolName ?: "tool"
-                        if (statusText.isBlank()) {
-                            context.getString(R.string.ai_message_result_omitted, name)
-                        } else {
-                            context.getString(R.string.ai_message_result_omitted_with_status, name, statusText)
+                        val resultPreview = condenseToolResultPreview(seg.raw)
+                        buildString {
+                            if (statusText.isBlank()) {
+                                append("[结果: ")
+                                append(name)
+                                append("]")
+                            } else {
+                                append("[结果: ")
+                                append(name)
+                                append(" ")
+                                append(statusText)
+                                append("]")
+                            }
+                            if (resultPreview.isNotBlank()) {
+                                append(" ")
+                                append(resultPreview)
+                            }
                         }
                     }
                     else -> null
@@ -842,7 +935,7 @@ object AIMessageManager {
                     }
 
                     if (cleanedContent.isNotBlank()) {
-                        val displayContent = if (message.sender == "assistant") {
+                        val displayContent = if (message.sender == "ai") {
                             condenseAssistantForReview(cleanedContent)
                         } else {
                             condenseUserForReview(cleanedContent)
@@ -929,7 +1022,7 @@ object AIMessageManager {
                 ChatMessage(
                     sender = "summary",
                     content = finalSummary,
-                    timestamp = System.currentTimeMillis(),
+                    timestamp = ChatMessageTimestampAllocator.next(),
                     roleName = "system" // 总结消息的角色名
                 )
             }

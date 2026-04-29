@@ -1,11 +1,50 @@
 import toolboxUI from "./ui/index.ui.js";
 import {
   appendExtraInfoToMessage,
+  getAppContext,
   getExtraInfoInjectionEnabled,
   loadSettings,
   resolveExtraInfoI18n,
   setExtraInfoInjectionEnabled,
 } from "./shared";
+
+const EnhancedAIService = Java.com.ai.assistance.operit.api.chat.EnhancedAIService;
+const InputProcessingStateBase = "com.ai.assistance.operit.data.model.InputProcessingState$";
+
+function resolveInjectionStatusText(): string {
+  const locale = typeof getLang === "function" ? String(getLang() || "").trim().toLowerCase() : "";
+  return locale.startsWith("en")
+    ? "Injecting extra info"
+    : "正在注入额外信息";
+}
+
+function pushInjectionProcessingState(chatId?: string): void {
+  try {
+    const context = getAppContext();
+    if (!context) {
+      return;
+    }
+    const resolvedChatId = String(chatId ?? getChatId() ?? "").trim();
+    const service = resolvedChatId
+      ? EnhancedAIService.getChatInstance(context, resolvedChatId)
+      : EnhancedAIService.getInstance(context);
+    const state = Java.newInstance(
+      InputProcessingStateBase + "Processing",
+      resolveInjectionStatusText()
+    );
+    service.setInputProcessingState(state);
+  } catch (error) {
+    console.log("message_insert pushInjectionProcessingState error", String(error));
+  }
+}
+
+async function appendExtraInfoWithStatus(
+  processedInput: string,
+  chatId?: string
+) {
+  pushInjectionProcessingState(chatId);
+  return appendExtraInfoToMessage(processedInput, chatId || undefined);
+}
 
 export function registerToolPkg(): boolean {
   ToolPkg.registerToolboxUiModule({
@@ -57,7 +96,7 @@ export async function onPromptInput(
   }
 
   const chatId = String(input.eventPayload.chatId ?? getChatId() ?? "").trim();
-  return appendExtraInfoToMessage(
+  return appendExtraInfoWithStatus(
     processedInput,
     chatId || undefined
   );
@@ -83,7 +122,7 @@ export async function onPromptFinalize(
   }
 
   const chatId = String(input.eventPayload.chatId ?? getChatId() ?? "").trim();
-  return appendExtraInfoToMessage(
+  return appendExtraInfoWithStatus(
     processedInput,
     chatId || undefined
   );

@@ -3,12 +3,14 @@ package com.ai.assistance.operit.api.chat.llmprovider
 import android.content.Context
 import com.ai.assistance.operit.core.chat.hooks.PromptTurn
 import com.ai.assistance.operit.core.chat.hooks.PromptTurnKind
-import com.ai.assistance.operit.core.chat.hooks.mergeAdjacentTurns
 import com.ai.assistance.operit.util.AppLogger
 import com.ai.assistance.operit.data.model.ModelParameter
 import com.ai.assistance.operit.data.model.ToolPrompt
+import com.ai.assistance.operit.data.preferences.ApiPreferences
 import com.ai.assistance.operit.util.ChatUtils
 import com.ai.assistance.operit.util.stream.Stream
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -58,15 +60,20 @@ class DeepseekProvider(
         preserveThinkInHistory: Boolean
     ): RequestBody {
         fun applyThinkingParamsIfNeeded(jsonObject: JSONObject) {
-            if (!enableThinking) return
+            val thinkingObject = jsonObject.optJSONObject("thinking") ?: JSONObject()
+            val thinkingType = if (enableThinking) "enabled" else "disabled"
+            thinkingObject.put("type", thinkingType)
+            jsonObject.put("thinking", thinkingObject)
 
-            // DeepSeek Thinking Mode: thinking: { type: enabled }
-            jsonObject.put(
-                "thinking",
-                JSONObject().apply {
-                    put("type", "enabled")
-                }
-            )
+            if (!enableThinking) {
+                AppLogger.d("DeepseekProvider", "DeepSeek thinking mode explicitly set to disabled")
+                return
+            }
+
+            val effort = resolveDeepseekThinkingEffort(context)
+            if (effort != null && !jsonObject.has("reasoning_effort")) {
+                jsonObject.put("reasoning_effort", effort)
+            }
         }
 
         // 如果未启用推理模式，直接使用父类的实现
@@ -75,8 +82,7 @@ class DeepseekProvider(
         jsonObject.put("model", modelName)
         jsonObject.put("stream", stream)
 
-        // DeepSeek Thinking Mode (官方字段为 thinking: { enabled/disabled })
-        // 这里仅在 enableThinking=true 时开启。
+        // DeepSeek Thinking Mode 默认开启，关闭时也必须显式发送 thinking.type=disabled。
         applyThinkingParamsIfNeeded(jsonObject)
 
         // 添加已启用的模型参数
@@ -160,7 +166,7 @@ class DeepseekProvider(
         useToolCall: Boolean
     ): JSONArray {
         val messagesArray = JSONArray()
-        val effectiveHistory = chatHistory.mergeAdjacentTurns()
+        val effectiveHistory = prepareHistoryForProvider(chatHistory, useToolCall)
 
         var queuedAssistantToolText: String? = null
         var queuedAssistantReasoning: String? = null
@@ -425,6 +431,27 @@ class DeepseekProvider(
 
         flushOpenToolCallsAsCancelled("history_end")
         return messagesArray
+    }
+
+    private fun resolveDeepseekThinkingEffort(context: Context): String? {
+        val qualityLevel = runCatching {
+            runBlocking {
+                ApiPreferences.getInstance(context).thinkingQualityLevelFlow.first()
+            }
+        }.getOrElse {
+            AppLogger.w(
+                "DeepseekProvider",
+                "Failed to read thinking quality level for DeepSeek, using provider default",
+                it
+            )
+            return null
+        }
+
+        return when (qualityLevel.coerceIn(1, 4)) {
+            1, 2 -> "high"
+            3, 4 -> "max"
+            else -> null
+        }
     }
 
     override suspend fun sendMessage(

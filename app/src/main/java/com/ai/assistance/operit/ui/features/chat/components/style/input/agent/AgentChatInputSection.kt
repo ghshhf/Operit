@@ -34,15 +34,14 @@ import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.DataObject
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.TipsAndUpdates
-import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.TipsAndUpdates
 import androidx.compose.material3.AlertDialog
@@ -134,7 +133,9 @@ import com.ai.assistance.operit.ui.features.chat.components.AttachmentSelectorPo
 import com.ai.assistance.operit.ui.features.chat.components.FullscreenInputDialog
 import com.ai.assistance.operit.ui.features.chat.components.style.input.common.CharacterCardModelBindingSwitchConfirmDialog
 import com.ai.assistance.operit.ui.features.chat.components.style.input.common.InputMenuToggleHookParams
+import com.ai.assistance.operit.ui.features.chat.components.style.input.common.InputMenuToggleDefinition
 import com.ai.assistance.operit.ui.features.chat.components.style.input.common.InputMenuTogglePluginRegistry
+import com.ai.assistance.operit.ui.features.chat.components.style.input.common.InputMenuToggleSlots
 import com.ai.assistance.operit.ui.features.chat.components.style.input.common.PendingMessageQueuePanel
 import com.ai.assistance.operit.ui.features.chat.components.style.input.common.PendingQueueMessageItem
 import com.ai.assistance.operit.ui.features.chat.components.style.input.common.ToolPromptManagerDialog
@@ -186,8 +187,6 @@ fun AgentChatInputSection(
     isWorkspaceOpen: Boolean = false,
     enableThinkingMode: Boolean = false,
     onToggleThinkingMode: () -> Unit = {},
-    enableThinkingGuidance: Boolean = false,
-    onToggleThinkingGuidance: () -> Unit = {},
     thinkingQualityLevel: Int = ApiPreferences.DEFAULT_THINKING_QUALITY_LEVEL,
     onThinkingQualityLevelChange: (Int) -> Unit = {},
     enableMaxContextMode: Boolean = false,
@@ -196,8 +195,8 @@ fun AgentChatInputSection(
     onToggleFeature: (String) -> Unit = {},
     permissionLevel: PermissionLevel = PermissionLevel.ASK,
     onTogglePermission: () -> Unit = {},
-    enableMemoryQuery: Boolean = false,
-    onToggleMemoryQuery: () -> Unit = {},
+    enableMemoryAutoUpdate: Boolean = false,
+    onToggleMemoryAutoUpdate: () -> Unit = {},
     isAutoReadEnabled: Boolean = false,
     onToggleAutoRead: () -> Unit = {},
     onToggleTools: () -> Unit = {},
@@ -205,8 +204,6 @@ fun AgentChatInputSection(
     onToggleDisableStreamOutput: () -> Unit = {},
     disableUserPreferenceDescription: Boolean = false,
     onToggleDisableUserPreferenceDescription: () -> Unit = {},
-    disableLatexDescription: Boolean = false,
-    onToggleDisableLatexDescription: () -> Unit = {},
     disableStatusTags: Boolean = false,
     onToggleDisableStatusTags: () -> Unit = {},
     onNavigateToUserPreferences: () -> Unit = {},
@@ -1336,14 +1333,14 @@ fun AgentChatInputSection(
                 currentConfigMapping = effectiveConfigMapping,
                 enableThinkingMode = enableThinkingMode,
                 onToggleThinkingMode = onToggleThinkingMode,
-                enableThinkingGuidance = enableThinkingGuidance,
-                onToggleThinkingGuidance = onToggleThinkingGuidance,
                 thinkingQualityLevel = thinkingQualityLevel,
                 onThinkingQualityLevelChange = onThinkingQualityLevelChange,
                 enableMaxContextMode = enableMaxContextMode,
                 onToggleEnableMaxContextMode = onToggleEnableMaxContextMode,
                 baseContextLengthInK = baseContextLengthInK,
                 maxContextLengthInK = maxContextLengthInK,
+                featureStates = featureStates,
+                onToggleFeature = onToggleFeature,
                 onSelectModel = onSelectModel,
                 onManageModels = {
                     showModelSelectorPopup.value = false
@@ -1362,8 +1359,8 @@ fun AgentChatInputSection(
                     showExtraSettingsPopup.value = false
                     onNavigateToUserPreferences()
                 },
-                enableMemoryQuery = enableMemoryQuery,
-                onToggleMemoryQuery = onToggleMemoryQuery,
+                enableMemoryAutoUpdate = enableMemoryAutoUpdate,
+                onToggleMemoryAutoUpdate = onToggleMemoryAutoUpdate,
                 featureStates = featureStates,
                 onToggleFeature = onToggleFeature,
                 isAutoReadEnabled = isAutoReadEnabled,
@@ -1376,8 +1373,6 @@ fun AgentChatInputSection(
                 onToggleDisableStreamOutput = onToggleDisableStreamOutput,
                 disableUserPreferenceDescription = disableUserPreferenceDescription,
                 onToggleDisableUserPreferenceDescription = onToggleDisableUserPreferenceDescription,
-                disableLatexDescription = disableLatexDescription,
-                onToggleDisableLatexDescription = onToggleDisableLatexDescription,
                 disableStatusTags = disableStatusTags,
                 onToggleDisableStatusTags = onToggleDisableStatusTags,
                 toolPromptVisibility = toolPromptVisibility,
@@ -1420,14 +1415,14 @@ private fun AgentModelSelectorPopup(
     currentConfigMapping: FunctionConfigMapping,
     enableThinkingMode: Boolean,
     onToggleThinkingMode: () -> Unit,
-    enableThinkingGuidance: Boolean,
-    onToggleThinkingGuidance: () -> Unit,
     thinkingQualityLevel: Int,
     onThinkingQualityLevelChange: (Int) -> Unit,
     enableMaxContextMode: Boolean,
     onToggleEnableMaxContextMode: () -> Unit,
     baseContextLengthInK: Float,
     maxContextLengthInK: Float,
+    featureStates: Map<String, Boolean>,
+    onToggleFeature: (String) -> Unit,
     onSelectModel: (String, Int) -> Unit,
     onManageModels: () -> Unit,
     onDismiss: () -> Unit,
@@ -1437,6 +1432,16 @@ private fun AgentModelSelectorPopup(
     var showThinkingDropdown by remember { mutableStateOf(false) }
     var infoPopupContent by remember { mutableStateOf<Pair<String, String>?>(null) }
     val context = LocalContext.current
+    val inputMenuToggles = InputMenuTogglePluginRegistry.changeVersion.collectAsState().value.let {
+        InputMenuTogglePluginRegistry.createToggles(
+            params = InputMenuToggleHookParams(
+                context = context,
+                featureStates = featureStates,
+                onToggleFeature = onToggleFeature
+            )
+        )
+    }
+    val inputMenuTogglesBySlot = inputMenuToggles.groupBy { InputMenuToggleSlots.normalize(it.slot) }
 
     Popup(
         alignment = Alignment.TopStart,
@@ -1488,10 +1493,9 @@ private fun AgentModelSelectorPopup(
                         popupContainerColor = popupContainerColor,
                         enableThinkingMode = enableThinkingMode,
                         onToggleThinkingMode = onToggleThinkingMode,
-                        enableThinkingGuidance = enableThinkingGuidance,
-                        onToggleThinkingGuidance = onToggleThinkingGuidance,
                         thinkingQualityLevel = thinkingQualityLevel,
                         onThinkingQualityLevelChange = onThinkingQualityLevelChange,
+                        thinkingSlotToggles = inputMenuTogglesBySlot[InputMenuToggleSlots.THINKING].orEmpty(),
                         expanded = showThinkingDropdown,
                         onExpandedChange = { showThinkingDropdown = it },
                         onInfoClick = {
@@ -1509,12 +1513,28 @@ private fun AgentModelSelectorPopup(
                                 context.getString(R.string.thinking_quality) to
                                     context.getString(R.string.thinking_quality_desc)
                         },
-                        onThinkingGuidanceInfoClick = {
-                            infoPopupContent =
-                                context.getString(R.string.thinking_guidance) to
-                                    context.getString(R.string.thinking_guidance_desc)
+                        onToggleInfoClick = { title, description ->
+                            infoPopupContent = title to description
                         },
                     )
+                    inputMenuTogglesBySlot[InputMenuToggleSlots.MODEL].orEmpty().forEach { toggle ->
+                        AgentInputMenuToggleSettingItem(
+                            toggle = toggle,
+                            onInfoClick = { title, description -> infoPopupContent = title to description },
+                        )
+                    }
+                    inputMenuTogglesBySlot[InputMenuToggleSlots.TOOLS].orEmpty().forEach { toggle ->
+                        AgentInputMenuToggleSettingItem(
+                            toggle = toggle,
+                            onInfoClick = { title, description -> infoPopupContent = title to description },
+                        )
+                    }
+                    inputMenuTogglesBySlot[InputMenuToggleSlots.GENERAL].orEmpty().forEach { toggle ->
+                        AgentInputMenuToggleSettingItem(
+                            toggle = toggle,
+                            onInfoClick = { title, description -> infoPopupContent = title to description },
+                        )
+                    }
                     AgentMaxContextSettingItem(
                         enableMaxContextMode = enableMaxContextMode,
                         onToggleEnableMaxContextMode = onToggleEnableMaxContextMode,
@@ -1573,20 +1593,18 @@ private fun AgentThinkingSettingsItem(
     popupContainerColor: Color,
     enableThinkingMode: Boolean,
     onToggleThinkingMode: () -> Unit,
-    enableThinkingGuidance: Boolean,
-    onToggleThinkingGuidance: () -> Unit,
     thinkingQualityLevel: Int,
     onThinkingQualityLevelChange: (Int) -> Unit,
+    thinkingSlotToggles: List<InputMenuToggleDefinition>,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onInfoClick: () -> Unit,
     onThinkingModeInfoClick: () -> Unit,
     onThinkingQualityInfoClick: () -> Unit,
-    onThinkingGuidanceInfoClick: () -> Unit,
+    onToggleInfoClick: (String, String) -> Unit,
 ) {
     val thinkingTypeText =
         when {
-            enableThinkingGuidance -> stringResource(R.string.thinking_type_guidance)
             enableThinkingMode -> stringResource(R.string.thinking_type_mode)
             else -> stringResource(R.string.thinking_type_off)
         }
@@ -1667,24 +1685,12 @@ private fun AgentThinkingSettingsItem(
                     onInfoClick = onThinkingQualityInfoClick,
                 )
             }
-            AgentThinkingSubSettingItem(
-                title = stringResource(R.string.thinking_guidance),
-                icon =
-                    if (enableThinkingGuidance) {
-                        Icons.Rounded.TipsAndUpdates
-                    } else {
-                        Icons.Outlined.TipsAndUpdates
-                    },
-                iconTint =
-                    if (enableThinkingGuidance) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    },
-                isChecked = enableThinkingGuidance,
-                onToggle = onToggleThinkingGuidance,
-                onInfoClick = onThinkingGuidanceInfoClick,
-            )
+            thinkingSlotToggles.forEach { toggle ->
+                AgentInputMenuToggleSettingItem(
+                    toggle = toggle,
+                    onInfoClick = onToggleInfoClick,
+                )
+            }
         }
     }
 }
@@ -2168,8 +2174,8 @@ private fun AgentExtraSettingsPopup(
     currentProfileId: String,
     onSelectMemory: (String) -> Unit,
     onManageMemory: () -> Unit,
-    enableMemoryQuery: Boolean,
-    onToggleMemoryQuery: () -> Unit,
+    enableMemoryAutoUpdate: Boolean,
+    onToggleMemoryAutoUpdate: () -> Unit,
     featureStates: Map<String, Boolean>,
     onToggleFeature: (String) -> Unit,
     isAutoReadEnabled: Boolean,
@@ -2182,8 +2188,6 @@ private fun AgentExtraSettingsPopup(
     onToggleDisableStreamOutput: () -> Unit,
     disableUserPreferenceDescription: Boolean,
     onToggleDisableUserPreferenceDescription: () -> Unit,
-    disableLatexDescription: Boolean,
-    onToggleDisableLatexDescription: () -> Unit,
     disableStatusTags: Boolean,
     onToggleDisableStatusTags: () -> Unit,
     toolPromptVisibility: Map<String, Boolean>,
@@ -2208,6 +2212,8 @@ private fun AgentExtraSettingsPopup(
             )
         )
     }
+    val inputMenuTogglesBySlot = inputMenuToggles.groupBy { toggle -> InputMenuToggleSlots.normalize(toggle.slot) }
+    val defaultInputMenuToggles = inputMenuTogglesBySlot[InputMenuToggleSlots.DEFAULT].orEmpty()
 
     Popup(
         alignment = Alignment.TopStart,
@@ -2269,15 +2275,22 @@ private fun AgentExtraSettingsPopup(
                         },
                     )
 
+                    inputMenuTogglesBySlot[InputMenuToggleSlots.MEMORY].orEmpty().forEach { toggle ->
+                        AgentInputMenuToggleSettingItem(
+                            toggle = toggle,
+                            onInfoClick = { title, description -> infoPopupContent = title to description },
+                        )
+                    }
+
                     AgentSimpleToggleSettingItem(
-                        title = stringResource(R.string.memory_attachment),
-                        icon = if (enableMemoryQuery) Icons.Rounded.Link else Icons.Outlined.LinkOff,
-                        isChecked = enableMemoryQuery,
-                        onToggle = onToggleMemoryQuery,
+                        title = stringResource(R.string.memory_auto_update),
+                        icon = if (enableMemoryAutoUpdate) Icons.Rounded.Save else Icons.Outlined.Save,
+                        isChecked = enableMemoryAutoUpdate,
+                        onToggle = onToggleMemoryAutoUpdate,
                         onInfoClick = {
                             infoPopupContent =
-                                context.getString(R.string.memory_attachment) to
-                                    context.getString(R.string.memory_attachment_desc)
+                                context.getString(R.string.memory_auto_update) to
+                                    context.getString(R.string.memory_auto_update_desc)
                         },
                     )
 
@@ -2295,26 +2308,10 @@ private fun AgentExtraSettingsPopup(
                         },
                     )
 
-                    inputMenuToggles.forEach { toggle ->
-                        val toggleTitle =
-                            if (toggle.titleRes != 0) stringResource(toggle.titleRes)
-                            else toggle.title.orEmpty()
-                        AgentSimpleToggleSettingItem(
-                            title = toggleTitle,
-                            icon = Icons.Outlined.Hub,
-                            isChecked = toggle.isChecked,
-                            isEnabled = toggle.isEnabled,
-                            onToggle = toggle.onToggle,
-                            onInfoClick = {
-                                val infoTitle =
-                                    if (toggle.titleRes != 0) context.getString(toggle.titleRes)
-                                    else toggle.title.orEmpty()
-                                val infoDescription =
-                                    if (toggle.descriptionRes != 0) context.getString(toggle.descriptionRes)
-                                    else toggle.description.orEmpty()
-                                infoPopupContent =
-                                    infoTitle to infoDescription
-                            },
+                    defaultInputMenuToggles.forEach { toggle ->
+                        AgentInputMenuToggleSettingItem(
+                            toggle = toggle,
+                            onInfoClick = { title, description -> infoPopupContent = title to description },
                         )
                     }
 
@@ -2359,8 +2356,6 @@ private fun AgentExtraSettingsPopup(
                         onToggleDisableStreamOutput = onToggleDisableStreamOutput,
                         disableUserPreferenceDescription = disableUserPreferenceDescription,
                         onToggleDisableUserPreferenceDescription = onToggleDisableUserPreferenceDescription,
-                        disableLatexDescription = disableLatexDescription,
-                        onToggleDisableLatexDescription = onToggleDisableLatexDescription,
                         disableStatusTags = disableStatusTags,
                         onToggleDisableStatusTags = onToggleDisableStatusTags,
                         expanded = showDisableSettingsDropdown,
@@ -2385,11 +2380,6 @@ private fun AgentExtraSettingsPopup(
                             infoPopupContent =
                                 context.getString(R.string.disable_user_preference_description) to
                                     context.getString(R.string.disable_user_preference_description_desc)
-                        },
-                        onDisableLatexDescriptionInfoClick = {
-                            infoPopupContent =
-                                context.getString(R.string.disable_latex_description) to
-                                    context.getString(R.string.disable_latex_description_desc)
                         },
                         onDisableStatusTagsInfoClick = {
                             infoPopupContent =
@@ -2550,8 +2540,6 @@ private fun AgentDisableSettingsGroupItem(
     onToggleDisableStreamOutput: () -> Unit,
     disableUserPreferenceDescription: Boolean,
     onToggleDisableUserPreferenceDescription: () -> Unit,
-    disableLatexDescription: Boolean,
-    onToggleDisableLatexDescription: () -> Unit,
     disableStatusTags: Boolean,
     onToggleDisableStatusTags: () -> Unit,
     expanded: Boolean,
@@ -2561,7 +2549,6 @@ private fun AgentDisableSettingsGroupItem(
     onDisableStreamOutputInfoClick: () -> Unit,
     onDisableToolsInfoClick: () -> Unit,
     onDisableUserPreferenceDescriptionInfoClick: () -> Unit,
-    onDisableLatexDescriptionInfoClick: () -> Unit,
     onDisableStatusTagsInfoClick: () -> Unit,
 ) {
     val disabledStates =
@@ -2569,7 +2556,6 @@ private fun AgentDisableSettingsGroupItem(
             disableStreamOutput,
             !enableTools,
             disableUserPreferenceDescription,
-            disableLatexDescription,
             disableStatusTags,
         )
     val disabledCount = disabledStates.count { it }
@@ -2648,13 +2634,6 @@ private fun AgentDisableSettingsGroupItem(
                 isChecked = disableUserPreferenceDescription,
                 onToggle = onToggleDisableUserPreferenceDescription,
                 onInfoClick = onDisableUserPreferenceDescriptionInfoClick,
-            )
-            AgentSimpleToggleSettingItem(
-                title = stringResource(R.string.disable_latex_description),
-                icon = Icons.Outlined.Block,
-                isChecked = disableLatexDescription,
-                onToggle = onToggleDisableLatexDescription,
-                onInfoClick = onDisableLatexDescriptionInfoClick,
             )
             AgentSimpleToggleSettingItem(
                 title = stringResource(R.string.disable_status_tags),
@@ -2751,6 +2730,33 @@ private fun AgentSimpleToggleSettingItem(
                 ),
         )
     }
+}
+
+@Composable
+private fun AgentInputMenuToggleSettingItem(
+    toggle: InputMenuToggleDefinition,
+    onInfoClick: (String, String) -> Unit,
+) {
+    val context = LocalContext.current
+    val toggleTitle =
+        if (toggle.titleRes != 0) stringResource(toggle.titleRes)
+        else toggle.title.orEmpty()
+    AgentSimpleToggleSettingItem(
+        title = toggleTitle,
+        icon = Icons.Outlined.Hub,
+        isChecked = toggle.isChecked,
+        isEnabled = toggle.isEnabled,
+        onToggle = toggle.onToggle,
+        onInfoClick = {
+            val infoTitle =
+                if (toggle.titleRes != 0) context.getString(toggle.titleRes)
+                else toggle.title.orEmpty()
+            val infoDescription =
+                if (toggle.descriptionRes != 0) context.getString(toggle.descriptionRes)
+                else toggle.description.orEmpty()
+            onInfoClick(infoTitle, infoDescription)
+        },
+    )
 }
 
 @Composable

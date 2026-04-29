@@ -19,6 +19,11 @@ export interface ToolConfig {
     type?: string;
     name: string;
     params?: ToolParams;
+    onIntermediateResult?: (value: unknown) => void;
+}
+
+export interface ToolCallOptions<TIntermediate = unknown> {
+    onIntermediateResult?: (value: TIntermediate) => void;
 }
 
 /**
@@ -66,15 +71,19 @@ export type ToolReturnType<T extends string> = T extends keyof import('./tool-ty
 
 /**
  * Global function to call a tool and get a result
+ * Note: Promise-based waiting does not guarantee the underlying tool work is truly parallel.
  * @returns A Promise with the tool result data of the appropriate type
  */
 export declare function toolCall<T extends string>(toolType: string, toolName: T, toolParams?: ToolParams): Promise<ToolReturnType<T>>;
 export declare function toolCall<T extends string>(toolName: T, toolParams?: ToolParams): Promise<ToolReturnType<T>>;
 export declare function toolCall<T extends string>(config: ToolConfig & { name: T }): Promise<ToolReturnType<T>>;
+export declare function toolCall<T extends string, TIntermediate = unknown>(toolType: string, toolName: T, toolParams: ToolParams | undefined, options: ToolCallOptions<TIntermediate>): Promise<ToolReturnType<T>>;
+export declare function toolCall<T extends string, TIntermediate = unknown>(toolName: T, toolParams: ToolParams | undefined, options: ToolCallOptions<TIntermediate>): Promise<ToolReturnType<T>>;
 export declare function toolCall(toolName: string): Promise<any>;
 
 /**
  * Global function to complete tool execution with a result
+ * Result values must be JSON-serializable. Java bridge instances are serialized as bridge handles.
  * @param result - The result to return
  */
 export declare function complete<T>(result: T): void;
@@ -101,6 +110,7 @@ export namespace NativeInterface {
      * The callback will receive a ToolResult object
      */
     function callToolAsync(callbackId: string, toolType: string, toolName: string, paramsJson: string): void;
+    function callToolAsyncStreaming(callbackId: string, intermediateCallbackId: string, toolType: string, toolName: string, paramsJson: string): void;
 
     /**
      * Set the result of script execution
@@ -251,6 +261,7 @@ export namespace NativeInterface {
      * @returns Bridge JSON string: {"success":boolean,"data"?:any,"error"?:string}
      */
     function javaCallInstance(instanceHandle: string, methodName: string, argsJson: string): string;
+    function javaHasInstanceMethod(instanceHandle: string, methodName: string): string;
 
     /**
      * Get a static field/property from a class.

@@ -12,6 +12,10 @@ import com.ai.assistance.operit.core.chat.messageTimingNow
 import com.ai.assistance.operit.core.tools.AIToolHandler
 import com.ai.assistance.operit.core.tools.packTool.PackageManager
 import com.ai.assistance.operit.core.tools.packTool.TOOLPKG_EVENT_MESSAGE_PROCESSING
+import com.ai.assistance.operit.ui.main.navigation.AppRouteDiscoveryGateway
+import com.ai.assistance.operit.ui.main.navigation.AppRouterGateway
+import com.ai.assistance.operit.ui.main.navigation.RouteEntrySource
+import com.ai.assistance.operit.ui.main.navigation.RouteRuntime
 import com.ai.assistance.operit.util.AppLogger
 import com.ai.assistance.operit.util.ImagePoolManager
 import com.ai.assistance.operit.util.LocaleUtils
@@ -19,8 +23,11 @@ import com.ai.assistance.operit.util.OperitPaths
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -40,7 +47,6 @@ class JsEngine(private val context: Context) {
         private const val BINARY_DATA_THRESHOLD = 32 * 1024
         private const val BINARY_HANDLE_PREFIX = "@binary_handle:"
         private const val DIRECT_SCRIPT_EXECUTION_FUNCTION = "__operit_run_inline_code__"
-        private const val DIRECT_SCRIPT_EXECUTION_SOURCE = "function(params){ return undefined; }"
     }
 
     private val bitmapRegistry = ConcurrentHashMap<String, Bitmap>()
@@ -64,6 +70,7 @@ class JsEngine(private val context: Context) {
     private val quickJsDispatcher = quickJsExecutor.asCoroutineDispatcher()
     private val engineScope = CoroutineScope(SupervisorJob() + quickJsDispatcher)
     private val quickJsInitLock = Any()
+    private val destroyed = AtomicBoolean(false)
 
     @Volatile
     private var quickJs: OperitQuickJsEngine? = null
@@ -78,11 +85,25 @@ class JsEngine(private val context: Context) {
         val executionListener: JsExecutionListener?
     )
 
+    private data class PendingJsBridgeCallback(
+        val requestId: String,
+        val jsObjectId: String,
+        val methodName: String,
+        val argsJson: String,
+        val future: CompletableFuture<String>
+    )
+
     private val activeExecutionSessions = ConcurrentHashMap<String, ExecutionSession>()
+    private val pendingJsBridgeCallbacks = ConcurrentLinkedQueue<PendingJsBridgeCallback>()
+    private val pendingJsBridgeCallbackMap = ConcurrentHashMap<String, PendingJsBridgeCallback>()
     private var jsEnvironmentInitialized = false
 
     private val toolPkgExecutionContext = JsToolPkgExecutionContext()
     private val toolPkgRegistrationSession = JsToolPkgRegistrationSession()
+
+    private fun canScheduleQuickJsWork(): Boolean {
+        return !destroyed.get() && !quickJsExecutor.isShutdown && !quickJsExecutor.isTerminated
+    }
 
     fun <T> withTemporaryToolPkgTextResourceResolver(
         resolver: (String, String) -> String?,
@@ -122,7 +143,11 @@ class JsEngine(private val context: Context) {
         return externalJavaCodeLoader.getEffectiveClassLoader(getJavaBridgeBaseClassLoader())
     }
 
-    private fun <T> runOnQuickJsThreadBlocking(block: () -> T): T {
+    private fun <T> runOnQuickJsThreadBlocking(
+        allowWhenDestroyed: Boolean = false,
+        block: () -> T
+    ): T {
+        check(allowWhenDestroyed || !destroyed.get()) { "JsEngine already destroyed" }
         return if (Thread.currentThread() === quickJsThread) {
             block()
         } else {
@@ -133,10 +158,12 @@ class JsEngine(private val context: Context) {
     }
 
     private fun ensureQuickJs() {
+        check(!destroyed.get()) { "JsEngine already destroyed" }
         if (quickJs != null) {
             return
         }
         synchronized(quickJsInitLock) {
+            check(!destroyed.get()) { "JsEngine already destroyed" }
             if (quickJs != null) {
                 return
             }
@@ -193,17 +220,27 @@ class JsEngine(private val context: Context) {
         fileName: String = "<eval>",
         onError: ((Exception) -> Unit)? = null
     ) {
+        if (!canScheduleQuickJsWork()) {
+            return
+        }
         val engine = quickJs ?: return
-        engineScope.launch {
-            try {
-                engine.evaluate<Any?>(script, fileName)
-            } catch (e: Exception) {
-                if (onError != null) {
-                    onError(e)
-                } else {
-                    AppLogger.e(TAG, "QuickJS evaluation failed: ${e.message}", e)
+        try {
+            engineScope.launch {
+                try {
+                    if (!canScheduleQuickJsWork()) {
+                        return@launch
+                    }
+                    engine.evaluate<Any?>(script, fileName)
+                } catch (e: Exception) {
+                    if (onError != null) {
+                        onError(e)
+                    } else {
+                        AppLogger.e(TAG, "QuickJS evaluation failed: ${e.message}", e)
+                    }
                 }
             }
+        } catch (e: RejectedExecutionException) {
+            AppLogger.d(TAG, "Skip QuickJS evaluation after executor shutdown: $fileName")
         }
     }
 
@@ -213,17 +250,27 @@ class JsEngine(private val context: Context) {
         callSite: String = "<call:$functionName>",
         onError: ((Exception) -> Unit)? = null
     ) {
+        if (!canScheduleQuickJsWork()) {
+            return
+        }
         val engine = quickJs ?: return
-        engineScope.launch {
-            try {
-                engine.callFunction<Any?>(functionName, argsJson, callSite)
-            } catch (e: Exception) {
-                if (onError != null) {
-                    onError(e)
-                } else {
-                    AppLogger.e(TAG, "QuickJS function call failed: ${e.message}", e)
+        try {
+            engineScope.launch {
+                try {
+                    if (!canScheduleQuickJsWork()) {
+                        return@launch
+                    }
+                    engine.callFunction<Any?>(functionName, argsJson, callSite)
+                } catch (e: Exception) {
+                    if (onError != null) {
+                        onError(e)
+                    } else {
+                        AppLogger.e(TAG, "QuickJS function call failed: ${e.message}", e)
+                    }
                 }
             }
+        } catch (e: RejectedExecutionException) {
+            AppLogger.d(TAG, "Skip QuickJS function call after executor shutdown: $callSite")
         }
     }
 
@@ -262,6 +309,92 @@ class JsEngine(private val context: Context) {
 
     private fun removeExecutionSession(callId: String): ExecutionSession? {
         return activeExecutionSessions.remove(callId.trim())
+    }
+
+    private fun clearPendingJsBridgeCallbacks(reason: String) {
+        val pending = pendingJsBridgeCallbackMap.values.toList()
+        pendingJsBridgeCallbackMap.clear()
+        pendingJsBridgeCallbacks.clear()
+        pending.forEach { request ->
+            if (!request.future.isDone) {
+                request.future.complete(
+                    JSONObject()
+                        .put("success", false)
+                        .put("error", reason)
+                        .toString()
+                )
+            }
+        }
+    }
+
+    private fun requestPendingJsBridgeCallbackPump() {
+        ensureQuickJs()
+        if (quickJs == null || !jsEnvironmentInitialized) {
+            return
+        }
+        launchQuickJsEvaluation(
+            script =
+                """
+                (function() {
+                    var processPending =
+                        (typeof globalThis !== 'undefined' &&
+                         typeof globalThis.__operitProcessPendingJavaBridgeCallbacks === 'function')
+                            ? globalThis.__operitProcessPendingJavaBridgeCallbacks
+                            : (typeof processPendingJavaBridgeCallbacks === 'function'
+                                ? processPendingJavaBridgeCallbacks
+                                : null);
+                    if (typeof processPending !== 'function') {
+                        return 0;
+                    }
+
+                    var total = 0;
+                    while (total < 256) {
+                        var processed = Number(processPending(32)) || 0;
+                        if (processed <= 0) {
+                            break;
+                        }
+                        total += processed;
+                    }
+                    return total;
+                })();
+                """.trimIndent(),
+            fileName = "quickjs/runtime/java-bridge-pending-callback-pump.js",
+            onError = { error ->
+                AppLogger.e(
+                    TAG,
+                    "Error pumping pending Java bridge callbacks: ${error.message}",
+                    error
+                )
+            }
+        )
+    }
+
+    private fun pollPendingJsBridgeCallbackPayload(): String? {
+        while (true) {
+            val request = pendingJsBridgeCallbacks.poll() ?: return null
+            val active = pendingJsBridgeCallbackMap[request.requestId]
+            if (active == null || active.future.isDone) {
+                pendingJsBridgeCallbackMap.remove(request.requestId, request)
+                continue
+            }
+            return JSONObject()
+                .put("id", request.requestId)
+                .put("jsObjectId", request.jsObjectId)
+                .put("methodName", request.methodName)
+                .put("argsJson", request.argsJson)
+                .toString()
+        }
+    }
+
+    private fun resolvePendingJsBridgeCallback(requestId: String, responseJson: String) {
+        val normalizedId = requestId.trim()
+        if (normalizedId.isEmpty()) {
+            return
+        }
+        val request = pendingJsBridgeCallbackMap.remove(normalizedId) ?: return
+        if (!request.future.isDone) {
+            request.future.complete(responseJson)
+        }
     }
 
     private fun cancelAllExecutionSessions(reason: String) {
@@ -410,62 +543,43 @@ class JsEngine(private val context: Context) {
                 .toString()
         }
 
-        ensureQuickJs()
-        if (quickJs == null) {
+        if (Thread.currentThread() === quickJsThread) {
             return JSONObject()
                 .put("success", false)
-                .put("error", "quickjs is not initialized")
+                .put("error", "java bridge callback cannot synchronously invoke JS from quickjs thread")
                 .toString()
         }
 
-        val safeArgsJson = argsJson.trim().ifEmpty { "[]" }
-        val callbackScript =
-            """
-            (function() {
-                try {
-                    var __invoker =
-                        (typeof globalThis !== 'undefined' && typeof globalThis.__operitJavaBridgeInvokeJsObject === 'function')
-                            ? globalThis.__operitJavaBridgeInvokeJsObject
-                            : undefined;
-                    if (!__invoker) {
-                        return JSON.stringify({
-                            success: false,
-                            error: 'java bridge js callback runtime unavailable'
-                        });
-                    }
-                    var __result = __invoker(
-                        ${JSONObject.quote(jsObjectId)},
-                        ${JSONObject.quote(methodName)},
-                        $safeArgsJson
-                    );
-                    return JSON.stringify({
-                        success: true,
-                        data: __result
-                    });
-                } catch (e) {
-                    return JSON.stringify({
-                        success: false,
-                        error: (e && e.message) ? e.message : String(e)
-                    });
-                }
-            })();
-            """.trimIndent()
+        ensureQuickJs()
+        if (quickJs == null || !jsEnvironmentInitialized) {
+            return JSONObject()
+                .put("success", false)
+                .put("error", "java bridge callback runtime unavailable")
+                .toString()
+        }
+
+        val request =
+            PendingJsBridgeCallback(
+                requestId = UUID.randomUUID().toString(),
+                jsObjectId = jsObjectId.trim(),
+                methodName = methodName.trim(),
+                argsJson = argsJson.trim().ifEmpty { "[]" },
+                future = CompletableFuture()
+            )
+        pendingJsBridgeCallbackMap[request.requestId] = request
+        pendingJsBridgeCallbacks.add(request)
+        requestPendingJsBridgeCallbackPump()
 
         return try {
-            val callbackResult =
-                evaluateQuickJsBlocking<String>(
-                    script = callbackScript,
-                    fileName = "quickjs/runtime/java-bridge-callback.js"
-                )
-            callbackResult ?: JSONObject()
-                .put("success", false)
-                .put("error", "java bridge callback returned empty result")
-                .toString()
+            request.future.get(30, TimeUnit.SECONDS)
         } catch (e: Exception) {
             JSONObject()
                 .put("success", false)
-                .put("error", "java bridge callback evaluation failed: ${e.message}")
+                .put("error", "java bridge callback wait failed: ${e.message ?: e.javaClass.simpleName}")
                 .toString()
+        } finally {
+            pendingJsBridgeCallbackMap.remove(request.requestId)
+            pendingJsBridgeCallbacks.remove(request)
         }
     }
 
@@ -758,9 +872,9 @@ class JsEngine(private val context: Context) {
     ): Any? {
         val directParams = params.toMutableMap()
         directParams["__operit_inline_function_name"] = DIRECT_SCRIPT_EXECUTION_FUNCTION
-        directParams["__operit_inline_function_source"] = DIRECT_SCRIPT_EXECUTION_SOURCE
+        directParams["__operit_inline_function_source"] = buildDirectScriptExecutionSource(script)
         return executeScriptFunction(
-            script = script,
+            script = "",
             functionName = DIRECT_SCRIPT_EXECUTION_FUNCTION,
             params = directParams,
             envOverrides = envOverrides,
@@ -768,6 +882,46 @@ class JsEngine(private val context: Context) {
             timeoutSec = timeoutSec,
             executionListener = executionListener
         )
+    }
+
+    private fun buildDirectScriptExecutionSource(script: String): String {
+        val waitsForExplicitComplete =
+            Regex("""(^|[^\w$.])complete\s*\(""")
+                .containsMatchIn(script)
+        return buildString {
+            append("async function(params) {\n")
+            append("  var __operitWaitForExplicitComplete = ")
+            append(if (waitsForExplicitComplete) "true" else "false")
+            append(";\n")
+            append("  var __operitOriginalComplete = complete;\n")
+            append("  var __operitCompleteResolved = false;\n")
+            append("  var __operitResolveCompleteWait;\n")
+            append("  var __operitCompleteWait = new Promise(function(resolve) {\n")
+            append("    __operitResolveCompleteWait = resolve;\n")
+            append("  });\n")
+            append("  complete = function(value) {\n")
+            append("    try {\n")
+            append("      return __operitOriginalComplete(value);\n")
+            append("    } finally {\n")
+            append("      if (!__operitCompleteResolved) {\n")
+            append("        __operitCompleteResolved = true;\n")
+            append("        __operitResolveCompleteWait();\n")
+            append("      }\n")
+            append("    }\n")
+            append("  };\n")
+            append("  try {\n")
+            append(script)
+            if (!script.endsWith("\n")) {
+                append('\n')
+            }
+            append("    if (__operitWaitForExplicitComplete) {\n")
+            append("      await __operitCompleteWait;\n")
+            append("    }\n")
+            append("  } finally {\n")
+            append("    complete = __operitOriginalComplete;\n")
+            append("  }\n")
+            append("}")
+        }
     }
 
     fun executeToolPkgMainRegistrationFunction(
@@ -836,6 +990,7 @@ class JsEngine(private val context: Context) {
             runtimeOptions: Map<String, Any?> = emptyMap(),
             envOverrides: Map<String, String> = emptyMap(),
             onIntermediateResult: ((Any?) -> Unit)? = null,
+            onFinalResult: ((Any?) -> Unit)? = null,
             onComplete: (() -> Unit)? = null,
             onError: ((String) -> Unit)? = null
     ): Boolean {
@@ -880,7 +1035,7 @@ class JsEngine(private val context: Context) {
                     )
                     onError?.invoke(errorText)
                 } else if (result != null) {
-                    onIntermediateResult?.invoke(result)
+                    onFinalResult?.invoke(result)
                 }
                 onComplete?.invoke()
             }
@@ -926,6 +1081,7 @@ class JsEngine(private val context: Context) {
     /** 重置引擎状态，避免多次调用时的状态干扰 */
     private fun resetState(cancellationMessage: String = "Execution canceled: new execution started") {
         cancelAllExecutionSessions(cancellationMessage)
+        clearPendingJsBridgeCallbacks("java bridge callback canceled: $cancellationMessage")
 
         bitmapRegistry.values.forEach { it.recycle() }
         bitmapRegistry.clear()
@@ -1110,8 +1266,63 @@ class JsEngine(private val context: Context) {
         }
 
         @JavascriptInterface
+        fun navigateToRoute(routeId: String, argsJson: String) {
+            val normalizedRouteId = routeId.trim()
+            if (normalizedRouteId.isBlank()) {
+                return
+            }
+            AppRouterGateway.navigate(
+                routeId = normalizedRouteId,
+                args = parseJsonObjectToMap(argsJson),
+                source = RouteEntrySource.SCRIPT
+            )
+        }
+
+        @JavascriptInterface
+        fun listRoutes(): String {
+            return buildRoutesJson(includeOnlyNative = false)
+        }
+
+        @JavascriptInterface
+        fun listHostRoutes(): String {
+            return buildRoutesJson(includeOnlyNative = true)
+        }
+
+        private fun buildRoutesJson(includeOnlyNative: Boolean): String {
+            val routes = AppRouteDiscoveryGateway.listRoutes()
+            val result = JSONArray()
+            routes
+                .asSequence()
+                .filter { route ->
+                    !includeOnlyNative || route.runtime == RouteRuntime.NATIVE
+                }
+                .sortedBy { it.routeId }
+                .forEach { route ->
+                    val item =
+                        JSONObject()
+                            .put("routeId", route.routeId)
+                            .put("runtime", route.runtime.name.lowercase())
+                            .put("title", route.title ?: route.routeId)
+                            .put("ownerPackageName", route.ownerPackageName ?: JSONObject.NULL)
+                            .put("toolPkgUiModuleId", route.toolPkgUiModuleId ?: JSONObject.NULL)
+                    result.put(item)
+                }
+            return result.toString()
+        }
+
+        @JavascriptInterface
         fun registerToolPkgToolboxUiModule(specJson: String) {
             toolPkgRegistrationSession.appendToolboxUiModule(specJson)
+        }
+
+        @JavascriptInterface
+        fun registerToolPkgUiRoute(specJson: String) {
+            toolPkgRegistrationSession.appendUiRoute(specJson)
+        }
+
+        @JavascriptInterface
+        fun registerToolPkgNavigationEntry(specJson: String) {
+            toolPkgRegistrationSession.appendNavigationEntry(specJson)
         }
 
         @JavascriptInterface
@@ -1174,7 +1385,51 @@ class JsEngine(private val context: Context) {
             toolPkgRegistrationSession.appendPromptEstimateFinalizeHook(specJson)
         }
 
+        @JavascriptInterface
+        fun registerToolPkgAiProvider(specJson: String) {
+            toolPkgRegistrationSession.appendAiProvider(specJson)
+        }
+
         private fun bridgeClassLoader(): ClassLoader = getJavaBridgeClassLoader()
+
+        private fun parseJsonObjectToMap(raw: String): Map<String, Any?> {
+            return try {
+                val token = JSONTokener(raw.trim().ifBlank { "{}" }).nextValue()
+                if (token is JSONObject) {
+                    jsonObjectToMap(token)
+                } else {
+                    emptyMap()
+                }
+            } catch (_: Exception) {
+                emptyMap()
+            }
+        }
+
+        private fun jsonObjectToMap(jsonObject: JSONObject): Map<String, Any?> {
+            val map = linkedMapOf<String, Any?>()
+            val iterator = jsonObject.keys()
+            while (iterator.hasNext()) {
+                val key = iterator.next()
+                map[key] = jsonValueToAny(jsonObject.opt(key))
+            }
+            return map
+        }
+
+        private fun jsonArrayToList(jsonArray: JSONArray): List<Any?> {
+            return buildList {
+                for (index in 0 until jsonArray.length()) {
+                    add(jsonValueToAny(jsonArray.opt(index)))
+                }
+            }
+        }
+
+        private fun jsonValueToAny(value: Any?): Any? =
+            when (value) {
+                JSONObject.NULL -> null
+                is JSONObject -> jsonObjectToMap(value)
+                is JSONArray -> jsonArrayToList(value)
+                else -> value
+            }
 
         private fun exposeJavaObject(target: Any, failureLabel: String): String {
             return try {
@@ -1216,13 +1471,72 @@ class JsEngine(private val context: Context) {
 
         private fun createSuspendJavaBridgeResultCallback(callbackId: String): (String) -> Unit {
             return { resultJson ->
-                val (error, data) = splitBridgeResult(resultJson)
-                invokeJavaBridgeJsObjectCallbackSync(
-                    jsObjectId = callbackId,
-                    methodName = "",
-                    argsJson = JSONArray().put(error).put(data).toString()
-                )
+                ensureQuickJs()
+                try {
+                    launchQuickJsEvaluation(
+                        script = buildSuspendJavaBridgeCallbackScript(
+                            callbackId = callbackId,
+                            resultJson = resultJson
+                        ),
+                        fileName = "quickjs/runtime/java-bridge-suspend-callback.js",
+                        onError = { error ->
+                            AppLogger.e(
+                                TAG,
+                                "Error delivering suspend bridge callback to JavaScript: ${error.message}",
+                                error
+                            )
+                        }
+                    )
+                } catch (error: Exception) {
+                    AppLogger.e(
+                        TAG,
+                        "Error scheduling suspend bridge callback delivery: ${error.message}",
+                        error
+                    )
+                }
             }
+        }
+
+        private fun buildSuspendJavaBridgeCallbackScript(
+            callbackId: String,
+            resultJson: String
+        ): String {
+            val safeCallbackId = JSONObject.quote(callbackId.trim())
+            val safeResultJson = JSONObject.quote(resultJson)
+            return """
+                (function() {
+                    var root = typeof globalThis !== 'undefined'
+                        ? globalThis
+                        : (typeof window !== 'undefined' ? window : this);
+                    var invoke =
+                        root && typeof root.__operitJavaBridgeInvokeJsObject === 'function'
+                            ? root.__operitJavaBridgeInvokeJsObject
+                            : undefined;
+                    if (typeof invoke !== 'function') {
+                        throw new Error('Java bridge callback entry is unavailable');
+                    }
+
+                    var parsed;
+                    try {
+                        parsed = JSON.parse($safeResultJson);
+                    } catch (error) {
+                        return invoke($safeCallbackId, '', [
+                            'failed to parse bridge response: ' + String(error && error.message ? error.message : error),
+                            null
+                        ]);
+                    }
+
+                    if (parsed && parsed.success === true) {
+                        return invoke($safeCallbackId, '', [null, parsed.data]);
+                    }
+
+                    var message =
+                        parsed && typeof parsed.error === 'string' && parsed.error.length > 0
+                            ? parsed.error
+                            : 'bridge call failed';
+                    return invoke($safeCallbackId, '', [message, null]);
+                })();
+            """.trimIndent()
         }
 
         @JavascriptInterface
@@ -1384,6 +1698,15 @@ class JsEngine(private val context: Context) {
         }
 
         @JavascriptInterface
+        fun javaHasInstanceMethod(instanceHandle: String, methodName: String): String {
+            return JsJavaBridgeDelegates.hasInstanceMethod(
+                    instanceHandle = instanceHandle,
+                    methodName = methodName,
+                    objectRegistry = javaObjectRegistry
+            )
+        }
+
+        @JavascriptInterface
         fun javaSetInstanceField(instanceHandle: String, fieldName: String, valueJson: String): String {
             return JsJavaBridgeDelegates.setInstanceField(
                     instanceHandle = instanceHandle,
@@ -1393,6 +1716,34 @@ class JsEngine(private val context: Context) {
                     jsCallbackInvoker = jsBridgeCallbackInvoker,
                     bridgeClassLoader = bridgeClassLoader()
             )
+        }
+
+        @JavascriptInterface
+        fun javaPollPendingJsCallback(): String {
+            return pollPendingJsBridgeCallbackPayload().orEmpty()
+        }
+
+        @JavascriptInterface
+        fun javaResolvePendingJsCallback(requestId: String, responseJson: String) {
+            resolvePendingJsBridgeCallback(
+                requestId = requestId,
+                responseJson = responseJson
+            )
+        }
+
+        @JavascriptInterface
+        fun javaSleepMillis(durationText: String?) {
+            val durationMs =
+                durationText
+                    ?.trim()
+                    ?.toLongOrNull()
+                    ?.coerceAtLeast(0L)
+                    ?.coerceAtMost(50L)
+                    ?: 0L
+            if (durationMs <= 0L) {
+                return
+            }
+            Thread.sleep(durationMs)
         }
 
         @JavascriptInterface
@@ -1507,10 +1858,41 @@ class JsEngine(private val context: Context) {
             )
         }
 
+        @JavascriptInterface
+        fun callToolAsyncStreaming(
+                callbackId: String,
+                intermediateCallbackId: String,
+                toolType: String,
+                toolName: String,
+                paramsJson: String
+        ) {
+            JsNativeInterfaceDelegates.callToolAsyncStreaming(
+                toolHandler = toolHandler,
+                callbackId = callbackId,
+                intermediateCallbackId = intermediateCallbackId,
+                toolType = toolType,
+                toolName = toolName,
+                paramsJson = paramsJson,
+                binaryDataRegistry = binaryDataRegistry,
+                binaryHandlePrefix = BINARY_HANDLE_PREFIX,
+                binaryDataThreshold = BINARY_DATA_THRESHOLD,
+                sendToolResult = { callback, result, isError ->
+                    sendToolResult(callback, result, isError)
+                },
+                sendIntermediateResult = { callback, result, isError ->
+                    sendToolResult(callback, result, isError)
+                }
+            )
+        }
+
         /** 向JavaScript发送工具调用结果 */
         private fun sendToolResult(callbackId: String, result: String, isError: Boolean) {
-            ensureQuickJs()
+            if (!canScheduleQuickJsWork()) {
+                AppLogger.d(TAG, "Drop tool result after JsEngine destroyed: callbackId=$callbackId")
+                return
+            }
             try {
+                ensureQuickJs()
                 val jsCode =
                     JsNativeInterfaceDelegates.buildToolResultCallbackScript(
                         callbackId = callbackId,
@@ -1705,9 +2087,13 @@ class JsEngine(private val context: Context) {
 
     /** 销毁引擎资源 */
     fun destroy() {
+        if (!destroyed.compareAndSet(false, true)) {
+            return
+        }
         try {
             // 确保任何挂起的回调被完成
             cancelAllExecutionSessions("Engine destroyed")
+            clearPendingJsBridgeCallbacks("java bridge callback canceled: Engine destroyed")
             toolCallInterface.detachJavaBridgeLifecycle()
 
             // 清理Bitmap注册表
@@ -1721,7 +2107,7 @@ class JsEngine(private val context: Context) {
             try {
                 val engine = quickJs
                 if (engine != null) {
-                    runOnQuickJsThreadBlocking {
+                    runOnQuickJsThreadBlocking(allowWhenDestroyed = true) {
                         engine.close()
                     }
                 }

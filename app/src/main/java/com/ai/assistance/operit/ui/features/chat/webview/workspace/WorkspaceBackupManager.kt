@@ -52,7 +52,14 @@ class WorkspaceBackupManager(private val context: Context) {
         private const val CURRENT_STATE_FILE_NAME = "current_state.json"
 
         private val WORKSPACE_MUTATING_TOOLS =
-            setOf("apply_file", "move_file", "delete_file", "copy_file")
+            setOf(
+                "apply_file",
+                "write_file",
+                "write_file_binary",
+                "move_file",
+                "delete_file",
+                "copy_file"
+            )
 
         @Volatile
         private var INSTANCE: WorkspaceBackupManager? = null
@@ -180,6 +187,15 @@ class WorkspaceBackupManager(private val context: Context) {
                         fileStats = updatedStats
                     )
             }
+
+            WorkspacePreviewRefreshBus.tryEmit(
+                WorkspacePreviewRefreshEvent(
+                    workspacePath = workspacePath,
+                    workspaceEnv = workspaceEnv,
+                    affectedPaths = affectedPaths,
+                    source = tool.name
+                )
+            )
         }
 
         fun close() {
@@ -225,14 +241,20 @@ class WorkspaceBackupManager(private val context: Context) {
                 normalizedPath = joinPath(workspacePath, normalizedPath)
             }
 
-            if (makeRelativePath(workspacePath, normalizedPath) == null) return
+            val relativePath = makeRelativePath(workspacePath, normalizedPath) ?: return
+            if (
+                relativePath == BACKUP_DIR_NAME ||
+                    relativePath.startsWith("$BACKUP_DIR_NAME/")
+            ) {
+                return
+            }
             result.add(normalizedPath)
         }
 
         val defaultEnvironment = tool.parameters.find { it.name == "environment" }?.value
 
         when (tool.name) {
-            "apply_file", "delete_file" -> {
+            "apply_file", "delete_file", "write_file", "write_file_binary" -> {
                 collectPath(
                     tool.parameters.find { it.name == "path" }?.value,
                     defaultEnvironment

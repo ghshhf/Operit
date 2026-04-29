@@ -44,6 +44,7 @@ import com.ai.assistance.operit.data.updates.UpdateManager
 import com.ai.assistance.operit.data.updates.UpdateStatus
 import com.ai.assistance.operit.data.preferences.UserPreferencesManager
 import com.ai.assistance.operit.data.updates.PatchUpdateInstaller
+import com.ai.assistance.operit.core.application.ActivityLifecycleManager
 import com.ai.assistance.operit.util.GithubReleaseUtil
 import com.ai.assistance.operit.util.AppLogger
 import kotlinx.coroutines.CancellationException
@@ -551,6 +552,7 @@ fun AboutScreen(
 
         patchUpdateJob =
             scope.launch {
+                ActivityLifecycleManager.forceKeepScreenOn(true)
                 try {
                     val apk =
                         PatchUpdateInstaller.downloadAndPreparePatchUpdateWithProgressUsingMirror(
@@ -591,8 +593,9 @@ fun AboutScreen(
                             phase = PatchUpdatePhase.ERROR,
                             message = context.getString(R.string.patch_update_failed_simple),
                             errorMessage = e.message ?: context.getString(R.string.unknown_error)
-                        )
+                    )
                 } finally {
+                    ActivityLifecycleManager.forceKeepScreenOn(false)
                     patchUpdateJob = null
                 }
             }
@@ -611,6 +614,7 @@ fun AboutScreen(
 
         patchUpdateJob =
             scope.launch {
+                ActivityLifecycleManager.forceKeepScreenOn(true)
                 try {
                     val apk =
                         PatchUpdateInstaller.downloadAndPreparePatchUpdateWithProgress(
@@ -650,8 +654,9 @@ fun AboutScreen(
                             phase = PatchUpdatePhase.ERROR,
                             message = context.getString(R.string.patch_update_failed_simple),
                             errorMessage = e.message ?: context.getString(R.string.unknown_error)
-                        )
+                    )
                 } finally {
+                    ActivityLifecycleManager.forceKeepScreenOn(false)
                     patchUpdateJob = null
                 }
             }

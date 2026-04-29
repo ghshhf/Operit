@@ -7,6 +7,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.ai.assistance.operit.core.tools.AIToolHandler
+import com.ai.assistance.operit.core.tools.packTool.PackageManager
 import com.ai.assistance.operit.core.workflow.NodeExecutionState
 import com.ai.assistance.operit.data.model.ConditionNode
 import com.ai.assistance.operit.data.model.ConditionOperator
@@ -24,11 +26,13 @@ import com.ai.assistance.operit.data.model.WorkflowExecutionRecord
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.data.repository.WorkflowRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -41,9 +45,13 @@ import java.util.UUID
 class WorkflowViewModel(application: Application) : AndroidViewModel(application) {
     
     private val repository = WorkflowRepository(application)
+    private val packageManager = PackageManager.getInstance(application, AIToolHandler.getInstance(application))
     private val app = application
 
     var workflows by mutableStateOf<List<Workflow>>(emptyList())
+        private set
+
+    var toolPkgWorkflowTemplates by mutableStateOf<List<PackageManager.ToolPkgWorkflowTemplate>>(emptyList())
         private set
     
     var isLoading by mutableStateOf(false)
@@ -65,6 +73,7 @@ class WorkflowViewModel(application: Application) : AndroidViewModel(application
     
     init {
         loadWorkflows()
+        loadToolPkgWorkflowTemplates()
 
         viewModelScope.launch {
             WorkflowRepository.workflowUpdateEvents.collectLatest {
@@ -72,6 +81,15 @@ class WorkflowViewModel(application: Application) : AndroidViewModel(application
                 currentWorkflow?.id?.let { loadWorkflow(it, showLoading = false) }
             }
         }
+    }
+
+    fun loadToolPkgWorkflowTemplates() {
+        toolPkgWorkflowTemplates =
+            runCatching { packageManager.getToolPkgWorkflowTemplates(app) }
+                .getOrElse {
+                    error = it.message
+                    emptyList()
+                }
     }
     
     /**
@@ -329,6 +347,31 @@ class WorkflowViewModel(application: Application) : AndroidViewModel(application
                     onSuccess(it)
                 },
                 onFailure = { error = it.message ?: app.getString(R.string.workflow_create_failed) }
+            )
+
+            isLoading = false
+        }
+    }
+
+    fun importToolPkgWorkflowTemplate(
+        containerPackageName: String,
+        templateId: String,
+        onSuccess: (Workflow) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            isLoading = true
+            error = null
+
+            withContext(Dispatchers.IO) {
+                packageManager.importToolPkgWorkflowTemplate(containerPackageName, templateId)
+            }.fold(
+                onSuccess = {
+                    loadWorkflows(showLoading = false)
+                    onSuccess(it)
+                },
+                onFailure = {
+                    error = it.message ?: app.getString(R.string.workflow_create_failed)
+                }
             )
 
             isLoading = false

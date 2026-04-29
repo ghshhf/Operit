@@ -267,11 +267,35 @@ internal fun StandardBrowserSessionTools.injectBlobDownloaderScript(
         """.trimIndent()
 
     runCatching {
-        evaluateJavascriptSync(
-            session.webView,
-            script,
-            StandardBrowserSessionTools.DEFAULT_TIMEOUT_MS.coerceIn(2_000L, 8_000L)
-        )
+        StandardBrowserSessionTools.mainHandler.post {
+            runCatching {
+                if (session.webView.isAttachedToWindow) {
+                    session.webView.evaluateJavascript(script, null)
+                } else {
+                    recordDownloadEvent(
+                        session,
+                        WebDownloadEvent(
+                            status = "failed",
+                            type = "blob",
+                            fileName = "download_${System.currentTimeMillis()}",
+                            url = blobUrl,
+                            error = "webview_not_attached"
+                        )
+                    )
+                }
+            }.onFailure { postError ->
+                recordDownloadEvent(
+                    session,
+                    WebDownloadEvent(
+                        status = "failed",
+                        type = "blob",
+                        fileName = "download_${System.currentTimeMillis()}",
+                        url = blobUrl,
+                        error = postError.message ?: "blob_download_script_failed"
+                    )
+                )
+            }
+        }
     }.onFailure {
         recordDownloadEvent(
             session,
@@ -331,6 +355,7 @@ internal fun StandardBrowserSessionTools.recordDownloadEvent(
 ) {
     session.lastDownloadEvent = event
     session.lastDownloadEventAt = System.currentTimeMillis()
+    notifySessionStateChanged(session)
     AppLogger.d(
         EXECUTION_SUPPORT_TAG,
         "web download event session=${session.id}, status=${event.status}, type=${event.type}, file=${event.fileName}, url=${event.url.orEmpty()}"
@@ -421,54 +446,6 @@ internal fun StandardBrowserSessionTools.listSessionIdsInOrder(): List<String> {
     synchronized(StandardBrowserSessionTools.sessionOrderLock) {
         return StandardBrowserSessionTools.sessionOrder.toList()
     }
-}
-
-internal fun StandardBrowserSessionTools.evaluateJavascriptSync(
-    webView: WebView,
-    script: String,
-    timeoutMs: Long
-): String {
-    val latch = CountDownLatch(1)
-    var result: String? = null
-
-    StandardBrowserSessionTools.mainHandler.post {
-        try {
-            if (!webView.isAttachedToWindow) {
-                result = JSONObject.quote("WebView is not attached")
-                latch.countDown()
-                return@post
-            }
-            webView.evaluateJavascript(script) { value ->
-                result = value
-                latch.countDown()
-            }
-        } catch (e: Exception) {
-            result = JSONObject.quote("JavaScript evaluation error: ${e.message}")
-            latch.countDown()
-        }
-    }
-
-    if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
-        throw RuntimeException("JavaScript execution timeout (${timeoutMs}ms)")
-    }
-
-    return result ?: "null"
-}
-
-internal fun StandardBrowserSessionTools.decodeJsResult(raw: String?): String {
-    if (raw.isNullOrBlank() || raw == "null") {
-        return ""
-    }
-
-    if (raw.startsWith("\"") && raw.endsWith("\"")) {
-        return try {
-            JSONObject("{\"v\":$raw}").getString("v")
-        } catch (_: Exception) {
-            raw.substring(1, raw.length - 1)
-        }
-    }
-
-    return raw
 }
 
 private fun quoteJs(value: String): String = JSONObject.quote(value)
@@ -1278,7 +1255,7 @@ internal fun StandardBrowserSessionTools.pageError(
 internal fun StandardBrowserSessionTools.buildSettledBrowserResponse(
     settlement: StandardBrowserSessionTools.BrowserActionSettlement,
     code: String? = null,
-    snapshot: String? = settlement.snapshot.yaml,
+    snapshot: String? = settlement.snapshot?.yaml,
     consoleMessages: String? = renderNewConsoleMessages(settlement.session, settlement.consoleMarker),
     modalState: String? = renderModalState(settlement.session),
     downloads: String? = renderDownloads(settlement.session, settlement.downloadMarker),
@@ -1397,7 +1374,7 @@ internal fun StandardBrowserSessionTools.evaluateJavascriptAsync(
     return pending.result ?: "{\"ok\":true,\"value\":null}"
 }
 
-private fun extractAsyncJsValue(payload: String): String {
+internal fun extractAsyncJsValue(payload: String): String {
     val json = JSONObject(payload)
     val value = json.opt("value")
     return when (value) {

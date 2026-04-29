@@ -169,6 +169,7 @@ internal fun StandardBrowserSessionTools.appendConsoleEntry(
             session.consoleEntries.removeAt(0)
         }
     }
+    notifySessionStateChanged(session)
 }
 
 internal fun StandardBrowserSessionTools.clearEventLogs(session: BrowserToolSession) {
@@ -203,6 +204,29 @@ internal fun StandardBrowserSessionTools.recordNetworkRequest(
         if (session.networkEntries.size > StandardBrowserSessionTools.MAX_EVENT_LOG_ENTRIES) {
             session.networkEntries.removeAt(0)
         }
+    }
+}
+
+internal fun StandardBrowserSessionTools.notifySessionStateChanged(session: BrowserToolSession) {
+    synchronized(session.stateSignal) {
+        session.stateVersion += 1L
+        session.stateSignal.notifyAll()
+    }
+}
+
+internal fun StandardBrowserSessionTools.awaitSessionStateChange(
+    session: BrowserToolSession,
+    observedVersion: Long,
+    timeoutMs: Long
+): Long {
+    val safeTimeoutMs = timeoutMs.coerceAtLeast(1L)
+    synchronized(session.stateSignal) {
+        if (session.stateVersion == observedVersion) {
+            runCatching {
+                session.stateSignal.wait(safeTimeoutMs)
+            }
+        }
+        return session.stateVersion
     }
 }
 
@@ -302,8 +326,8 @@ internal fun StandardBrowserSessionTools.isDocumentReady(session: BrowserToolSes
     }
     val ready =
         runCatching {
-            decodeJsResult(
-                evaluateJavascriptSync(
+            extractAsyncJsValue(
+                evaluateJavascriptAsync(
                     session.webView,
                     "(function(){ return String(document.readyState || ''); })();",
                     2_000L
@@ -318,11 +342,21 @@ internal fun StandardBrowserSessionTools.waitForDocumentReady(
     timeoutMs: Long
 ): Boolean {
     val deadline = System.currentTimeMillis() + timeoutMs.coerceAtLeast(250L)
+    var observedVersion = session.stateVersion
     while (System.currentTimeMillis() < deadline) {
         if (isDocumentReady(session)) {
             return true
         }
-        Thread.sleep(120)
+        val remainingMs = deadline - System.currentTimeMillis()
+        if (remainingMs <= 0L) {
+            break
+        }
+        observedVersion =
+            awaitSessionStateChange(
+                session,
+                observedVersion,
+                remainingMs.coerceAtMost(120L)
+            )
     }
     return false
 }
@@ -334,8 +368,8 @@ internal fun StandardBrowserSessionTools.matchesTextState(
 ): Boolean {
     val bodyText =
         runCatching {
-            decodeJsResult(
-                evaluateJavascriptSync(
+            extractAsyncJsValue(
+                evaluateJavascriptAsync(
                     session.webView,
                     "(function(){ return String((document.body && document.body.innerText) || ''); })();",
                     2_000L
@@ -371,11 +405,21 @@ internal fun StandardBrowserSessionTools.waitForTextState(
     timeoutMs: Long = StandardBrowserSessionTools.DEFAULT_TIMEOUT_MS
 ): Boolean {
     val deadline = System.currentTimeMillis() + timeoutMs.coerceAtLeast(200L)
+    var observedVersion = session.stateVersion
     while (System.currentTimeMillis() < deadline) {
         if (matchesTextState(session, text = text, textGone = textGone)) {
             return true
         }
-        Thread.sleep(120L)
+        val remainingMs = deadline - System.currentTimeMillis()
+        if (remainingMs <= 0L) {
+            break
+        }
+        observedVersion =
+            awaitSessionStateChange(
+                session,
+                observedVersion,
+                remainingMs.coerceAtMost(120L)
+            )
     }
     return matchesTextState(session, text = text, textGone = textGone)
 }
@@ -410,6 +454,7 @@ internal fun StandardBrowserSessionTools.settleBrowserAction(
 ): BrowserToolActionSettlement {
     val deadline = markers.startedAt + policy.timeoutMs.coerceAtLeast(250L)
     var candidateSession = sessionById(markers.initialSessionId) ?: initialSession
+    var observedVersion = candidateSession.stateVersion
 
     while (System.currentTimeMillis() < deadline) {
         val registry = buildPageRegistry()
@@ -421,11 +466,17 @@ internal fun StandardBrowserSessionTools.settleBrowserAction(
                 ?: candidateSession
 
         candidateSession = activeSession
+        observedVersion = activeSession.stateVersion
         if (actionSettled(activeSession, markers, policy)) {
             runOnMainSync<Unit> {
                 ensureSessionAttachedOnMain(activeSession.id)
             }
-            val snapshot = latestSnapshot(activeSession)
+            val snapshot =
+                if (policy.captureSnapshot && canCaptureSnapshotForSettlement(activeSession)) {
+                    latestSnapshot(activeSession)
+                } else {
+                    null
+                }
             val finalRegistry = buildPageRegistry()
             return BrowserToolActionSettlement(
                 registry = finalRegistry,
@@ -437,7 +488,16 @@ internal fun StandardBrowserSessionTools.settleBrowserAction(
             )
         }
 
-        Thread.sleep(120)
+        val remainingMs = deadline - System.currentTimeMillis()
+        if (remainingMs <= 0L) {
+            break
+        }
+        observedVersion =
+            awaitSessionStateChange(
+                activeSession,
+                observedVersion,
+                remainingMs.coerceAtMost(120L)
+            )
     }
 
     val registry = buildPageRegistry()
@@ -450,7 +510,12 @@ internal fun StandardBrowserSessionTools.settleBrowserAction(
     runOnMainSync<Unit> {
         ensureSessionAttachedOnMain(activeSession.id)
     }
-    val snapshot = latestSnapshot(activeSession)
+    val snapshot =
+        if (policy.captureSnapshot && canCaptureSnapshotForSettlement(activeSession)) {
+            latestSnapshot(activeSession)
+        } else {
+            null
+        }
     val finalRegistry = buildPageRegistry()
     return BrowserToolActionSettlement(
         registry = finalRegistry,
@@ -461,6 +526,10 @@ internal fun StandardBrowserSessionTools.settleBrowserAction(
         timedOut = true
     )
 }
+
+private fun StandardBrowserSessionTools.canCaptureSnapshotForSettlement(
+    session: BrowserToolSession
+): Boolean = session.pendingDialog == null && session.pendingFileChooserCallback == null
 
 internal fun StandardBrowserSessionTools.latestSnapshot(
     session: BrowserToolSession,

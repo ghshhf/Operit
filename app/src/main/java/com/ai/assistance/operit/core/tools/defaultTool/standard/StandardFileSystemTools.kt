@@ -18,6 +18,7 @@ import com.ai.assistance.operit.core.tools.FindFilesResultData
 import com.ai.assistance.operit.core.tools.ToolProgressBus
 import com.ai.assistance.operit.core.tools.GrepResultData
 import com.ai.assistance.operit.core.tools.StringResultData
+import com.ai.assistance.operit.core.tools.ToolExecutionLimits
 import com.ai.assistance.operit.data.model.AITool
 import com.ai.assistance.operit.data.model.FunctionType
 import com.ai.assistance.operit.data.model.ModelParameter
@@ -1958,7 +1959,7 @@ open class StandardFileSystemTools(protected val context: Context) {
 
         try {
             // 从配置中获取最大文件大小
-            val maxFileSizeBytes = apiPreferences.getMaxFileSizeBytes()
+            val maxFileSizeBytes = ToolExecutionLimits.MAX_FILE_READ_BYTES
 
             val file = File(path)
             if (!file.exists() || !file.isFile) {
@@ -2077,7 +2078,7 @@ open class StandardFileSystemTools(protected val context: Context) {
         return withContext(Dispatchers.IO) {
             try {
                 val file = File(path)
-                val maxFileSizeBytes = apiPreferences.getMaxFileSizeBytes()
+                val maxFileSizeBytes = ToolExecutionLimits.MAX_FILE_READ_BYTES
 
                 if (!file.exists() || !file.isFile) {
                     return@withContext ToolResult(
@@ -2113,7 +2114,10 @@ open class StandardFileSystemTools(protected val context: Context) {
 
                 // 2. 计算实际的行号范围（行号从1开始，转换为0-based索引）
                 val startLine = maxOf(1, startLineParam).coerceIn(1, maxOf(1, totalLines))
-                val endLine = (endLineParam ?: (startLine + 99)).coerceIn(startLine, maxOf(1, totalLines))
+                val endLine =
+                    (endLineParam
+                            ?: (startLine + ToolExecutionLimits.DEFAULT_FILE_READ_PART_LINES - 1))
+                        .coerceIn(startLine, maxOf(1, totalLines))
                 
                 // 转换为0-based索引
                 val startIndex = startLine - 1
@@ -3877,6 +3881,13 @@ open class StandardFileSystemTools(protected val context: Context) {
         val sourcePath = tool.parameters.find { it.name == "source" }?.value ?: ""
         val zipPath = tool.parameters.find { it.name == "destination" }?.value ?: ""
         val environment = tool.parameters.find { it.name == "environment" }?.value
+        val includeRootDirectory =
+            when (tool.parameters.find { it.name == "include_root_directory" }?.value?.trim()?.lowercase()) {
+                null, "" -> true
+                "true", "1", "yes", "y", "on" -> true
+                "false", "0", "no", "n", "off" -> false
+                else -> true
+            }
         PathValidator.validateAndroidPath(sourcePath, tool.name, "source")?.let { return it }
         PathValidator.validateAndroidPath(zipPath, tool.name, "destination")?.let { return it }
 
@@ -3917,8 +3928,12 @@ open class StandardFileSystemTools(protected val context: Context) {
 
             ZipOutputStream(BufferedOutputStream(FileOutputStream(destZipFile))).use { zos ->
                 if (sourceFile.isDirectory) {
-                    // For directories, add all files recursively
-                    addDirectoryToZip(sourceFile, sourceFile.name, zos)
+                    // Keep legacy behavior by default, but allow callers to zip only directory contents.
+                    if (includeRootDirectory) {
+                        addDirectoryToZip(sourceFile, sourceFile.name, zos)
+                    } else {
+                        addDirectoryContentsToZip(sourceFile, sourceFile, zos)
+                    }
                 } else {
                     // For a single file, add it directly
                     val entryName = sourceFile.name
@@ -3983,6 +3998,33 @@ open class StandardFileSystemTools(protected val context: Context) {
             }
 
             val entryName = "$baseName/${file.name}"
+            zos.putNextEntry(ZipEntry(entryName))
+
+            FileInputStream(file).use { fis ->
+                BufferedInputStream(fis).use { bis ->
+                    var len: Int
+                    while (bis.read(buffer).also { len = it } > 0) {
+                        zos.write(buffer, 0, len)
+                    }
+                }
+            }
+
+            zos.closeEntry()
+        }
+    }
+
+    /** Helper method to add directory contents to zip without prefixing the source directory name */
+    private fun addDirectoryContentsToZip(rootDir: File, currentDir: File, zos: ZipOutputStream) {
+        val buffer = ByteArray(1024)
+        val files = currentDir.listFiles() ?: return
+
+        for (file in files) {
+            if (file.isDirectory) {
+                addDirectoryContentsToZip(rootDir, file, zos)
+                continue
+            }
+
+            val entryName = file.relativeTo(rootDir).invariantSeparatorsPath
             zos.putNextEntry(ZipEntry(entryName))
 
             FileInputStream(file).use { fis ->

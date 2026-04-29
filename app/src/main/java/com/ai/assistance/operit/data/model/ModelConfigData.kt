@@ -24,6 +24,7 @@ enum class ApiProviderType {
         SILICONFLOW, // 硅基流动
         IFLOW, // iFlow
         OPENROUTER, // OpenRouter (多模型聚合)
+        NOUS_PORTAL, // Nous Portal / Inference API
         INFINIAI, // 无问芯穹
         ALIPAY_BAILING, // 支付宝百灵大模型
         DOUBAO, // 豆包（火山模型）
@@ -34,12 +35,24 @@ enum class ApiProviderType {
         LLAMA_CPP, // llama.cpp 本地推理引擎
         PPINFRA, // 派欧云
         NOVITA, // Novita AI
-        OTHER // 其他提供商（自定义端点）
+        OTHER; // 其他提供商（自定义端点）
+
+        companion object {
+                fun fromProviderTypeId(providerTypeId: String): ApiProviderType? {
+                        val normalized = providerTypeId.trim()
+                        if (normalized.isEmpty()) {
+                                return null
+                        }
+                        return values().firstOrNull {
+                                it.name.equals(normalized, ignoreCase = true)
+                        }
+                }
+        }
 }
 
 object ModelConfigDefaults {
-        const val DEFAULT_CONTEXT_LENGTH = 48.0f
-        const val DEFAULT_MAX_CONTEXT_LENGTH = 128.0f
+        const val DEFAULT_CONTEXT_LENGTH = 64.0f
+        const val DEFAULT_MAX_CONTEXT_LENGTH = 200.0f
         const val DEFAULT_ENABLE_MAX_CONTEXT_MODE = false
         const val DEFAULT_SUMMARY_TOKEN_THRESHOLD = 0.70f
         const val DEFAULT_ENABLE_SUMMARY = true
@@ -58,6 +71,7 @@ data class ModelConfigData(
         val apiEndpoint: String = "",
         val modelName: String = "",
         val apiProviderType: ApiProviderType = ApiProviderType.DEEPSEEK,
+        val apiProviderTypeId: String = apiProviderType.name,
 
         // 多API Key支持
         val useMultipleApiKeys: Boolean = false, // 是否启用多API Key模式

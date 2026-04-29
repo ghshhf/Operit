@@ -3,7 +3,6 @@ package com.ai.assistance.operit.api.chat.llmprovider
 import com.ai.assistance.operit.util.AppLogger
 import com.ai.assistance.operit.core.chat.hooks.PromptTurn
 import com.ai.assistance.operit.core.chat.hooks.PromptTurnKind
-import com.ai.assistance.operit.core.chat.hooks.mergeAdjacentTurns
 import com.ai.assistance.operit.core.chat.hooks.toPromptTurns
 import com.ai.assistance.operit.data.model.ApiProviderType
 import com.ai.assistance.operit.data.model.ModelOption
@@ -151,7 +150,11 @@ class GeminiProvider(
                     comparableRole to comparableContent
                 }
             )
-        return tokenCacheManager.calculateInputTokens(comparableHistory, toolsJson)
+        return tokenCacheManager.calculateInputTokens(
+            comparableHistory,
+            toolsJson,
+            updateState = false
+        )
     }
     
     /**
@@ -499,10 +502,16 @@ class GeminiProvider(
         val contentsArray = JSONArray()
         var systemInstruction: JSONObject? = null
 
+        val providerReadyHistory =
+            StructuredToolCallBridge.compileHistoryForProvider(
+                chatHistory,
+                useToolCall = enableToolCall
+            )
+
         // 使用TokenCacheManager计算token数量
         val sanitizedHistoryForTokenCount =
             ChatUtils.stripGeminiThoughtSignatureMeta(
-                chatHistory.map { turn ->
+                providerReadyHistory.map { turn ->
                     val comparableRole =
                         when (turn.kind) {
                             PromptTurnKind.SYSTEM -> "system"
@@ -526,7 +535,7 @@ class GeminiProvider(
             toolsJson
         )
 
-        val effectiveHistory = chatHistory.mergeAdjacentTurns()
+        val effectiveHistory = providerReadyHistory
 
         // Find and process system message first
         val systemMessages = effectiveHistory.filter { it.kind == PromptTurnKind.SYSTEM }
@@ -822,6 +831,15 @@ class GeminiProvider(
             // 消息长度在限制之内，直接打印
             AppLogger.d(tag, "$prefix$message")
         }
+    }
+
+    private fun logFinalOutput(content: CharSequence, prefix: String = "Gemini final output: ") {
+        val finalOutput = content.toString()
+        if (finalOutput.isBlank()) {
+            AppLogger.d(TAG, "${prefix.trimEnd()}[empty]")
+            return
+        }
+        logLargeString(TAG, finalOutput, prefix)
     }
 
     private fun sanitizeImageDataForLogging(json: JSONObject): JSONObject {
@@ -1124,6 +1142,7 @@ class GeminiProvider(
                 // 清理活跃引用
                 activeCall = null
                 activeResponse = null
+                logFinalOutput(receivedContent, "Gemini final output summary: ")
                 return@stream
             } catch (e: Exception) {
                 lastException = e

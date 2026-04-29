@@ -1,8 +1,10 @@
 import type { JavaBridgeValue } from "../../types/java-bridge";
 
-const ArrayList = Java.type("java.util.ArrayList");
-const LinkedHashMap = Java.type("java.util.LinkedHashMap");
+const PromptTurnClass = Java.type("com.ai.assistance.operit.core.chat.hooks.PromptTurn");
 const PromptTurnKindClass = Java.type("com.ai.assistance.operit.core.chat.hooks.PromptTurnKind");
+const SendMessageOptionsClass = Java.type(
+  "com.ai.assistance.operit.api.chat.EnhancedAIService$SendMessageOptions"
+);
 
 export type PromptTurn = ToolPkg.PromptTurn;
 export type PromptTurnKind = ToolPkg.PromptTurnKind;
@@ -55,20 +57,51 @@ export function normalizePromptTurnList(value: unknown): PromptTurn[] {
   return turns;
 }
 
-export function toKotlinPromptTurnList(history: PromptTurn[]): JavaBridgeValue {
-  const list = new ArrayList();
-  for (const turn of history || []) {
-    list.add(
-      Java.newInstance(
-        "com.ai.assistance.operit.core.chat.hooks.PromptTurn",
-        resolvePromptTurnKind(turn.kind),
-        String(turn.content ?? ""),
-        typeof turn.toolName === "string" ? turn.toolName : null,
-        toJavaJsonObject(turn.metadata)
-      )
-    );
-  }
-  return list;
+export function toKotlinPromptTurnList(history: PromptTurn[]): JavaBridgeValue[] {
+  return (history || []).map((turn) =>
+    new PromptTurnClass(
+      resolvePromptTurnKind(turn.kind),
+      String(turn.content ?? ""),
+      typeof turn.toolName === "string" ? turn.toolName : null,
+      isJsonObject(turn.metadata) ? turn.metadata : {}
+    )
+  );
+}
+
+export interface SendMessageBridgeOptions {
+  message: string;
+  chatId?: string | null;
+  chatHistory: PromptTurn[];
+  maxTokens: number;
+  tokenUsageThreshold: number;
+  workspacePath?: string | null;
+  customSystemPromptTemplate?: string | null;
+  isSubTask: boolean;
+  proxySenderName?: string | null;
+  enableMemoryAutoUpdate?: boolean;
+  callbacks?: {
+    onNonFatalError?: (error: string) => unknown;
+    onTokenLimitExceeded?: () => unknown;
+    onToolInvocation?: (toolName: string) => unknown;
+  } | null;
+}
+
+export function createSendMessageOptions(
+  options: SendMessageBridgeOptions
+): JavaBridgeValue {
+  const javaOptions = new SendMessageOptionsClass();
+  javaOptions.message = String(options.message ?? "");
+  javaOptions.chatId = options.chatId ?? null;
+  javaOptions.chatHistory = toKotlinPromptTurnList(options.chatHistory || []);
+  javaOptions.maxTokens = Number(options.maxTokens);
+  javaOptions.tokenUsageThreshold = Number(options.tokenUsageThreshold);
+  javaOptions.workspacePath = options.workspacePath ?? null;
+  javaOptions.customSystemPromptTemplate = options.customSystemPromptTemplate ?? null;
+  javaOptions.subTask = Boolean(options.isSubTask);
+  javaOptions.proxySenderName = options.proxySenderName ?? null;
+  javaOptions.enableMemoryAutoUpdate = options.enableMemoryAutoUpdate ?? true;
+  javaOptions.callbacks = options.callbacks ?? null;
+  return javaOptions;
 }
 
 function normalizePromptTurnKind(kind: unknown): PromptTurnKind | null {
@@ -106,33 +139,4 @@ function resolvePromptTurnKind(kind: PromptTurnKind): JavaBridgeValue {
 
 function isJsonObject(value: unknown): value is ToolPkg.JsonObject {
   return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function toJavaJsonObject(value: ToolPkg.JsonObject | undefined): JavaBridgeValue {
-  if (!value) {
-    return new LinkedHashMap();
-  }
-
-  const map = new LinkedHashMap();
-  for (const [key, item] of Object.entries(value)) {
-    map.put(String(key), toJavaValue(item));
-  }
-  return map;
-}
-
-function toJavaValue(value: ToolPkg.JsonValue | undefined): JavaBridgeValue {
-  if (value === undefined || value === null) {
-    return null;
-  }
-  if (Array.isArray(value)) {
-    const list = new ArrayList();
-    for (const item of value) {
-      list.add(toJavaValue(item));
-    }
-    return list;
-  }
-  if (typeof value === "object") {
-    return toJavaJsonObject(value as ToolPkg.JsonObject);
-  }
-  return value;
 }

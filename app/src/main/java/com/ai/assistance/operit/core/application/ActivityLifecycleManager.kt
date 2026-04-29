@@ -35,6 +35,8 @@ object ActivityLifecycleManager : Application.ActivityLifecycleCallbacks {
     private var activityCount = 0
     private var startedActivityCount = 0
     private var isAppInForeground = false
+    private var keepScreenOnPreferenceRequestCount = 0
+    private var keepScreenOnForcedRequestCount = 0
 
     @Volatile
     private var lastMicEnsureAtMs: Long = 0L
@@ -65,12 +67,32 @@ object ActivityLifecycleManager : Application.ActivityLifecycleCallbacks {
      * @param enable True to add the `FLAG_KEEP_SCREEN_ON`, false to clear it.
      */
     fun checkAndApplyKeepScreenOn(enable: Boolean) {
+        applyKeepScreenOnRequest(enable = enable, respectUserPreference = true)
+    }
+
+    fun forceKeepScreenOn(enable: Boolean) {
+        applyKeepScreenOnRequest(enable = enable, respectUserPreference = false)
+    }
+
+    private fun applyKeepScreenOnRequest(enable: Boolean, respectUserPreference: Boolean) {
         scope.launch {
             try {
-                val keepScreenOnEnabled = apiPreferences.keepScreenOnFlow.first()
-                if (!keepScreenOnEnabled) {
-                    // The feature is disabled by the user, so we do nothing.
+                if (enable && respectUserPreference && !apiPreferences.keepScreenOnFlow.first()) {
                     return@launch
+                }
+
+                if (respectUserPreference) {
+                    if (enable) {
+                        keepScreenOnPreferenceRequestCount += 1
+                    } else if (keepScreenOnPreferenceRequestCount > 0) {
+                        keepScreenOnPreferenceRequestCount -= 1
+                    }
+                } else {
+                    if (enable) {
+                        keepScreenOnForcedRequestCount += 1
+                    } else if (keepScreenOnForcedRequestCount > 0) {
+                        keepScreenOnForcedRequestCount -= 1
+                    }
                 }
 
                 val activity = getCurrentActivity()
@@ -82,7 +104,7 @@ object ActivityLifecycleManager : Application.ActivityLifecycleCallbacks {
                 // Window operations must be done on the UI thread.
                 activity.runOnUiThread {
                     val window = activity.window
-                    if (enable) {
+                    if (keepScreenOnPreferenceRequestCount + keepScreenOnForcedRequestCount > 0) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         AppLogger.d(TAG, "FLAG_KEEP_SCREEN_ON added.")
                     } else {

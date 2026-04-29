@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ai.assistance.operit.R
+import com.ai.assistance.operit.core.tools.packTool.PackageManager
 import com.ai.assistance.operit.data.model.ExecutionStatus
 import com.ai.assistance.operit.data.model.Workflow
 import com.ai.assistance.operit.ui.components.CustomScaffold
@@ -66,6 +67,10 @@ fun WorkflowListScreen(
         if (viewModel.workflows.isEmpty()) {
             isSelectionMode = false
         }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.loadToolPkgWorkflowTemplates()
     }
 
     val selectedCount = selectedWorkflowIds.size
@@ -301,6 +306,7 @@ fun WorkflowListScreen(
             if (showTemplateDialog) {
                 TemplateTypeDialog(
                     onDismiss = { showTemplateDialog = false },
+                    toolPkgTemplates = viewModel.toolPkgWorkflowTemplates,
                     onSelectIntentChatBroadcastTemplate = {
                         showTemplateDialog = false
                         viewModel.createIntentChatBroadcastTemplateWorkflow(context) { workflow ->
@@ -346,6 +352,15 @@ fun WorkflowListScreen(
                     onSelectSpeechTriggerTemplate = {
                         showTemplateDialog = false
                         viewModel.createSpeechTriggerTemplateWorkflow(context) { workflow ->
+                            onNavigateToDetail(workflow.id)
+                        }
+                    },
+                    onSelectToolPkgTemplate = { template ->
+                        showTemplateDialog = false
+                        viewModel.importToolPkgWorkflowTemplate(
+                            containerPackageName = template.containerPackageName,
+                            templateId = template.templateId
+                        ) { workflow ->
                             onNavigateToDetail(workflow.id)
                         }
                     }
@@ -429,6 +444,7 @@ private fun WorkflowSelectionBar(
 @Composable
 private fun TemplateTypeDialog(
     onDismiss: () -> Unit,
+    toolPkgTemplates: List<PackageManager.ToolPkgWorkflowTemplate>,
     onSelectIntentChatBroadcastTemplate: () -> Unit,
     onSelectChatTemplate: () -> Unit,
     onSelectConditionTemplate: () -> Unit,
@@ -436,7 +452,8 @@ private fun TemplateTypeDialog(
     onSelectLogicOrTemplate: () -> Unit,
     onSelectExtractTemplate: () -> Unit,
     onSelectErrorBranchTemplate: () -> Unit,
-    onSelectSpeechTriggerTemplate: () -> Unit
+    onSelectSpeechTriggerTemplate: () -> Unit,
+    onSelectToolPkgTemplate: (PackageManager.ToolPkgWorkflowTemplate) -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -488,6 +505,29 @@ private fun TemplateTypeDialog(
                     subtitle = stringResource(R.string.workflow_template_speech_trigger_desc),
                     onClick = onSelectSpeechTriggerTemplate
                 )
+                if (toolPkgTemplates.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.workflow_template_toolpkg_section),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    toolPkgTemplates.forEach { template ->
+                        val subtitle =
+                            buildString {
+                                append(template.containerPackageName)
+                                if (template.description.isNotBlank()) {
+                                    append(" · ")
+                                    append(template.description)
+                                }
+                            }
+                        TemplateTypeItem(
+                            title = template.displayName,
+                            subtitle = subtitle,
+                            onClick = { onSelectToolPkgTemplate(template) }
+                        )
+                    }
+                }
             }
         },
         confirmButton = {},

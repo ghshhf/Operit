@@ -9,19 +9,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.ai.assistance.operit.data.api.GitHubApiService
-import com.ai.assistance.operit.data.api.GitHubComment
 import com.ai.assistance.operit.data.api.GitHubIssue
-import com.ai.assistance.operit.data.api.GitHubReaction
-import com.ai.assistance.operit.data.api.GitHubRepository
+import com.ai.assistance.operit.data.api.MarketStatsApiService
 import com.ai.assistance.operit.data.preferences.GitHubAuthPreferences
 import com.ai.assistance.operit.data.skill.SkillRepository
 import com.ai.assistance.operit.util.AppLogger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -29,11 +27,31 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import com.ai.assistance.operit.R
+import com.ai.assistance.operit.ui.features.packages.market.CommentPostSuccessBehavior
+import com.ai.assistance.operit.ui.features.packages.market.GitHubIssueMarketDefinition
+import com.ai.assistance.operit.ui.features.packages.market.GitHubIssueMarketService
+import com.ai.assistance.operit.ui.features.packages.market.IssueInteractionController
+import com.ai.assistance.operit.ui.features.packages.market.IssueInteractionMessages
+import com.ai.assistance.operit.ui.features.packages.market.MarketEntryStats
+import com.ai.assistance.operit.ui.features.packages.market.SkillMarketBrowseItem
+import com.ai.assistance.operit.ui.features.packages.market.MarketSortOption
+import com.ai.assistance.operit.ui.features.packages.market.MarketStatsType
+import com.ai.assistance.operit.ui.features.packages.market.buildMarketDisplayState
+import com.ai.assistance.operit.ui.features.packages.market.loadMarketStatsMap
+import com.ai.assistance.operit.ui.features.packages.market.normalizeMarketArtifactId
+import com.ai.assistance.operit.ui.features.packages.utils.IssueBodyMetadataParser
+import com.ai.assistance.operit.ui.features.packages.market.resolveMarketDownloadTarget
+import com.ai.assistance.operit.ui.features.packages.market.resolveSkillMarketEntryId
+import com.ai.assistance.operit.ui.features.packages.market.toMarketEntryStats
+import com.ai.assistance.operit.ui.features.packages.market.toRankMetric
+import com.ai.assistance.operit.ui.features.packages.market.toSkillMarketBrowseItem
+import com.ai.assistance.operit.ui.features.packages.market.updateMarketEntryStats
+import com.ai.assistance.operit.ui.features.packages.utils.SkillIssueParser
+import com.ai.assistance.operit.ui.features.github.GitHubOAuthCoordinator
 
 class SkillMarketViewModel(
     private val context: Context,
@@ -41,6 +59,8 @@ class SkillMarketViewModel(
 ) : ViewModel() {
 
     private val githubApiService = GitHubApiService(context)
+    private val marketStatsApiService = MarketStatsApiService()
+    private val marketService = GitHubIssueMarketService(githubApiService, MARKET_DEFINITION)
     val githubAuth = GitHubAuthPreferences.getInstance(context)
 
     private val _isLoading = MutableStateFlow(false)
@@ -53,7 +73,9 @@ class SkillMarketViewModel(
     val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
 
     private var currentPage: Int = 1
+    private var totalPages: Int = 1
     private var searchJob: Job? = null
+    private var marketStatsRefreshJob: Job? = null
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
@@ -61,23 +83,30 @@ class SkillMarketViewModel(
     private val _isRateLimitError = MutableStateFlow(false)
     val isRateLimitError: StateFlow<Boolean> = _isRateLimitError.asStateFlow()
 
-    private val _skillIssues = MutableStateFlow<List<GitHubIssue>>(emptyList())
-    private val _searchResultIssues = MutableStateFlow<List<GitHubIssue>>(emptyList())
+    private val _skillItems = MutableStateFlow<List<SkillMarketBrowseItem>>(emptyList())
+    private val _searchResultItems = MutableStateFlow<List<SkillMarketBrowseItem>>(emptyList())
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    val skillIssues: StateFlow<List<GitHubIssue>> =
-        combine(_skillIssues, _searchQuery, _searchResultIssues) { issues, query, searchIssues ->
-            if (query.isBlank()) {
-                issues
-            } else {
-                searchIssues
-            }
-        }.stateIn(
+    private val _sortOption = MutableStateFlow(MarketSortOption.UPDATED)
+    val sortOption: StateFlow<MarketSortOption> = _sortOption.asStateFlow()
+
+    private val _marketStats = MutableStateFlow<Map<String, MarketEntryStats>>(emptyMap())
+    val marketStats: StateFlow<Map<String, MarketEntryStats>> = _marketStats.asStateFlow()
+
+    val skillItems: StateFlow<List<SkillMarketBrowseItem>> =
+        buildMarketDisplayState(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
+            baseItems = _skillItems,
+            searchQuery = _searchQuery,
+            searchResults = _searchResultItems,
+            sortOption = _sortOption,
+            stats = _marketStats,
+            idSelector = { it.entryId },
+            updatedAtSelector = { it.issue.updated_at },
+            titleSelector = { it.title },
+            likesSelector = { it.issue.reactions?.thumbs_up ?: 0 }
         )
 
     private val _installingSkills = MutableStateFlow<Set<String>>(emptySet())
@@ -91,32 +120,36 @@ class SkillMarketViewModel(
 
     private val _userPublishedSkills = MutableStateFlow<List<GitHubIssue>>(emptyList())
     val userPublishedSkills: StateFlow<List<GitHubIssue>> = _userPublishedSkills.asStateFlow()
-
-    private val _issueComments = MutableStateFlow<Map<Int, List<GitHubComment>>>(emptyMap())
-    val issueComments: StateFlow<Map<Int, List<GitHubComment>>> = _issueComments.asStateFlow()
-
-    private val _isLoadingComments = MutableStateFlow<Set<Int>>(emptySet())
-    val isLoadingComments: StateFlow<Set<Int>> = _isLoadingComments.asStateFlow()
-
-    private val _isPostingComment = MutableStateFlow<Set<Int>>(emptySet())
-    val isPostingComment: StateFlow<Set<Int>> = _isPostingComment.asStateFlow()
-
-    private val _userAvatarCache = MutableStateFlow<Map<String, String>>(emptyMap())
-    val userAvatarCache: StateFlow<Map<String, String>> = _userAvatarCache.asStateFlow()
-
-    private val _issueReactions = MutableStateFlow<Map<Int, List<GitHubReaction>>>(emptyMap())
-    val issueReactions: StateFlow<Map<Int, List<GitHubReaction>>> = _issueReactions.asStateFlow()
-
-    private val _isLoadingReactions = MutableStateFlow<Set<Int>>(emptySet())
-    val isLoadingReactions: StateFlow<Set<Int>> = _isLoadingReactions.asStateFlow()
-
-    private val _isReacting = MutableStateFlow<Set<Int>>(emptySet())
-    val isReacting: StateFlow<Set<Int>> = _isReacting.asStateFlow()
-
-    private val _repositoryCache = MutableStateFlow<Map<String, GitHubRepository>>(emptyMap())
-    val repositoryCache: StateFlow<Map<String, GitHubRepository>> = _repositoryCache.asStateFlow()
+    private val _hasLoadedUserPublishedSkills = MutableStateFlow(false)
+    val hasLoadedUserPublishedSkills: StateFlow<Boolean> =
+        _hasLoadedUserPublishedSkills.asStateFlow()
 
     private val sharedPrefs: SharedPreferences = context.getSharedPreferences("skill_publish_draft", Context.MODE_PRIVATE)
+
+    private val issueInteractionController = IssueInteractionController(
+        scope = viewModelScope,
+        context = context,
+        marketService = marketService,
+        logTag = TAG,
+        onError = { _errorMessage.value = it },
+        messages = IssueInteractionMessages(
+            commentLoadFailed = { context.getString(R.string.skillmarket_load_comments_failed, it) },
+            commentLoadError = { context.getString(R.string.skillmarket_load_comments_failed, it) },
+            commentPostFailed = { context.getString(R.string.skillmarket_post_comment_failed, it) },
+            commentPostError = { context.getString(R.string.skillmarket_post_comment_failed, it) },
+            reactionFailed = { context.getString(R.string.skillmarket_like_failed, it) },
+            reactionError = { context.getString(R.string.skillmarket_like_error, it) }
+        )
+    )
+
+    val issueComments = issueInteractionController.issueComments
+    val isLoadingComments = issueInteractionController.isLoadingComments
+    val isPostingComment = issueInteractionController.isPostingComment
+    val userAvatarCache = issueInteractionController.userAvatarCache
+    val issueReactions = issueInteractionController.issueReactions
+    val isLoadingReactions = issueInteractionController.isLoadingReactions
+    val isReacting = issueInteractionController.isReacting
+    val repositoryCache = issueInteractionController.repositoryCache
 
     data class PublishDraft(
         val title: String = "",
@@ -156,10 +189,12 @@ class SkillMarketViewModel(
 
     companion object {
         private const val TAG = "SkillMarketViewModel"
-        private const val MARKET_REPO_OWNER = "AAswordman"
-        private const val MARKET_REPO_NAME = "OperitSkillMarket"
-        private const val SKILL_LABEL = "skill-plugin"
-        private const val MARKET_PAGE_SIZE = 50
+        private val MARKET_DEFINITION = GitHubIssueMarketDefinition(
+            owner = "AAswordman",
+            repo = "OperitSkillMarket",
+            label = "skill-plugin",
+            pageSize = 50
+        )
     }
 
     fun onSearchQueryChanged(query: String) {
@@ -169,7 +204,7 @@ class SkillMarketViewModel(
         val trimmedQuery = query.trim()
         if (trimmedQuery.isBlank()) {
             _isLoading.value = false
-            _searchResultIssues.value = emptyList()
+            _searchResultItems.value = emptyList()
             _errorMessage.value = null
             _isRateLimitError.value = false
             return
@@ -178,6 +213,24 @@ class SkillMarketViewModel(
         searchJob = viewModelScope.launch {
             delay(350)
             searchSkillMarketIssues(trimmedQuery)
+        }
+    }
+
+    fun onSortOptionChanged(option: MarketSortOption) {
+        _sortOption.value = option
+        loadSkillMarketData()
+    }
+
+    fun ensureMarketStatsLoaded(entryId: String? = null) {
+        if (entryId != null && _marketStats.value.containsKey(entryId)) {
+            return
+        }
+        if (entryId == null && _marketStats.value.isNotEmpty()) {
+            return
+        }
+
+        viewModelScope.launch {
+            refreshMarketStats()
         }
     }
 
@@ -192,47 +245,33 @@ class SkillMarketViewModel(
             false
         }
 
-        val qualifiedQuery = buildString {
-            append(rawQuery)
-            append(" repo:")
-            append(MARKET_REPO_OWNER)
-            append("/")
-            append(MARKET_REPO_NAME)
-            append(" is:issue is:open label:")
-            append(SKILL_LABEL)
-        }
-
         try {
-            val result = githubApiService.searchIssues(
-                query = qualifiedQuery,
-                sort = "updated",
-                order = "desc",
-                page = 1,
-                perPage = MARKET_PAGE_SIZE
-            )
+            val result = marketService.searchOpenIssues(rawQuery = rawQuery, page = 1)
 
             if (rawQuery != _searchQuery.value.trim()) return
 
             result.fold(
                 onSuccess = { issues ->
-                    _searchResultIssues.value = issues
+                    _searchResultItems.value = issues.map { it.toSkillMarketBrowseItem() }
                 },
                 onFailure = { error ->
                     val msg = error.message ?: "Unknown error"
                     _errorMessage.value = context.getString(R.string.skillmarket_load_failed, msg)
-                    _searchResultIssues.value = emptyList()
+                    _searchResultItems.value = emptyList()
 
-                    if ((msg.contains("403") || msg.contains("rate") || msg.contains("Rate")) && !isLoggedIn) {
+                    if (marketService.isLoggedOutRateLimit(msg, isLoggedIn)) {
                         _isRateLimitError.value = true
                     }
 
                     AppLogger.e(TAG, "Failed to search skill market data", error)
                 }
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             if (rawQuery == _searchQuery.value.trim()) {
                 _errorMessage.value = context.getString(R.string.skillmarket_network_error, e.message ?: "")
-                _searchResultIssues.value = emptyList()
+                _searchResultItems.value = emptyList()
                 AppLogger.e(TAG, "Exception while searching skill market data", e)
             }
         } finally {
@@ -243,6 +282,12 @@ class SkillMarketViewModel(
     }
 
     fun clearError() {
+        _errorMessage.value = null
+    }
+
+    fun resetUserPublishedSkillsState() {
+        _userPublishedSkills.value = emptyList()
+        _hasLoadedUserPublishedSkills.value = false
         _errorMessage.value = null
     }
 
@@ -278,14 +323,16 @@ class SkillMarketViewModel(
     }
 
     fun initiateGitHubLogin(context: Context) {
-        try {
-            val authUrl = githubAuth.getAuthorizationUrl()
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            _errorMessage.value = context.getString(R.string.skillmarket_login_failed, e.message ?: "")
-            AppLogger.e(TAG, "Failed to initiate GitHub login", e)
+        viewModelScope.launch {
+            try {
+                val authUrl = GitHubOAuthCoordinator(context).createExternalAuthorizationUrl()
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                _errorMessage.value = context.getString(R.string.skillmarket_login_failed, e.message ?: "")
+                AppLogger.e(TAG, "Failed to initiate GitHub login", e)
+            }
         }
     }
 
@@ -307,8 +354,9 @@ class SkillMarketViewModel(
             _isLoadingMore.value = false
             _errorMessage.value = null
             _isRateLimitError.value = false
-            _hasMore.value = true
+            _hasMore.value = false
             currentPage = 1
+            totalPages = 1
 
             val isLoggedIn = try {
                 githubAuth.isLoggedIn()
@@ -317,28 +365,34 @@ class SkillMarketViewModel(
             }
 
             try {
-                val result = githubApiService.getRepositoryIssues(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    state = "open",
-                    labels = SKILL_LABEL,
-                    page = 1,
-                    perPage = MARKET_PAGE_SIZE
-                )
+                refreshMarketStatsInBackground()
+                val result =
+                    marketStatsApiService.getRankPage(
+                        type = MarketStatsType.SKILL.wireValue,
+                        metric = _sortOption.value.toRankMetric(),
+                        page = 1
+                    )
 
                 result.fold(
-                    onSuccess = { issues ->
-                        _skillIssues.value = issues
-                        _hasMore.value = issues.size >= MARKET_PAGE_SIZE
+                    onSuccess = { rankPage ->
+                        currentPage = rankPage.page
+                        totalPages = rankPage.totalPages.coerceAtLeast(1)
+                        rankPage.items.forEach { entry ->
+                            _marketStats.updateMarketEntryStats(entry.id) {
+                                entry.toMarketEntryStats()
+                            }
+                        }
+                        _skillItems.value = rankPage.items.map { it.toSkillMarketBrowseItem() }
+                        _hasMore.value = currentPage < totalPages
                     },
                     onFailure = { error ->
                         val msg = error.message ?: "Unknown error"
                         _errorMessage.value = context.getString(R.string.skillmarket_load_failed, msg)
-                        _skillIssues.value = emptyList()
+                        _skillItems.value = emptyList()
                         _hasMore.value = false
 
-                        if (msg.contains("403") || msg.contains("rate") || msg.contains("Rate")) {
-                            _isRateLimitError.value = !isLoggedIn
+                        if (marketService.isLoggedOutRateLimit(msg, isLoggedIn)) {
+                            _isRateLimitError.value = true
                         }
 
                         AppLogger.e(TAG, "Failed to load skill market data", error)
@@ -346,7 +400,7 @@ class SkillMarketViewModel(
                 )
             } catch (e: Exception) {
                 _errorMessage.value = context.getString(R.string.skillmarket_network_error, e.message ?: "")
-                _skillIssues.value = emptyList()
+                _skillItems.value = emptyList()
                 AppLogger.e(TAG, "Exception while loading skill market data", e)
             } finally {
                 _isLoading.value = false
@@ -355,59 +409,56 @@ class SkillMarketViewModel(
     }
 
     fun loadMoreSkillMarketData() {
+        if (_searchQuery.value.isNotBlank() || _isLoading.value || _isLoadingMore.value || !_hasMore.value) {
+            return
+        }
+
         viewModelScope.launch {
-            if (_isLoading.value || _isLoadingMore.value || !_hasMore.value) return@launch
-
             _isLoadingMore.value = true
-            _errorMessage.value = null
-            _isRateLimitError.value = false
-
-            val isLoggedIn = try {
-                githubAuth.isLoggedIn()
-            } catch (_: Exception) {
-                false
-            }
-
-            val nextPage = currentPage + 1
-
             try {
-                val result = githubApiService.getRepositoryIssues(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    state = "open",
-                    labels = SKILL_LABEL,
-                    page = nextPage,
-                    perPage = MARKET_PAGE_SIZE
-                )
+                val nextPage = currentPage + 1
+                val result =
+                    marketStatsApiService.getRankPage(
+                        type = MarketStatsType.SKILL.wireValue,
+                        metric = _sortOption.value.toRankMetric(),
+                        page = nextPage
+                    )
 
                 result.fold(
-                    onSuccess = { issues ->
-                        if (issues.isEmpty()) {
-                            _hasMore.value = false
-                            return@fold
+                    onSuccess = { rankPage ->
+                        currentPage = rankPage.page
+                        totalPages = rankPage.totalPages.coerceAtLeast(1)
+                        rankPage.items.forEach { entry ->
+                            _marketStats.updateMarketEntryStats(entry.id) {
+                                entry.toMarketEntryStats()
+                            }
                         }
-
-                        currentPage = nextPage
-                        _skillIssues.value = (_skillIssues.value + issues).distinctBy { it.id }
-                        _hasMore.value = issues.size >= MARKET_PAGE_SIZE
+                        _skillItems.value =
+                            (_skillItems.value + rankPage.items.map { it.toSkillMarketBrowseItem() })
+                                .distinctBy { it.issue.id }
+                        _hasMore.value = currentPage < totalPages
                     },
                     onFailure = { error ->
                         val msg = error.message ?: "Unknown error"
-                        _errorMessage.value = context.getString(R.string.skillmarket_load_more_failed, msg)
-
-                        if (msg.contains("403") || msg.contains("rate") || msg.contains("Rate")) {
-                            _isRateLimitError.value = !isLoggedIn
-                        }
-
+                        _errorMessage.value = context.getString(R.string.skillmarket_load_failed, msg)
+                        _hasMore.value = false
                         AppLogger.e(TAG, "Failed to load more skill market data", error)
                     }
                 )
             } catch (e: Exception) {
                 _errorMessage.value = context.getString(R.string.skillmarket_network_error, e.message ?: "")
+                _hasMore.value = false
                 AppLogger.e(TAG, "Exception while loading more skill market data", e)
             } finally {
                 _isLoadingMore.value = false
             }
+        }
+    }
+
+    private fun refreshMarketStatsInBackground() {
+        marketStatsRefreshJob?.cancel()
+        marketStatsRefreshJob = viewModelScope.launch {
+            refreshMarketStats()
         }
     }
 
@@ -457,31 +508,9 @@ class SkillMarketViewModel(
                     return@launch
                 }
 
-                val resultWithLabel = githubApiService.getRepositoryIssues(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    state = "all",
-                    labels = SKILL_LABEL,
+                val finalResult = marketService.getUserPublishedIssues(
                     creator = userInfo.login,
-                    perPage = 100
-                )
-
-                val finalResult = resultWithLabel.fold(
-                    onSuccess = { issues ->
-                        if (issues.isNotEmpty()) {
-                            Result.success(issues)
-                        } else {
-                            githubApiService.getRepositoryIssues(
-                                owner = MARKET_REPO_OWNER,
-                                repo = MARKET_REPO_NAME,
-                                state = "all",
-                                labels = null,
-                                creator = userInfo.login,
-                                perPage = 100
-                            )
-                        }
-                    },
-                    onFailure = { Result.failure(it) }
+                    fallbackWithoutLabel = true
                 )
 
                 finalResult.fold(
@@ -497,6 +526,7 @@ class SkillMarketViewModel(
                 _errorMessage.value = context.getString(R.string.skillmarket_network_error, e.message ?: "")
                 AppLogger.e(TAG, "Network error while loading user published skills", e)
             } finally {
+                _hasLoadedUserPublishedSkills.value = true
                 _isLoading.value = false
             }
         }
@@ -511,9 +541,7 @@ class SkillMarketViewModel(
                 }
 
                 _isLoading.value = true
-                val result = githubApiService.updateIssue(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
+                val result = marketService.updateIssueState(
                     issueNumber = issueNumber,
                     state = "closed"
                 )
@@ -539,32 +567,7 @@ class SkillMarketViewModel(
     }
 
     fun loadIssueComments(issueNumber: Int) {
-        viewModelScope.launch {
-            _isLoadingComments.value = _isLoadingComments.value + issueNumber
-            try {
-                val result = githubApiService.getIssueComments(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    issueNumber = issueNumber,
-                    perPage = 50
-                )
-
-                result.fold(
-                    onSuccess = { comments ->
-                        _issueComments.value = _issueComments.value + (issueNumber to comments)
-                    },
-                    onFailure = { error ->
-                        _errorMessage.value = context.getString(R.string.skillmarket_load_comments_failed, error.message ?: "")
-                        AppLogger.e(TAG, "Failed to load issue comments", error)
-                    }
-                )
-            } catch (e: Exception) {
-                _errorMessage.value = context.getString(R.string.skillmarket_load_comments_failed, e.message ?: "")
-                AppLogger.e(TAG, "Failed to load issue comments", e)
-            } finally {
-                _isLoadingComments.value = _isLoadingComments.value - issueNumber
-            }
-        }
+        issueInteractionController.loadIssueComments(issueNumber, perPage = 50)
     }
 
     fun postIssueComment(issueNumber: Int, body: String) {
@@ -572,35 +575,17 @@ class SkillMarketViewModel(
         if (text.isBlank()) return
 
         viewModelScope.launch {
-            _isPostingComment.value = _isPostingComment.value + issueNumber
-            try {
-                if (!githubAuth.isLoggedIn()) {
-                    _errorMessage.value = context.getString(R.string.skillmarket_github_login_required)
-                    return@launch
-                }
-
-                val result = githubApiService.createIssueComment(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    issueNumber = issueNumber,
-                    body = text
-                )
-
-                result.fold(
-                    onSuccess = {
-                        loadIssueComments(issueNumber)
-                    },
-                    onFailure = { error ->
-                        _errorMessage.value = context.getString(R.string.skillmarket_post_comment_failed, error.message ?: "")
-                        AppLogger.e(TAG, "Failed to post issue comment", error)
-                    }
-                )
-            } catch (e: Exception) {
-                _errorMessage.value = context.getString(R.string.skillmarket_post_comment_failed, e.message ?: "")
-                AppLogger.e(TAG, "Failed to post issue comment", e)
-            } finally {
-                _isPostingComment.value = _isPostingComment.value - issueNumber
+            if (!githubAuth.isLoggedIn()) {
+                _errorMessage.value = context.getString(R.string.skillmarket_github_login_required)
+                return@launch
             }
+
+            issueInteractionController.postIssueComment(
+                issueNumber = issueNumber,
+                body = text,
+                successBehavior = CommentPostSuccessBehavior.RELOAD_FROM_SERVER,
+                perPage = 50
+            )
         }
     }
 
@@ -619,24 +604,19 @@ class SkillMarketViewModel(
                 version = version
             )
 
-            val result = githubApiService.createIssue(
-                owner = MARKET_REPO_OWNER,
-                repo = MARKET_REPO_NAME,
+            val result = marketService.createIssue(
                 title = title,
-                body = body,
-                labels = listOf(SKILL_LABEL)
+                body = body
             )
 
             if (result.isSuccess) return true
 
             val errMsg = result.exceptionOrNull()?.message.orEmpty()
             if (errMsg.contains("422")) {
-                val retry = githubApiService.createIssue(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
+                val retry = marketService.createIssue(
                     title = title,
                     body = body,
-                    labels = emptyList()
+                    includeDefaultLabel = false
                 )
                 retry.isSuccess
             } else {
@@ -664,9 +644,7 @@ class SkillMarketViewModel(
                 version = version
             )
 
-            val result = githubApiService.updateIssue(
-                owner = MARKET_REPO_OWNER,
-                repo = MARKET_REPO_NAME,
+            val result = marketService.updateIssueContent(
                 issueNumber = issueNumber,
                 title = title,
                 body = body
@@ -735,31 +713,49 @@ class SkillMarketViewModel(
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
                 )
             )
-            appendLine(context.getString(R.string.skill_publish_body_table_row_status_pending))
             appendLine()
         }
     }
 
     private fun parseSkillMetadata(body: String): SkillMetadata? {
-        val prefix = "<!-- operit-skill-json: "
-        val start = body.indexOf(prefix)
-        if (start < 0) return null
+        return IssueBodyMetadataParser.parseCommentJson(
+            body = body,
+            prefix = "<!-- operit-skill-json: ",
+            tag = TAG,
+            metadataName = "skill metadata"
+        )
+    }
 
-        val jsonStart = start + prefix.length
-        val end = body.indexOf(" -->", startIndex = jsonStart)
-        if (end <= jsonStart) return null
+    fun installSkillFromIssue(issue: GitHubIssue) {
+        val skillInfo = SkillIssueParser.parseSkillInfo(issue)
+        installSkillFromRepoUrlInternal(
+            repoUrl = skillInfo.repositoryUrl,
+            statsId = resolveSkillMarketEntryId(issue),
+            downloadTarget = resolveMarketDownloadTarget(skillInfo.repositoryUrl, issue.html_url)
+        )
+    }
 
-        val jsonString = body.substring(jsonStart, end)
-        return try {
-            val json = Json { ignoreUnknownKeys = true }
-            json.decodeFromString<SkillMetadata>(jsonString)
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to parse skill metadata JSON from issue body.", e)
-            null
-        }
+    fun installSkill(item: SkillMarketBrowseItem) {
+        installSkillFromRepoUrlInternal(
+            repoUrl = item.repositoryUrl,
+            statsId = item.entryId,
+            downloadTarget = resolveMarketDownloadTarget(item.repositoryUrl, item.issue.html_url)
+        )
     }
 
     fun installSkillFromRepoUrl(repoUrl: String) {
+        installSkillFromRepoUrlInternal(
+            repoUrl = repoUrl,
+            statsId = normalizeMarketArtifactId(repoUrl),
+            downloadTarget = resolveMarketDownloadTarget(repoUrl, repoUrl)
+        )
+    }
+
+    private fun installSkillFromRepoUrlInternal(
+        repoUrl: String,
+        statsId: String,
+        downloadTarget: String
+    ) {
         val key = repoUrl.trim()
         if (key.isBlank()) {
             _errorMessage.value = context.getString(R.string.skillmarket_invalid_repo_url)
@@ -769,10 +765,13 @@ class SkillMarketViewModel(
         viewModelScope.launch {
             _installingSkills.value = _installingSkills.value + key
             try {
+                trackSkillDownload(statsId, downloadTarget)
                 val result = skillRepository.importSkillFromGitHubRepo(key)
                 Toast.makeText(context, result, Toast.LENGTH_LONG).show()
-                _installedSkillRepoUrls.value = _installedSkillRepoUrls.value + key
-                refreshInstalledSkills()
+                if (isSkillInstallSuccess(result)) {
+                    _installedSkillRepoUrls.value = _installedSkillRepoUrls.value + key
+                    refreshInstalledSkills()
+                }
             } catch (e: Exception) {
                 _errorMessage.value = context.getString(R.string.skillmarket_install_failed, e.message ?: "")
                 AppLogger.e(TAG, "Failed to install skill from repo", e)
@@ -782,141 +781,49 @@ class SkillMarketViewModel(
         }
     }
 
-    fun fetchUserAvatar(username: String) {
-        if (username.isBlank() || _userAvatarCache.value.containsKey(username)) {
-            return
-        }
+    private suspend fun refreshMarketStats() {
+        val loadedStats =
+            loadMarketStatsMap(
+                marketStatsApiService = marketStatsApiService,
+                type = MarketStatsType.SKILL,
+                logTag = TAG,
+                errorLabel = "skill"
+            )
+        _marketStats.value = _marketStats.value + loadedStats
+    }
 
-        viewModelScope.launch {
-            try {
-                val result = githubApiService.getUser(username)
-                result.fold(
-                    onSuccess = { user ->
-                        val currentCache = _userAvatarCache.value.toMutableMap()
-                        currentCache[username] = user.avatarUrl
-                        _userAvatarCache.value = currentCache
-                    },
-                    onFailure = { error ->
-                        AppLogger.w(TAG, "Failed to fetch user avatar for $username: ${error.message}")
-                    }
-                )
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Exception while fetching user avatar for $username", e)
+    private fun isSkillInstallSuccess(message: String): Boolean {
+        return message.startsWith(context.getString(R.string.skill_imported, ""), ignoreCase = true) ||
+            message.startsWith(context.getString(R.string.skill_imported_with_desc, "", ""), ignoreCase = true)
+    }
+
+    private suspend fun trackSkillDownload(statsId: String, targetUrl: String) {
+        marketStatsApiService.trackDownload(
+            type = MarketStatsType.SKILL.wireValue,
+            id = statsId,
+            targetUrl = targetUrl
+        ).onSuccess {
+            _marketStats.updateMarketEntryStats(statsId) { current ->
+                current.copy(downloads = current.downloads + 1)
             }
+        }.onFailure { error ->
+            AppLogger.w(TAG, "Failed to track skill download for $statsId: ${error.message}")
         }
+    }
+
+    fun fetchUserAvatar(username: String) {
+        issueInteractionController.fetchUserAvatar(username)
     }
 
     fun fetchRepositoryInfo(repositoryUrl: String) {
-        if (repositoryUrl.isBlank() || _repositoryCache.value.containsKey(repositoryUrl)) {
-            return
-        }
-
-        val repoPath = repositoryUrl.removePrefix("https://github.com/")
-        val parts = repoPath.split("/")
-        if (parts.size < 2) {
-            AppLogger.w(TAG, "Invalid repository URL: $repositoryUrl")
-            return
-        }
-
-        val owner = parts[0]
-        val repo = parts[1]
-
-        viewModelScope.launch {
-            try {
-                val result = githubApiService.getRepository(owner, repo)
-                result.fold(
-                    onSuccess = { repository ->
-                        val currentCache = _repositoryCache.value.toMutableMap()
-                        currentCache[repositoryUrl] = repository
-                        _repositoryCache.value = currentCache
-                    },
-                    onFailure = { error ->
-                        AppLogger.w(TAG, "Failed to fetch repository info for $repositoryUrl: ${error.message}")
-                    }
-                )
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Exception while fetching repository info for $repositoryUrl", e)
-            }
-        }
+        issueInteractionController.fetchRepositoryInfo(repositoryUrl)
     }
 
     fun loadIssueReactions(issueNumber: Int, force: Boolean = false) {
-        if (issueNumber in _isLoadingReactions.value) {
-            return
-        }
-
-        if (!force && _issueReactions.value.containsKey(issueNumber)) {
-            return
-        }
-
-        viewModelScope.launch {
-            try {
-                _isLoadingReactions.value = _isLoadingReactions.value + issueNumber
-
-                val result = githubApiService.getIssueReactions(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    issueNumber = issueNumber
-                )
-
-                result.fold(
-                    onSuccess = { reactions ->
-                        val currentReactions = _issueReactions.value.toMutableMap()
-                        currentReactions[issueNumber] = reactions
-                        _issueReactions.value = currentReactions
-                    },
-                    onFailure = { error ->
-                        AppLogger.e(TAG, "Failed to load reactions for issue #$issueNumber", error)
-                    }
-                )
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Exception while loading reactions for issue #$issueNumber", e)
-            } finally {
-                _isLoadingReactions.value = _isLoadingReactions.value - issueNumber
-            }
-        }
+        issueInteractionController.loadIssueReactions(issueNumber, force)
     }
 
     fun addReactionToIssue(issueNumber: Int, reactionType: String) {
-        if (issueNumber in _isReacting.value) {
-            return
-        }
-
-        viewModelScope.launch {
-            try {
-                _isReacting.value = _isReacting.value + issueNumber
-
-                val result = githubApiService.createIssueReaction(
-                    owner = MARKET_REPO_OWNER,
-                    repo = MARKET_REPO_NAME,
-                    issueNumber = issueNumber,
-                    content = reactionType
-                )
-
-                result.fold(
-                    onSuccess = { newReaction ->
-                        val currentReactions = _issueReactions.value.toMutableMap()
-                        val existingReactions = currentReactions[issueNumber] ?: emptyList()
-                        currentReactions[issueNumber] = existingReactions + newReaction
-                        _issueReactions.value = currentReactions
-
-                        Toast.makeText(
-                            context,
-                            "Liked successfully!",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    },
-                    onFailure = { error ->
-                        _errorMessage.value = context.getString(R.string.skillmarket_like_failed, error.message ?: "")
-                        AppLogger.e(TAG, "Failed to add reaction to issue #$issueNumber", error)
-                    }
-                )
-            } catch (e: Exception) {
-                _errorMessage.value = context.getString(R.string.skillmarket_like_error, e.message ?: "")
-                AppLogger.e(TAG, "Exception while adding reaction to issue #$issueNumber", e)
-            } finally {
-                _isReacting.value = _isReacting.value - issueNumber
-            }
-        }
+        issueInteractionController.addReactionToIssue(issueNumber, reactionType)
     }
 }

@@ -31,6 +31,7 @@ export namespace ToolPkg {
         | "message_processing"
         | "xml_render"
         | "input_menu_toggle"
+        | "navigation_entry_action"
         | ToolLifecycleEventName
         | PromptInputEventName
         | PromptHistoryEventName
@@ -84,11 +85,20 @@ export namespace ToolPkg {
         | void
         | Promise<string | XmlRenderHookObjectResult | null | void>;
 
+    export type InputMenuToggleSlot =
+        | "thinking"
+        | "memory"
+        | "model"
+        | "tools"
+        | "general"
+        | "default";
+
     export interface InputMenuToggleDefinitionResult extends JsonObject {
         id: string;
         title: string;
         description?: string;
         isChecked?: boolean;
+        slot?: `${InputMenuToggleSlot}`;
     }
 
     export interface InputMenuToggleObjectResult extends JsonObject {
@@ -238,6 +248,9 @@ export namespace ToolPkg {
     export type InputMenuToggleHookHandler =
         (event: InputMenuToggleHookEvent) => InputMenuToggleHookReturn;
 
+    export type NavigationEntryActionHookHandler =
+        (event: NavigationEntryActionHookEvent) => HookReturn;
+
     export type ToolLifecycleHookHandler =
         (event: ToolLifecycleHookEvent) => ToolLifecycleHookReturn;
 
@@ -282,6 +295,7 @@ export namespace ToolPkg {
     }
 
     export interface MessageProcessingEventPayload extends JsonObject {
+        chatId?: string;
         messageContent?: string;
         chatHistory?: PromptTurn[];
         workspacePath?: string;
@@ -301,6 +315,14 @@ export namespace ToolPkg {
         toggleId?: string;
     }
 
+    export interface NavigationEntryActionEventPayload extends JsonObject {
+        entryId?: string;
+        routeId?: string;
+        surface?: string;
+        title?: string;
+        description?: string;
+    }
+
     export interface AppLifecycleHookEvent
         extends HookEventBase<AppLifecycleEvent, AppLifecycleEventPayload> {}
 
@@ -312,6 +334,9 @@ export namespace ToolPkg {
 
     export interface InputMenuToggleHookEvent
         extends HookEventBase<"input_menu_toggle", InputMenuToggleEventPayload> {}
+
+    export interface NavigationEntryActionHookEvent
+        extends HookEventBase<"navigation_entry_action", NavigationEntryActionEventPayload> {}
 
     export interface ToolLifecycleHookEvent
         extends HookEventBase<ToolLifecycleEventName, ToolLifecycleEventPayload> {}
@@ -337,12 +362,162 @@ export namespace ToolPkg {
     export interface PromptEstimateFinalizeHookEvent
         extends HookEventBase<PromptFinalizeEventName, PromptHookEventPayload> {}
 
+    export interface AiProviderConfig extends JsonObject {
+        id: string;
+        name: string;
+        apiProviderType: string;
+        apiProviderTypeId: string;
+        apiKey: string;
+        apiEndpoint: string;
+        modelName: string;
+        customHeaders: JsonObject;
+        customParameters: JsonValue[];
+        enableDirectImageProcessing: boolean;
+        enableDirectAudioProcessing: boolean;
+        enableDirectVideoProcessing: boolean;
+        enableGoogleSearch: boolean;
+        enableToolCall: boolean;
+        requestLimitPerMinute: number;
+        maxConcurrentRequests: number;
+        locale?: string;
+    }
+
+    export interface AiProviderBaseEventPayload extends JsonObject {
+        providerId: string;
+        providerDisplayName?: string;
+        providerDescription?: string;
+        config: AiProviderConfig;
+    }
+
+    export interface AiProviderListModelsEvent
+        extends HookEventBase<"toolpkg_ai_provider_list_models", AiProviderBaseEventPayload> {}
+
+    export interface AiProviderSendMessageEventPayload extends AiProviderBaseEventPayload {
+        chatHistory: PromptTurn[];
+        modelParameters?: JsonObject[];
+        availableTools?: JsonObject[];
+        enableThinking?: boolean;
+        stream?: boolean;
+        preserveThinkInHistory?: boolean;
+        enableRetry?: boolean;
+    }
+
+    export interface AiProviderSendMessageEvent
+        extends HookEventBase<"toolpkg_ai_provider_send_message", AiProviderSendMessageEventPayload> {}
+
+    export interface AiProviderTestConnectionEvent
+        extends HookEventBase<"toolpkg_ai_provider_test_connection", AiProviderBaseEventPayload> {}
+
+    export interface AiProviderCalculateInputTokensEventPayload extends AiProviderBaseEventPayload {
+        chatHistory: PromptTurn[];
+        availableTools?: JsonObject[];
+    }
+
+    export interface AiProviderCalculateInputTokensEvent
+        extends HookEventBase<
+            "toolpkg_ai_provider_calculate_input_tokens",
+            AiProviderCalculateInputTokensEventPayload
+        > {}
+
+    export interface AiProviderModelOption extends JsonObject {
+        id: string;
+        name: string;
+    }
+
+    export interface AiProviderUsage extends JsonObject {
+        input?: number;
+        cachedInput?: number;
+        output?: number;
+    }
+
+    export interface AiProviderListModelsResult extends JsonObject {
+        models: AiProviderModelOption[];
+    }
+
+    export interface AiProviderSendMessageResult extends JsonObject {
+        text: string;
+        usage?: AiProviderUsage;
+    }
+
+    export interface AiProviderTestConnectionResult extends JsonObject {
+        success: boolean;
+        message?: string;
+        error?: string;
+    }
+
+    export interface AiProviderCalculateInputTokensResult extends JsonObject {
+        tokens: number;
+    }
+
+    export type AiProviderListModelsReturn =
+        | AiProviderListModelsResult
+        | Promise<AiProviderListModelsResult>;
+
+    export type AiProviderSendMessageReturn =
+        | AiProviderSendMessageResult
+        | Promise<AiProviderSendMessageResult>;
+
+    export type AiProviderTestConnectionReturn =
+        | AiProviderTestConnectionResult
+        | Promise<AiProviderTestConnectionResult>;
+
+    export type AiProviderCalculateInputTokensReturn =
+        | AiProviderCalculateInputTokensResult
+        | Promise<AiProviderCalculateInputTokensResult>;
+
+    export type AiProviderListModelsHandler =
+        (event: AiProviderListModelsEvent) => AiProviderListModelsReturn;
+
+    export type AiProviderSendMessageHandler =
+        (event: AiProviderSendMessageEvent) => AiProviderSendMessageReturn;
+
+    export type AiProviderTestConnectionHandler =
+        (event: AiProviderTestConnectionEvent) => AiProviderTestConnectionReturn;
+
+    export type AiProviderCalculateInputTokensHandler =
+        (event: AiProviderCalculateInputTokensEvent) => AiProviderCalculateInputTokensReturn;
+
+    export interface AiProviderHandlerRegistration {
+        function: (
+            | AiProviderListModelsHandler
+            | AiProviderSendMessageHandler
+            | AiProviderTestConnectionHandler
+            | AiProviderCalculateInputTokensHandler
+        );
+    }
+
     export interface ToolboxUiModuleRegistration {
         id: string;
         runtime?: string;
         screen: ComposeDslScreen;
         params?: ToolParams;
         title?: LocalizedText;
+        keepAlive?: boolean;
+    }
+
+    export interface UiRouteRegistration {
+        id: string;
+        route?: string;
+        routeId?: string;
+        runtime?: string;
+        screen: ComposeDslScreen;
+        params?: ToolParams;
+        title?: LocalizedText;
+        keepAlive?: boolean;
+    }
+
+    export type NavigationSurface =
+        | "toolbox"
+        | "main_sidebar_plugins";
+
+    export interface NavigationEntryRegistration {
+        id: string;
+        route?: string;
+        surface: NavigationSurface;
+        action?: NavigationEntryActionHookHandler;
+        title?: LocalizedText;
+        icon?: string;
+        order?: number;
     }
 
     export interface AppLifecycleHookRegistration {
@@ -407,8 +582,20 @@ export namespace ToolPkg {
         function: PromptEstimateFinalizeHookHandler;
     }
 
+    export interface AiProviderRegistration {
+        id: string;
+        displayName?: string;
+        description?: string;
+        listModels: { function: AiProviderListModelsHandler };
+        sendMessage: { function: AiProviderSendMessageHandler };
+        testConnection: { function: AiProviderTestConnectionHandler };
+        calculateInputTokens: { function: AiProviderCalculateInputTokensHandler };
+    }
+
     export interface Registry {
         registerToolboxUiModule(definition: ToolboxUiModuleRegistration): void;
+        registerUiRoute(definition: UiRouteRegistration): void;
+        registerNavigationEntry(definition: NavigationEntryRegistration): void;
         registerAppLifecycleHook(definition: AppLifecycleHookRegistration): void;
         registerMessageProcessingPlugin(definition: MessageProcessingPluginRegistration): void;
         registerXmlRenderPlugin(definition: XmlRenderPluginRegistration): void;
@@ -421,12 +608,17 @@ export namespace ToolPkg {
         registerToolPromptComposeHook(definition: ToolPromptComposeHookRegistration): void;
         registerPromptFinalizeHook(definition: PromptFinalizeHookRegistration): void;
         registerPromptEstimateFinalizeHook(definition: PromptEstimateFinalizeHookRegistration): void;
+        registerAiProvider(definition: AiProviderRegistration): void;
         readResource(key: string, outputFileName?: string, internal?: boolean): Promise<string>;
     }
 }
 
 declare global {
     function registerToolPkgToolboxUiModule(definition: ToolPkg.ToolboxUiModuleRegistration): void;
+
+    function registerToolPkgUiRoute(definition: ToolPkg.UiRouteRegistration): void;
+
+    function registerToolPkgNavigationEntry(definition: ToolPkg.NavigationEntryRegistration): void;
 
     function registerToolPkgAppLifecycleHook(definition: ToolPkg.AppLifecycleHookRegistration): void;
 
@@ -451,6 +643,8 @@ declare global {
     function registerToolPkgPromptFinalizeHook(definition: ToolPkg.PromptFinalizeHookRegistration): void;
 
     function registerToolPkgPromptEstimateFinalizeHook(definition: ToolPkg.PromptEstimateFinalizeHookRegistration): void;
+
+    function registerToolPkgAiProvider(definition: ToolPkg.AiProviderRegistration): void;
 
     const ToolPkg: ToolPkg.Registry;
 }

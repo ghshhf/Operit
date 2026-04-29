@@ -63,6 +63,10 @@ internal object JsJavaBridgeDelegates {
         val score: Int
     )
 
+    private data class ConstructedJavaObject(
+        val value: Any
+    )
+
     private data class JsInterfaceBinding(
         val jsObjectId: String,
         val interfaceNames: List<String>
@@ -134,7 +138,7 @@ internal object JsJavaBridgeDelegates {
                     jsCallbackInvoker = jsCallbackInvoker,
                     bridgeClassLoader = bridgeClassLoader
                 )
-            constructorMatch.constructor.newInstance(*constructorMatch.args)
+            ConstructedJavaObject(constructorMatch.constructor.newInstance(*constructorMatch.args))
         }
     }
 
@@ -152,17 +156,38 @@ internal object JsJavaBridgeDelegates {
             require(normalizedMethodName.isNotEmpty()) { "method name is required" }
 
             val rawArgs = parseArgsJson(argsJson, objectRegistry)
-            val methodMatch =
+            val staticMethodMatch =
+                try {
+                    selectMethod(
+                        clazz = clazz,
+                        methodName = normalizedMethodName,
+                        rawArgs = rawArgs,
+                        staticOnly = true,
+                        objectRegistry = objectRegistry,
+                        jsCallbackInvoker = jsCallbackInvoker,
+                        bridgeClassLoader = bridgeClassLoader
+                    )
+                } catch (_: NoSuchMethodException) {
+                    null
+                }
+            if (staticMethodMatch != null) {
+                return@runBridgeCall staticMethodMatch.method.invoke(null, *staticMethodMatch.args)
+            }
+
+            val fallbackInstance =
+                findStaticFallbackInstance(clazz)
+                    ?: throw NoSuchMethodException("static method '$normalizedMethodName' not found on ${clazz.name}")
+            val fallbackMethodMatch =
                 selectMethod(
-                    clazz = clazz,
+                    clazz = fallbackInstance.javaClass,
                     methodName = normalizedMethodName,
                     rawArgs = rawArgs,
-                    staticOnly = true,
+                    staticOnly = false,
                     objectRegistry = objectRegistry,
                     jsCallbackInvoker = jsCallbackInvoker,
                     bridgeClassLoader = bridgeClassLoader
                 )
-            methodMatch.method.invoke(null, *methodMatch.args)
+            fallbackMethodMatch.method.invoke(fallbackInstance, *fallbackMethodMatch.args)
         }
     }
 
@@ -254,15 +279,29 @@ internal object JsJavaBridgeDelegates {
 
             val field = findField(clazz, normalizedFieldName, staticOnly = true)
             if (field != null) {
-                field.get(null)
-            } else {
-                val getter =
-                    findGetter(clazz, normalizedFieldName, staticOnly = true)
-                        ?: throw NoSuchFieldException(
-                            "static field/property '$normalizedFieldName' not found on ${clazz.name}"
-                        )
-                getter.invoke(null)
+                return@runBridgeCall field.get(null)
             }
+
+            val getter = findGetter(clazz, normalizedFieldName, staticOnly = true)
+            if (getter != null) {
+                return@runBridgeCall getter.invoke(null)
+            }
+
+            val fallbackInstance = findStaticFallbackInstance(clazz)
+            if (fallbackInstance != null) {
+                val fallbackField = findField(fallbackInstance.javaClass, normalizedFieldName, staticOnly = false)
+                if (fallbackField != null) {
+                    return@runBridgeCall fallbackField.get(fallbackInstance)
+                }
+
+                val fallbackGetter =
+                    findGetter(fallbackInstance.javaClass, normalizedFieldName, staticOnly = false)
+                if (fallbackGetter != null) {
+                    return@runBridgeCall fallbackGetter.invoke(fallbackInstance)
+                }
+            }
+
+            throw NoSuchFieldException("static field/property '$normalizedFieldName' not found on ${clazz.name}")
         }
     }
 
@@ -294,24 +333,61 @@ internal object JsJavaBridgeDelegates {
                             "cannot assign value of type ${describeValueType(rawValue)} to ${field.type.name}"
                         )
                 field.set(null, converted.value)
-                converted.value
-            } else {
-                val setter =
+                return@runBridgeCall converted.value
+            }
+
+            val setter =
+                findSetter(
+                    clazz = clazz,
+                    fieldName = normalizedFieldName,
+                    rawValue = rawValue,
+                    staticOnly = true,
+                    objectRegistry = objectRegistry,
+                    jsCallbackInvoker = jsCallbackInvoker,
+                    bridgeClassLoader = bridgeClassLoader
+                )
+            if (setter != null) {
+                setter.first.invoke(null, setter.second)
+                return@runBridgeCall setter.second
+            }
+
+            val fallbackInstance = findStaticFallbackInstance(clazz)
+            if (fallbackInstance != null) {
+                val fallbackField =
+                    findField(fallbackInstance.javaClass, normalizedFieldName, staticOnly = false)
+                if (fallbackField != null && !Modifier.isFinal(fallbackField.modifiers)) {
+                    val converted =
+                        convertArg(
+                            rawValue = rawValue,
+                            targetType = fallbackField.type,
+                            objectRegistry = objectRegistry,
+                            jsCallbackInvoker = jsCallbackInvoker,
+                            bridgeClassLoader = bridgeClassLoader
+                        )
+                            ?: throw IllegalArgumentException(
+                                "cannot assign value of type ${describeValueType(rawValue)} to ${fallbackField.type.name}"
+                            )
+                    fallbackField.set(fallbackInstance, converted.value)
+                    return@runBridgeCall converted.value
+                }
+
+                val fallbackSetter =
                     findSetter(
-                        clazz = clazz,
+                        clazz = fallbackInstance.javaClass,
                         fieldName = normalizedFieldName,
                         rawValue = rawValue,
-                        staticOnly = true,
+                        staticOnly = false,
                         objectRegistry = objectRegistry,
                         jsCallbackInvoker = jsCallbackInvoker,
                         bridgeClassLoader = bridgeClassLoader
                     )
-                        ?: throw NoSuchFieldException(
-                            "writable static field/property '$normalizedFieldName' not found on ${clazz.name}"
-                        )
-                setter.first.invoke(null, setter.second)
-                setter.second
+                if (fallbackSetter != null) {
+                    fallbackSetter.first.invoke(fallbackInstance, fallbackSetter.second)
+                    return@runBridgeCall fallbackSetter.second
+                }
             }
+
+            throw NoSuchFieldException("writable static field/property '$normalizedFieldName' not found on ${clazz.name}")
         }
     }
 
@@ -337,6 +413,20 @@ internal object JsJavaBridgeDelegates {
                         )
                 getter.invoke(instance)
             }
+        }
+    }
+
+    fun hasInstanceMethod(
+        instanceHandle: String,
+        methodName: String,
+        objectRegistry: ConcurrentHashMap<String, Any>
+    ): String {
+        return runBridgeCall(objectRegistry) {
+            val instance = requireInstance(instanceHandle, objectRegistry)
+            val clazz = instance.javaClass
+            val normalizedMethodName = methodName.trim()
+            require(normalizedMethodName.isNotEmpty()) { "method name is required" }
+            hasMethod(clazz, normalizedMethodName, staticOnly = false)
         }
     }
 
@@ -572,33 +662,6 @@ internal object JsJavaBridgeDelegates {
                     Continuation::class.java.isAssignableFrom(method.parameterTypes.last())
             }
 
-        if (candidates.isEmpty() && staticOnly) {
-            val companionInstance =
-                runCatching {
-                    findField(targetClass, "Companion", staticOnly = true)?.get(null)
-                        ?: findGetter(targetClass, "Companion", staticOnly = true)?.invoke(null)
-                }.getOrNull()
-            if (companionInstance != null) {
-                callSuspendInternal(
-                    targetClass = companionInstance.javaClass,
-                    instance = companionInstance,
-                    methodName = methodName,
-                    argsJson = argsJson,
-                    staticOnly = false,
-                    objectRegistry = objectRegistry,
-                    callback = callback,
-                    jsCallbackInvoker = jsCallbackInvoker,
-                    bridgeClassLoader = bridgeClassLoader
-                )
-                return
-            }
-        }
-        if (candidates.isEmpty()) {
-            val callType = if (staticOnly) "static" else "instance"
-            callback(failure("$callType suspend method '$normalizedMethodName' not found on ${targetClass.name}"))
-            return
-        }
-
         var best: MethodMatch? = null
         for (method in candidates) {
             val parameterTypes = method.parameterTypes
@@ -617,6 +680,29 @@ internal object JsJavaBridgeDelegates {
             if (best == null || match.score < best.score) {
                 best = match
             }
+        }
+
+        if ((candidates.isEmpty() || best == null) && staticOnly) {
+            val fallbackInstance = findStaticFallbackInstance(targetClass)
+            if (fallbackInstance != null) {
+                callSuspendInternal(
+                    targetClass = fallbackInstance.javaClass,
+                    instance = fallbackInstance,
+                    methodName = methodName,
+                    argsJson = argsJson,
+                    staticOnly = false,
+                    objectRegistry = objectRegistry,
+                    callback = callback,
+                    jsCallbackInvoker = jsCallbackInvoker,
+                    bridgeClassLoader = bridgeClassLoader
+                )
+                return
+            }
+        }
+        if (candidates.isEmpty()) {
+            val callType = if (staticOnly) "static" else "instance"
+            callback(failure("$callType suspend method '$normalizedMethodName' not found on ${targetClass.name}"))
+            return
         }
 
         val selected = best
@@ -663,10 +749,15 @@ internal object JsJavaBridgeDelegates {
     }
 
     private fun success(value: Any?, objectRegistry: ConcurrentHashMap<String, Any>): String {
+        val payloadValue =
+            when (value) {
+                is ConstructedJavaObject -> exposeConstructedJavaObject(value.value, objectRegistry)
+                else -> toJsonCompatibleValue(value, objectRegistry)
+            }
         val payload =
             JSONObject()
                 .put("success", true)
-                .put("data", toJsonCompatibleValue(value, objectRegistry))
+                .put("data", payloadValue)
         return payload.toString()
     }
 
@@ -822,7 +913,6 @@ internal object JsJavaBridgeDelegates {
             is Float -> value.toDouble()
             is Number -> value
             is Char -> value.toString()
-            is CharSequence -> value.toString()
             is Enum<*> -> value.name
             is Class<*> -> value.name
             is Map<*, *> -> {
@@ -861,6 +951,116 @@ internal object JsJavaBridgeDelegates {
         }
     }
 
+    private fun exposeConstructedJavaObject(
+        value: Any,
+        objectRegistry: ConcurrentHashMap<String, Any>
+    ): JSONObject {
+        val handle = UUID.randomUUID().toString()
+        objectRegistry[handle] = value
+        return JSONObject()
+            .put(HANDLE_KEY, handle)
+            .put(CLASS_KEY, value.javaClass.name)
+    }
+
+    private fun toStructuredJsonValue(
+        value: Any?,
+        objectRegistry: ConcurrentHashMap<String, Any>,
+        jsCallbackInvoker: JsInterfaceCallbackInvoker?,
+        bridgeClassLoader: ClassLoader?
+    ): Any {
+        if (value == null) {
+            return JSONObject.NULL
+        }
+
+        return when (value) {
+            JSONObject.NULL -> JSONObject.NULL
+            is JSONObject -> {
+                val copy = JSONObject()
+                value.keys().forEach { key ->
+                    copy.put(
+                        key,
+                        toStructuredJsonValue(
+                            value = value.opt(key),
+                            objectRegistry = objectRegistry,
+                            jsCallbackInvoker = jsCallbackInvoker,
+                            bridgeClassLoader = bridgeClassLoader
+                        )
+                    )
+                }
+                copy
+            }
+            is JSONArray -> {
+                val copy = JSONArray()
+                for (index in 0 until value.length()) {
+                    copy.put(
+                        toStructuredJsonValue(
+                            value = value.opt(index),
+                            objectRegistry = objectRegistry,
+                            jsCallbackInvoker = jsCallbackInvoker,
+                            bridgeClassLoader = bridgeClassLoader
+                        )
+                    )
+                }
+                copy
+            }
+            is Map<*, *> -> {
+                val obj = JSONObject()
+                value.entries.forEach { entry ->
+                    val key = entry.key?.toString() ?: return@forEach
+                    obj.put(
+                        key,
+                        toStructuredJsonValue(
+                            value = entry.value,
+                            objectRegistry = objectRegistry,
+                            jsCallbackInvoker = jsCallbackInvoker,
+                            bridgeClassLoader = bridgeClassLoader
+                        )
+                    )
+                }
+                obj
+            }
+            is Iterable<*> -> {
+                val arr = JSONArray()
+                value.forEach { item ->
+                    arr.put(
+                        toStructuredJsonValue(
+                            value = item,
+                            objectRegistry = objectRegistry,
+                            jsCallbackInvoker = jsCallbackInvoker,
+                            bridgeClassLoader = bridgeClassLoader
+                        )
+                    )
+                }
+                arr
+            }
+            else -> {
+                if (value.javaClass.isArray) {
+                    val arr = JSONArray()
+                    val len = ReflectArray.getLength(value)
+                    for (index in 0 until len) {
+                        arr.put(
+                            toStructuredJsonValue(
+                                value = ReflectArray.get(value, index),
+                                objectRegistry = objectRegistry,
+                                jsCallbackInvoker = jsCallbackInvoker,
+                                bridgeClassLoader = bridgeClassLoader
+                            )
+                        )
+                    }
+                    arr
+                } else {
+                    convertArg(
+                        rawValue = value,
+                        targetType = Any::class.java,
+                        objectRegistry = objectRegistry,
+                        jsCallbackInvoker = jsCallbackInvoker,
+                        bridgeClassLoader = bridgeClassLoader
+                    )?.value ?: value
+                }
+            }
+        }
+    }
+
     private fun selectConstructor(
         clazz: Class<*>,
         rawArgs: List<Any?>,
@@ -870,7 +1070,7 @@ internal object JsJavaBridgeDelegates {
     ): ConstructorMatch {
         val candidates = clazz.constructors
         if (candidates.isEmpty()) {
-            throw NoSuchMethodException("no public constructor available for ${clazz.name}")
+            throw NoSuchMethodException(buildConstructorUnavailableMessage(clazz))
         }
 
         var best: ConstructorMatch? = null
@@ -893,8 +1093,31 @@ internal object JsJavaBridgeDelegates {
 
         return best
             ?: throw NoSuchMethodException(
-                "no constructor matched for ${clazz.name} with ${rawArgs.size} args"
+                buildConstructorMismatchMessage(clazz, rawArgs)
             )
+    }
+
+    private fun buildConstructorUnavailableMessage(clazz: Class<*>): String {
+        val suffix =
+            when {
+                clazz.isInterface ->
+                    " ${clazz.name} is an interface; use Java.implement(\"${clazz.name}\", impl) or pass the callback/object into an API that explicitly expects this interface."
+                Modifier.isAbstract(clazz.modifiers) ->
+                    " ${clazz.name} is abstract and cannot be instantiated directly."
+                else -> ""
+            }
+        return "no public constructor available for ${clazz.name}$suffix"
+    }
+
+    private fun buildConstructorMismatchMessage(clazz: Class<*>, rawArgs: List<Any?>): String {
+        val hasJsInterfaceArg = rawArgs.any { it is JsInterfaceBinding }
+        val hint =
+            if (hasJsInterfaceArg) {
+                " If one of these arguments is meant to satisfy a Java interface, prefer Java.implement(\"interface.name\", impl) so overload resolution is explicit."
+            } else {
+                ""
+            }
+        return "no constructor matched for ${clazz.name} with ${rawArgs.size} args$hint"
     }
 
     private fun selectMethod(
@@ -992,12 +1215,23 @@ internal object JsJavaBridgeDelegates {
 
         val varargArrayType = parameterTypes.last()
         val componentType = varargArrayType.componentType ?: return null
-        val varargLength = rawArgs.size - fixedCount
+        val rawVarargValues =
+            if (
+                rawArgs.size == parameterTypes.size &&
+                rawArgs.lastOrNull() is List<*> &&
+                !componentType.isArray
+            ) {
+                @Suppress("UNCHECKED_CAST")
+                rawArgs.subList(0, fixedCount) + (rawArgs.last() as List<Any?>)
+            } else {
+                rawArgs
+            }
+        val varargLength = rawVarargValues.size - fixedCount
         val varargArray = ReflectArray.newInstance(componentType, varargLength)
         for (offset in 0 until varargLength) {
             val converted =
                 convertArg(
-                    rawValue = rawArgs[fixedCount + offset],
+                    rawValue = rawVarargValues[fixedCount + offset],
                     targetType = componentType,
                     objectRegistry = objectRegistry,
                     jsCallbackInvoker = jsCallbackInvoker,
@@ -1042,6 +1276,23 @@ internal object JsJavaBridgeDelegates {
 
         val wrapper = primitiveWrapperMap[targetType] ?: targetType
 
+        if (wrapper == Any::class.java || wrapper == Object::class.java) {
+            if (rawValue is JsInterfaceBinding) {
+                val proxy =
+                    createJsInterfaceProxy(
+                        binding = rawValue,
+                        targetType = wrapper,
+                        objectRegistry = objectRegistry,
+                        jsCallbackInvoker = jsCallbackInvoker,
+                        bridgeClassLoader = bridgeClassLoader
+                    )
+                if (proxy != null) {
+                    return ConvertedArg(proxy, 3)
+                }
+            }
+            return ConvertedArg(rawValue, 10)
+        }
+
         if (
             rawValue is Map<*, *> &&
                 wrapper.isInterface &&
@@ -1063,23 +1314,6 @@ internal object JsJavaBridgeDelegates {
 
         if (wrapper.isInstance(rawValue)) {
             return ConvertedArg(rawValue, 0)
-        }
-
-        if (wrapper == Any::class.java || wrapper == Object::class.java) {
-            if (rawValue is JsInterfaceBinding) {
-                val proxy =
-                    createJsInterfaceProxy(
-                        binding = rawValue,
-                        targetType = wrapper,
-                        objectRegistry = objectRegistry,
-                        jsCallbackInvoker = jsCallbackInvoker,
-                        bridgeClassLoader = bridgeClassLoader
-                    )
-                if (proxy != null) {
-                    return ConvertedArg(proxy, 3)
-                }
-            }
-            return ConvertedArg(rawValue, 10)
         }
 
         if (wrapper == String::class.java) {
@@ -1113,11 +1347,13 @@ internal object JsJavaBridgeDelegates {
         if (wrapper == JSONObject::class.java) {
             return when (rawValue) {
                 is Map<*, *> -> {
-                    val obj = JSONObject()
-                    rawValue.entries.forEach { entry ->
-                        val key = entry.key?.toString() ?: return@forEach
-                        obj.put(key, entry.value)
-                    }
+                    val obj =
+                        toStructuredJsonValue(
+                            value = rawValue,
+                            objectRegistry = objectRegistry,
+                            jsCallbackInvoker = jsCallbackInvoker,
+                            bridgeClassLoader = bridgeClassLoader
+                        ) as JSONObject
                     ConvertedArg(obj, 5)
                 }
                 is String -> {
@@ -1134,8 +1370,13 @@ internal object JsJavaBridgeDelegates {
         if (wrapper == JSONArray::class.java) {
             return when (rawValue) {
                 is List<*> -> {
-                    val arr = JSONArray()
-                    rawValue.forEach { item -> arr.put(item) }
+                    val arr =
+                        toStructuredJsonValue(
+                            value = rawValue,
+                            objectRegistry = objectRegistry,
+                            jsCallbackInvoker = jsCallbackInvoker,
+                            bridgeClassLoader = bridgeClassLoader
+                        ) as JSONArray
                     ConvertedArg(arr, 5)
                 }
                 is String -> {
@@ -1599,6 +1840,24 @@ internal object JsJavaBridgeDelegates {
         return clazz.fields.firstOrNull { field ->
             field.name == fieldName && Modifier.isStatic(field.modifiers) == staticOnly
         }
+    }
+
+    private fun hasMethod(clazz: Class<*>, methodName: String, staticOnly: Boolean): Boolean {
+        return clazz.methods.any { method ->
+            method.name == methodName && Modifier.isStatic(method.modifiers) == staticOnly
+        }
+    }
+
+    private fun findStaticFallbackInstance(clazz: Class<*>): Any? {
+        return findNamedStaticInstance(clazz, "Companion")
+            ?: findNamedStaticInstance(clazz, "INSTANCE")
+    }
+
+    private fun findNamedStaticInstance(clazz: Class<*>, fieldName: String): Any? {
+        return runCatching {
+            findField(clazz, fieldName, staticOnly = true)?.get(null)
+                ?: findGetter(clazz, fieldName, staticOnly = true)?.invoke(null)
+        }.getOrNull()
     }
 
     private fun findGetter(clazz: Class<*>, fieldName: String, staticOnly: Boolean): Method? {

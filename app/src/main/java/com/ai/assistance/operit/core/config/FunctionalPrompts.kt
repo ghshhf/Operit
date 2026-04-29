@@ -245,16 +245,16 @@ object FunctionalPrompts {
         return if (useEnglish) "Please summarize the conversation as instructed." else "请按照要求总结对话内容"
     }
 
-    fun waifuDisableActionsRule(): String {
-        return "**你必须遵守:禁止使用动作表情，禁止描述动作表情，只允许使用纯文本进行对话，禁止使用括号将动作表情包裹起来，禁止输出括号'()',但是会使用更多'呐，嘛~，诶？，嗯…，唔…，昂？，哦'等语气词**"
-    }
-
     fun waifuEmotionRule(emotionListText: String): String {
         return "**表达情绪规则：你必须在每个句末判断句中包含的情绪或增强语气，并使用<emotion>标签在句末插入情绪状态。后续会根据情绪生成表情包。可用情绪包括：$emotionListText。例如：<emotion>happy</emotion>、<emotion>miss_you</emotion>等。如果没有这些情绪则不插入。**"
     }
 
     fun waifuNoCustomEmojiRule(): String {
         return "**当前没有可用的自定义表情，请不要使用<emotion>标签。**"
+    }
+
+    fun waifuCustomPromptRule(customPrompt: String): String {
+        return customPrompt.trim()
     }
 
     fun waifuSelfieRule(waifuSelfiePrompt: String): String {
@@ -911,6 +911,7 @@ $existingFoldersPrompt
 - `update`: `[["Title", "New full content", "Reason", credibility_or_null, importance_or_null], ...]`.
 - `merge`: `[{"source_titles":["A","B"],"new_title":"...","new_content":"...","new_tags":["..."],"folder_path":"...","reason":"..."}, ...]`.
 - `links`: `[["Source", "Target", "RELATION_TYPE", "Description", weight], ...]` (type must be UPPER_SNAKE_CASE).
+- Numeric ranges: `credibility_or_null`, `importance_or_null`, and link `weight` must be JSON numbers between 0.0 and 1.0 inclusive, or JSON `null` where the schema allows null.
 - `user`: structured object; unknown fields should be `"<UNCHANGED>"`.
 - Use JSON `null` for missing optional values.
 
@@ -992,6 +993,7 @@ $existingFoldersPrompt
 - `update`: `[["标题","新完整内容","原因",可信度或null,重要性或null], ...]`。
 - `merge`: `[{"source_titles":["A","B"],"new_title":"...","new_content":"...","new_tags":["..."],"folder_path":"...","reason":"..."}, ...]`。
 - `links`: `[["源","目标","RELATION_TYPE","描述",权重], ...]`，关系类型用大写下划线。
+- 数值范围：可信度、重要性、链接权重必须是 0.0 到 1.0（含边界）的 JSON 数字；允许缺失的位置使用 JSON `null`。
 - `user`: 结构化对象，未变化字段填 `"<UNCHANGED>"`。
 - 可选值缺失时使用 JSON `null`。
 

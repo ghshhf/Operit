@@ -32,6 +32,14 @@ internal data class WebSessionSessionHistoryItem(
 )
 
 @Immutable
+internal data class WebSessionPendingDialogState(
+    val type: String,
+    val message: String,
+    val defaultValue: String? = null,
+    val url: String? = null
+)
+
+@Immutable
 internal data class WebSessionBrowserState(
     val activeSessionId: String? = null,
     val pageTitle: String = "",
@@ -46,6 +54,7 @@ internal data class WebSessionBrowserState(
     val failedDownloadCount: Int = 0,
     val latestCompletedDownloadName: String? = null,
     val overallDownloadProgress: Float? = null,
+    val pendingDialog: WebSessionPendingDialogState? = null,
     val tabs: List<WebSessionBrowserTab> = emptyList(),
     val sessionHistory: List<WebSessionSessionHistoryItem> = emptyList(),
     val userscriptMenuCommands: List<UserscriptPageMenuCommand> = emptyList()

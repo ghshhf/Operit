@@ -17,6 +17,7 @@ internal const val TOOLPKG_EVENT_ACTIVITY_ON_DESTROY = "activity_on_destroy"
 internal const val TOOLPKG_EVENT_MESSAGE_PROCESSING = "toolpkg_message_processing"
 internal const val TOOLPKG_EVENT_XML_RENDER = "toolpkg_xml_render"
 internal const val TOOLPKG_EVENT_INPUT_MENU_TOGGLE = "toolpkg_input_menu_toggle"
+internal const val TOOLPKG_EVENT_NAVIGATION_ENTRY_ACTION = "toolpkg_navigation_entry_action"
 internal const val TOOLPKG_EVENT_TOOL_LIFECYCLE = "toolpkg_tool_lifecycle"
 internal const val TOOLPKG_EVENT_PROMPT_INPUT = "toolpkg_prompt_input"
 internal const val TOOLPKG_EVENT_PROMPT_HISTORY = "toolpkg_prompt_history"
@@ -25,8 +26,15 @@ internal const val TOOLPKG_EVENT_SYSTEM_PROMPT_COMPOSE = "toolpkg_system_prompt_
 internal const val TOOLPKG_EVENT_TOOL_PROMPT_COMPOSE = "toolpkg_tool_prompt_compose"
 internal const val TOOLPKG_EVENT_PROMPT_FINALIZE = "toolpkg_prompt_finalize"
 internal const val TOOLPKG_EVENT_PROMPT_ESTIMATE_FINALIZE = "toolpkg_prompt_estimate_finalize"
+internal const val TOOLPKG_EVENT_AI_PROVIDER_LIST_MODELS = "toolpkg_ai_provider_list_models"
+internal const val TOOLPKG_EVENT_AI_PROVIDER_SEND_MESSAGE = "toolpkg_ai_provider_send_message"
+internal const val TOOLPKG_EVENT_AI_PROVIDER_TEST_CONNECTION = "toolpkg_ai_provider_test_connection"
+internal const val TOOLPKG_EVENT_AI_PROVIDER_CALCULATE_INPUT_TOKENS =
+    "toolpkg_ai_provider_calculate_input_tokens"
 
 internal const val TOOLPKG_REGISTRATION_TOOLBOX_UI_MODULE = "registerToolPkgToolboxUiModule"
+internal const val TOOLPKG_REGISTRATION_UI_ROUTE = "registerToolPkgUiRoute"
+internal const val TOOLPKG_REGISTRATION_NAVIGATION_ENTRY = "registerToolPkgNavigationEntry"
 internal const val TOOLPKG_REGISTRATION_APP_LIFECYCLE_HOOK = "registerToolPkgAppLifecycleHook"
 internal const val TOOLPKG_REGISTRATION_MESSAGE_PROCESSING_PLUGIN =
     "registerToolPkgMessageProcessingPlugin"
@@ -50,3 +58,13 @@ internal const val TOOLPKG_REGISTRATION_PROMPT_FINALIZE_HOOK =
     "registerToolPkgPromptFinalizeHook"
 internal const val TOOLPKG_REGISTRATION_PROMPT_ESTIMATE_FINALIZE_HOOK =
     "registerToolPkgPromptEstimateFinalizeHook"
+internal const val TOOLPKG_REGISTRATION_AI_PROVIDER =
+    "registerToolPkgAiProvider"
+
+internal const val TOOLPKG_NAV_SURFACE_TOOLBOX = "toolbox"
+internal const val TOOLPKG_NAV_SURFACE_MAIN_SIDEBAR_PLUGINS = "main_sidebar_plugins"
+
+internal fun buildToolPkgRouteId(
+    containerPackageName: String,
+    uiRouteId: String
+): String = "toolpkg:$containerPackageName:ui:$uiRouteId"

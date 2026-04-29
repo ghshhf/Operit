@@ -30,13 +30,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.style.TextOverflow
 import java.text.DecimalFormat
-import android.content.Intent
-import android.net.Uri
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.data.model.FunctionType
 import com.ai.assistance.operit.data.preferences.GitHubAuthPreferences
 import com.ai.assistance.operit.data.preferences.UserPreferencesManager
 import com.ai.assistance.operit.data.repository.ChatHistoryManager
+import com.ai.assistance.operit.ui.features.github.GitHubLoginWebViewDialog
 import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color
 
@@ -69,16 +68,10 @@ fun SettingsScreen(
         val userPreferences = remember { UserPreferencesManager.getInstance(context) }
         val githubAuth = remember { GitHubAuthPreferences.getInstance(context) }
         val scope = rememberCoroutineScope()
+        var showGitHubLogin by remember { mutableStateOf(false) }
 
         val isGitHubLoggedIn = githubAuth.isLoggedInFlow.collectAsState(initial = false).value
         val gitHubUser = githubAuth.userInfoFlow.collectAsState(initial = null).value
-
-        fun initiateGitHubLogin() {
-                val authUrl = githubAuth.getAuthorizationUrl()
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-        }
 
         // 创建和记住滚动状态，设置为上次保存的位置
         val scrollState = rememberScrollState(SettingsScreenScrollPosition.value)
@@ -134,9 +127,15 @@ fun SettingsScreen(
                                         title = stringResource(R.string.login_github),
                                         subtitle = stringResource(R.string.github_account_login_desc),
                                         icon = Icons.Default.Login,
-                                        onClick = ::initiateGitHubLogin
+                                        onClick = { showGitHubLogin = true }
                                 )
                         }
+                }
+
+                if (showGitHubLogin) {
+                        GitHubLoginWebViewDialog(
+                                onDismissRequest = { showGitHubLogin = false }
+                        )
                 }
 
                 // ======= 个性化配置 =======
@@ -268,13 +267,6 @@ fun SettingsScreen(
                         )
 
                         CompactSettingsItem(
-                                title = stringResource(id = R.string.settings_external_http_chat),
-                                subtitle = stringResource(id = R.string.settings_external_http_chat_subtitle),
-                                icon = Icons.Default.SettingsEthernet,
-                                onClick = navigateToExternalHttpChatSettings
-                        )
-                        
-                        CompactSettingsItem(
                                 title = stringResource(id = R.string.settings_data_backup),
                                 subtitle = stringResource(id = R.string.settings_data_backup_desc),
                                 icon = Icons.Default.CloudUpload,
@@ -293,6 +285,20 @@ fun SettingsScreen(
                                 subtitle = stringResource(id = R.string.settings_token_usage_subtitle),
                                 icon = Icons.Default.Analytics,
                                 onClick = navigateToTokenUsageStatistics
+                        )
+                }
+
+                // ======= 外部调用 =======
+                SettingsSection(
+                        title = stringResource(id = R.string.settings_section_external_calls),
+                        icon = Icons.Default.SettingsEthernet,
+                        containerColor = cardContainerColor
+                ) {
+                        CompactSettingsItem(
+                                title = stringResource(id = R.string.settings_external_http_chat),
+                                subtitle = stringResource(id = R.string.settings_external_http_chat_subtitle),
+                                icon = Icons.Default.SettingsEthernet,
+                                onClick = navigateToExternalHttpChatSettings
                         )
                 }
 

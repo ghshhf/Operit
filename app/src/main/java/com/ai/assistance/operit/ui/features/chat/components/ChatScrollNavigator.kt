@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,13 +46,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.data.model.ChatMessage
+import com.ai.assistance.operit.data.model.ChatMessageDisplayMode
 import com.ai.assistance.operit.ui.features.chat.components.lazy.LazyListState as ChatLazyListState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -66,6 +70,11 @@ private data class ChatScrollNavigatorSnapshot(
 internal data class ChatScrollMessageAnchor(
     val absoluteTopPx: Float,
     val heightPx: Int,
+)
+
+private data class ChatMessageLocatorEntry(
+    val index: Int,
+    val message: ChatMessage,
 )
 
 @Composable
@@ -399,10 +408,50 @@ private fun ChatMessageLocatorDialog(
 ) {
     val initialIndex = (currentMessageIndex - 2).coerceAtLeast(0)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
+    var searchQuery by remember { mutableStateOf("") }
+    val hiddenPlaceholderText = stringResource(R.string.chat_hidden_user_message_placeholder)
+    val normalizedSearchQuery = normalizeMessageSearchText(searchQuery)
+    val locatorEntries =
+        chatHistory.mapIndexed { index, message ->
+            ChatMessageLocatorEntry(index = index, message = message)
+        }
+    val filteredEntries =
+        if (normalizedSearchQuery.isBlank()) {
+            locatorEntries
+        } else {
+            locatorEntries.filter { entry ->
+                normalizeMessageSearchText(
+                    visibleLocatorContent(entry.message, hiddenPlaceholderText)
+                ).contains(
+                    normalizedSearchQuery,
+                    ignoreCase = true,
+                )
+            }
+        }
     val maxMessageLength =
         remember(chatHistory) {
-            chatHistory.maxOfOrNull { messageContentLength(it) }?.coerceAtLeast(1) ?: 1
+            chatHistory.maxOfOrNull { messageContentLength(it, hiddenPlaceholderText) }
+                ?.coerceAtLeast(1) ?: 1
         }
+
+    LaunchedEffect(normalizedSearchQuery, filteredEntries.size, currentMessageIndex) {
+        if (filteredEntries.isEmpty()) {
+            return@LaunchedEffect
+        }
+
+        val targetListIndex =
+            if (normalizedSearchQuery.isBlank()) {
+                filteredEntries.indexOfFirst { it.index == currentMessageIndex }
+                    .takeIf { it >= 0 }
+                    ?.let { (it - 2).coerceAtLeast(0) }
+                    ?: 0
+            } else {
+                filteredEntries.indices.minByOrNull { entryIndex ->
+                    abs(filteredEntries[entryIndex].index - currentMessageIndex)
+                } ?: 0
+            }
+        listState.scrollToItem(targetListIndex)
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -451,27 +500,70 @@ private fun ChatMessageLocatorDialog(
                 }
 
                 Text(
-                    text = stringResource(R.string.chat_message_locator_hint),
-                    style = MaterialTheme.typography.bodySmall,
+                    text = stringResource(R.string.chat_message_locator_search_label),
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    itemsIndexed(
-                        items = chatHistory,
-                        key = { index, message -> "${message.timestamp}_$index" },
-                    ) { index, message ->
-                        ChatMessageLocatorRow(
-                            index = index,
-                            message = message,
-                            isCurrent = index == currentMessageIndex,
-                            maxMessageLength = maxMessageLength,
-                            onClick = { onJumpToMessage(index) },
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = {
+                        Text(text = stringResource(R.string.chat_message_locator_search_placeholder))
+                    },
+                )
+
+                if (normalizedSearchQuery.isBlank()) {
+                    Text(
+                        text = stringResource(R.string.chat_message_locator_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else if (filteredEntries.isNotEmpty()) {
+                    Text(
+                        text =
+                            stringResource(
+                                R.string.chat_message_locator_search_results,
+                                filteredEntries.size,
+                            ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                if (filteredEntries.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.chat_message_locator_search_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
                         )
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        itemsIndexed(
+                            items = filteredEntries,
+                            key = { _, entry -> "${entry.message.timestamp}_${entry.index}" },
+                        ) { _, entry ->
+                            ChatMessageLocatorRow(
+                                index = entry.index,
+                                message = entry.message,
+                                isCurrent = entry.index == currentMessageIndex,
+                                maxMessageLength = maxMessageLength,
+                                searchQuery = searchQuery,
+                                onClick = { onJumpToMessage(entry.index) },
+                            )
+                        }
                     }
                 }
             }
@@ -485,25 +577,90 @@ private fun ChatMessageLocatorRow(
     message: ChatMessage,
     isCurrent: Boolean,
     maxMessageLength: Int,
+    searchQuery: String,
     onClick: () -> Unit,
 ) {
-    val (fillColor, previewTextColor) =
-        when (message.sender) {
-            "user" ->
-                MaterialTheme.colorScheme.primaryContainer to
-                    MaterialTheme.colorScheme.onPrimaryContainer
-            "summary" ->
-                MaterialTheme.colorScheme.tertiaryContainer to
-                    MaterialTheme.colorScheme.onTertiaryContainer
-            "system" ->
-                MaterialTheme.colorScheme.secondaryContainer to
-                    MaterialTheme.colorScheme.onSecondaryContainer
-            "think" ->
-                MaterialTheme.colorScheme.surfaceVariant to
-                    MaterialTheme.colorScheme.onSurfaceVariant
-            else ->
-                MaterialTheme.colorScheme.secondaryContainer to
-                    MaterialTheme.colorScheme.onSecondaryContainer
+    val hiddenPlaceholderText = stringResource(R.string.chat_hidden_user_message_placeholder)
+    val isDarkSurface = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val (fillColor, rawPreviewTextColor, fillAlpha) =
+        if (isDarkSurface) {
+            when (message.sender) {
+                "user" ->
+                    Triple(
+                        MaterialTheme.colorScheme.primaryContainer,
+                        MaterialTheme.colorScheme.onPrimaryContainer,
+                        0.9f,
+                    )
+                "summary" ->
+                    Triple(
+                        MaterialTheme.colorScheme.tertiaryContainer,
+                        MaterialTheme.colorScheme.onTertiaryContainer,
+                        0.9f,
+                    )
+                "system" ->
+                    Triple(
+                        MaterialTheme.colorScheme.secondaryContainer,
+                        MaterialTheme.colorScheme.onSecondaryContainer,
+                        0.9f,
+                    )
+                "think" ->
+                    Triple(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                        0.9f,
+                    )
+                else ->
+                    Triple(
+                        MaterialTheme.colorScheme.secondaryContainer,
+                        MaterialTheme.colorScheme.onSecondaryContainer,
+                        0.9f,
+                    )
+            }
+        } else {
+            when (message.sender) {
+                "user" ->
+                    Triple(
+                        MaterialTheme.colorScheme.primaryContainer,
+                        MaterialTheme.colorScheme.onPrimaryContainer,
+                        0.98f,
+                    )
+                "ai" ->
+                    Triple(
+                        MaterialTheme.colorScheme.tertiaryContainer,
+                        MaterialTheme.colorScheme.onTertiaryContainer,
+                        0.98f,
+                    )
+                "summary" ->
+                    Triple(
+                        MaterialTheme.colorScheme.secondaryContainer,
+                        MaterialTheme.colorScheme.onSecondaryContainer,
+                        0.92f,
+                    )
+                "system" ->
+                    Triple(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                        0.86f,
+                    )
+                "think" ->
+                    Triple(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                        0.78f,
+                    )
+                else ->
+                    Triple(
+                        MaterialTheme.colorScheme.secondaryContainer,
+                        MaterialTheme.colorScheme.onSecondaryContainer,
+                        0.9f,
+                    )
+            }
+        }
+    val previewTextColor =
+        if (isDarkSurface) {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = if (isCurrent) 0.96f else 0.88f)
+        } else {
+            rawPreviewTextColor
         }
     val containerColor =
         if (isCurrent) {
@@ -517,8 +674,13 @@ private fun ChatMessageLocatorRow(
         } else {
             MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)
         }
-    val messageLength = messageContentLength(message)
-    val previewText = buildMessagePreview(message)
+    val messageLength = messageContentLength(message, hiddenPlaceholderText)
+    val previewText =
+        buildMessagePreview(
+            message = message,
+            hiddenPlaceholderText = hiddenPlaceholderText,
+            searchQuery = searchQuery,
+        )
 
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -559,7 +721,7 @@ private fun ChatMessageLocatorRow(
                             .fillMaxHeight()
                             .fillMaxWidth(messageBarFraction(messageLength, maxMessageLength))
                             .clip(RoundedCornerShape(12.dp))
-                            .background(fillColor.copy(alpha = 0.9f)),
+                            .background(fillColor.copy(alpha = fillAlpha)),
                 )
                 Text(
                     text = previewText,
@@ -636,7 +798,21 @@ private fun senderLabelRes(sender: String): Int =
         else -> R.string.chat_sender_other
     }
 
-private fun messageContentLength(message: ChatMessage): Int = message.content.length.coerceAtLeast(1)
+private fun visibleLocatorContent(message: ChatMessage, hiddenPlaceholderText: String): String {
+    return if (
+        message.sender == "user" &&
+        message.displayMode == ChatMessageDisplayMode.HIDDEN_PLACEHOLDER
+    ) {
+        hiddenPlaceholderText
+    } else {
+        message.content
+    }
+}
+
+private fun messageContentLength(
+    message: ChatMessage,
+    hiddenPlaceholderText: String,
+): Int = visibleLocatorContent(message, hiddenPlaceholderText).length.coerceAtLeast(1)
 
 private fun messageBarFraction(messageLength: Int, maxMessageLength: Int): Float {
     if (maxMessageLength <= 0) {
@@ -645,31 +821,66 @@ private fun messageBarFraction(messageLength: Int, maxMessageLength: Int): Float
     return sqrt(messageLength.toFloat() / maxMessageLength.toFloat()).coerceIn(0.18f, 1f)
 }
 
-private fun buildMessagePreview(message: ChatMessage): String {
-    val content = message.content
+private fun buildMessagePreview(
+    message: ChatMessage,
+    hiddenPlaceholderText: String,
+    searchQuery: String = "",
+): String {
+    val content = normalizeMessageSearchText(visibleLocatorContent(message, hiddenPlaceholderText))
     if (content.isEmpty()) {
         return message.sender
     }
 
-    val previewBuilder = StringBuilder(72)
-    var started = false
+    val normalizedSearchQuery = normalizeMessageSearchText(searchQuery)
+    if (normalizedSearchQuery.isNotEmpty()) {
+        val matchIndex = content.indexOf(normalizedSearchQuery, ignoreCase = true)
+        if (matchIndex >= 0) {
+            val previewLength = 72
+            val preferredStart = (matchIndex - 18).coerceAtLeast(0)
+            val start = preferredStart.coerceAtMost((content.length - previewLength).coerceAtLeast(0))
+            val end = (start + previewLength).coerceAtMost(content.length)
+            val prefix = if (start > 0) "..." else ""
+            val suffix = if (end < content.length) "..." else ""
+            val snippet = content.substring(start, end).trim()
+            if (snippet.isNotEmpty()) {
+                return prefix + snippet + suffix
+            }
+        }
+    }
 
-    for (char in content) {
+    return content.take(72).let { preview ->
+        if (preview.length < content.length) {
+            preview.trimEnd() + "..."
+        } else {
+            preview
+        }
+    }
+}
+
+private fun normalizeMessageSearchText(text: String): String {
+    if (text.isEmpty()) {
+        return ""
+    }
+
+    val previewBuilder = StringBuilder(text.length)
+    var pendingWhitespace = false
+
+    for (char in text) {
         val normalizedChar =
             when (char) {
                 '\n', '\r', '\t' -> ' '
                 else -> char
             }
-        if (!started && normalizedChar.isWhitespace()) {
+        if (normalizedChar.isWhitespace()) {
+            pendingWhitespace = previewBuilder.isNotEmpty()
             continue
         }
-        started = true
-        if (previewBuilder.length >= 72) {
-            break
+        if (pendingWhitespace) {
+            previewBuilder.append(' ')
+            pendingWhitespace = false
         }
         previewBuilder.append(normalizedChar)
     }
 
-    val preview = previewBuilder.toString().trimEnd()
-    return if (preview.isNotEmpty()) preview else message.sender
+    return previewBuilder.toString().trim()
 }

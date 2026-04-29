@@ -242,6 +242,9 @@ fun WorkspaceManager(
     var lastLoadedCommandPreviewUrl by remember(workspacePath, workspaceEnv, workspaceConfig.preview.url) {
         mutableStateOf<String?>(null)
     }
+    var lastHandledWebViewRefreshCounter by remember(workspacePath, workspaceEnv) {
+        mutableIntStateOf(webViewRefreshCounter)
+    }
     var canCommandPreviewGoBack by remember { mutableStateOf(false) }
     var canCommandPreviewGoForward by remember { mutableStateOf(false) }
     val commandPreviewUrl = workspaceConfig.preview.url
@@ -311,6 +314,20 @@ fun WorkspaceManager(
     
     // 控制可展开FAB的菜单状态
     var isFabMenuExpanded by remember { mutableStateOf(false) }
+
+    var showRenameWorkspaceDialog by remember { mutableStateOf(false) }
+    var renameWorkspaceInput by remember(workspacePath) { mutableStateOf(File(workspacePath).name) }
+    var renameWorkspaceError by remember { mutableStateOf<String?>(null) }
+    var isRenamingWorkspace by remember { mutableStateOf(false) }
+    val canRenameWorkspace by remember(workspacePath, workspaceEnv) {
+        mutableStateOf(
+            !isSafEnv &&
+                runCatching {
+                    val workspaceRoot = File(context.filesDir, "workspace").canonicalFile
+                    File(workspacePath).canonicalFile.parentFile?.canonicalFile == workspaceRoot
+                }.getOrDefault(false)
+        )
+    }
     
     // 解绑确认对话框状态
     var showUnbindConfirmDialog by remember { mutableStateOf(false) }
@@ -330,13 +347,25 @@ fun WorkspaceManager(
     }
 
     // 监听WebView刷新计数器变化并触发刷新
-    LaunchedEffect(webViewRefreshCounter) {
-        if (webViewRefreshCounter > 0) {
-            AppLogger.d("WorkspaceManager", "WebView refresh triggered, counter: $webViewRefreshCounter")
-            // 确保webView已经加载完成后再刷新
-            kotlinx.coroutines.delay(100) // 短暂延迟确保webView准备就绪
-            workspaceWebView?.reload()
-            commandPreviewWebView?.reload()
+    LaunchedEffect(
+        webViewRefreshCounter,
+        isBrowserPreviewVisible,
+        isCommandPreviewVisible,
+        workspaceWebView,
+        commandPreviewWebView
+    ) {
+        if (webViewRefreshCounter <= lastHandledWebViewRefreshCounter) {
+            return@LaunchedEffect
+        }
+
+        lastHandledWebViewRefreshCounter = webViewRefreshCounter
+        AppLogger.d("WorkspaceManager", "WebView refresh triggered, counter: $webViewRefreshCounter")
+
+        // 仅处理新的刷新事件，避免重新进入页面时把旧计数误判成一次刷新。
+        kotlinx.coroutines.delay(100)
+        when {
+            isBrowserPreviewVisible -> workspaceWebView?.reload()
+            isCommandPreviewVisible -> commandPreviewWebView?.reload()
         }
     }
 
@@ -380,6 +409,41 @@ fun WorkspaceManager(
                 }
             }
             openFiles = updatedFiles
+        }
+    }
+
+    LaunchedEffect(
+        isVisible,
+        isSafEnv,
+        workspacePath,
+        workspaceEnv,
+        workspaceConfig.preview.type,
+        currentFileIndex,
+        workspaceWebView
+    ) {
+        if (!isVisible || isSafEnv) {
+            return@LaunchedEffect
+        }
+
+        WorkspacePreviewRefreshBus.events.collect { event ->
+            val isSameWorkspace = event.workspacePath == workspacePath
+            val isSameEnvironment =
+                event.workspaceEnv?.trim().orEmpty().equals(
+                    workspaceEnv?.trim().orEmpty(),
+                    ignoreCase = true
+                )
+            val shouldRefreshBrowserPreview =
+                currentFileIndex == -1 && workspaceConfig.preview.type == "browser"
+
+            if (!isSameWorkspace || !isSameEnvironment || !shouldRefreshBrowserPreview) {
+                return@collect
+            }
+
+            AppLogger.d(
+                "WorkspaceManager",
+                "Workspace preview refresh requested by ${event.source}: ${event.affectedPaths.joinToString()}"
+            )
+            workspaceWebView?.reload()
         }
     }
     
@@ -971,6 +1035,17 @@ fun WorkspaceManager(
                     showUnbindConfirmDialog = true
                     isFabMenuExpanded = false
                 },
+                renameEnabled = canRenameWorkspace,
+                onRenameWorkspaceClick = {
+                    if (unsavedFiles.isNotEmpty()) {
+                        actualViewModel.showToast(context.getString(R.string.workspace_rename_save_first))
+                    } else {
+                        renameWorkspaceInput = File(workspacePath).name
+                        renameWorkspaceError = null
+                        showRenameWorkspaceDialog = true
+                    }
+                    isFabMenuExpanded = false
+                },
                 canFormat = openFiles.getOrNull(currentFileIndex)?.let { file ->
                     val language = LanguageDetector.detectLanguage(file.name).lowercase()
                     language in listOf("javascript", "js", "css", "html", "htm")
@@ -996,6 +1071,88 @@ fun WorkspaceManager(
                 },
                 dismissButton = {
                     TextButton(onClick = { showUnbindConfirmDialog = false }) {
+                        Text(context.getString(R.string.cancel))
+                    }
+                }
+            )
+        }
+
+        if (showRenameWorkspaceDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!isRenamingWorkspace) {
+                        showRenameWorkspaceDialog = false
+                        renameWorkspaceError = null
+                    }
+                },
+                title = { Text(context.getString(R.string.workspace_rename_title)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(
+                            value = renameWorkspaceInput,
+                            onValueChange = {
+                                renameWorkspaceInput = it
+                                renameWorkspaceError = null
+                            },
+                            label = { Text(context.getString(R.string.file_dialog_new_name)) },
+                            singleLine = true,
+                            isError = renameWorkspaceError != null,
+                            supportingText = {
+                                renameWorkspaceError?.let { Text(it) }
+                            }
+                        )
+                        Text(
+                            text = context.getString(R.string.workspace_rename_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = !isRenamingWorkspace,
+                        onClick = {
+                            if (unsavedFiles.isNotEmpty()) {
+                                renameWorkspaceError =
+                                    context.getString(R.string.workspace_rename_save_first)
+                                return@TextButton
+                            }
+                            isRenamingWorkspace = true
+                            coroutineScope.launch {
+                                runCatching {
+                                    actualViewModel.renameWorkspace(
+                                        chatId = currentChat.id,
+                                        newWorkspaceName = renameWorkspaceInput
+                                    )
+                                }.onSuccess { result ->
+                                    actualViewModel.showToast(
+                                        context.getString(
+                                            R.string.workspace_rename_success,
+                                            result.workspaceName
+                                        )
+                                    )
+                                    showRenameWorkspaceDialog = false
+                                    renameWorkspaceError = null
+                                }.onFailure { error ->
+                                    renameWorkspaceError =
+                                        error.message
+                                            ?: context.getString(R.string.workspace_rename_failed)
+                                }
+                                isRenamingWorkspace = false
+                            }
+                        }
+                    ) {
+                        Text(context.getString(R.string.confirm_action))
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        enabled = !isRenamingWorkspace,
+                        onClick = {
+                            showRenameWorkspaceDialog = false
+                            renameWorkspaceError = null
+                        }
+                    ) {
                         Text(context.getString(R.string.cancel))
                     }
                 }
@@ -1220,6 +1377,8 @@ fun ExpandableFabMenu(
     onRedoClick: () -> Unit,
     onFormatClick: () -> Unit,
     onUnbindClick: () -> Unit,
+    renameEnabled: Boolean = false,
+    onRenameWorkspaceClick: () -> Unit,
     canFormat: Boolean = false
 ) {
     val context = LocalContext.current
@@ -1281,6 +1440,14 @@ fun ExpandableFabMenu(
             Spacer(modifier = Modifier.height(12.dp))
             if (exportEnabled) {
                 FabMenuItem(icon = Icons.Default.Upload, text = context.getString(R.string.export), onClick = onExportClick)
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (renameEnabled) {
+                FabMenuItem(
+                    icon = Icons.Default.Edit,
+                    text = context.getString(R.string.workspace_rename_action),
+                    onClick = onRenameWorkspaceClick
+                )
                 Spacer(modifier = Modifier.height(12.dp))
             }
             FabMenuItem(icon = Icons.Default.LinkOff, text = context.getString(R.string.unbind), onClick = onUnbindClick)

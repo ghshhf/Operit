@@ -19,13 +19,27 @@ Tools.Chat
 
 ## 主要 API
 
-### `startService()`
+### `startService(options?)`
 
 ```ts
-startService(): Promise<ChatServiceStartResultData>
+startService(options?: {
+  initial_mode?: 'WINDOW' | 'BALL' | 'VOICE_BALL' | 'FULLSCREEN' | 'RESULT_DISPLAY' | 'SCREEN_OCR'
+  auto_enter_voice_chat?: boolean
+  wake_launched?: boolean
+  timeout_ms?: number
+  keep_if_exists?: boolean
+}): Promise<ChatServiceStartResultData>
 ```
 
 启动聊天服务或浮窗。
+
+可选参数：
+
+- `initial_mode?`
+- `auto_enter_voice_chat?`
+- `wake_launched?`
+- `timeout_ms?`
+- `keep_if_exists?`
 
 ### `createNew(group?, setAsCurrentChat?, characterCardId?)`
 
@@ -73,27 +87,19 @@ findChat({ query, match?, index? }): Promise<ChatFindResultData>
 
 删除聊天。
 
-### `sendMessage(message, chatId?, roleCardId?, senderName?)`
+### `sendMessage(message, chatId?, roleCardId?, senderName?, options?)`
 
 发送普通消息。
 
-### `sendMessageAdvanced(params)`
+`options` 支持：
 
-高级发送接口，支持：
+- `persist_turn?: boolean`
+- `notify_reply?: boolean`
+- `hide_user_message?: boolean`
+- `disable_warning?: boolean`
+- `timeout_ms?: number`
 
-- `chatId`
-- `chatHistory`
-- `workspacePath`
-- `functionType`
-- `promptFunctionType`
-- `enableThinking`
-- `thinkingGuidance`
-- `enableMemoryQuery`
-- `maxTokens`
-- `tokenUsageThreshold`
-- `customSystemPromptTemplate`
-- `isSubTask`
-- `stream`
+其中 `timeout_ms` 用于控制本次发送的最长等待时间，单位毫秒。
 
 ### `listCharacterCards()`
 
@@ -131,7 +137,9 @@ getMessages(chatId: string, options?: { order?: 'asc' | 'desc'; limit?: number }
 const created = await Tools.Chat.createNew('work', true);
 const chatId = created.chatId;
 
-await Tools.Chat.sendMessage('帮我总结今天的待办', chatId);
+await Tools.Chat.sendMessage('帮我总结今天的待办', chatId, undefined, undefined, {
+  timeout_ms: 60000
+});
 ```
 
 ### 查找并切换聊天

@@ -39,6 +39,14 @@ data class StringResultData(val value: String) : ToolResultData() {
 }
 
 @Serializable
+data class SleepResultData(
+        val requestedMs: Int,
+        val sleptMs: Int
+) : ToolResultData() {
+    override fun toString(): String = "Slept for ${sleptMs}ms"
+}
+
+@Serializable
 data class SandboxScriptExecutionResultData(
         val success: Boolean,
         val scriptPath: String,
@@ -119,7 +127,8 @@ data class SandboxPackagesResultData(
         val externalCount: Int,
         val enabledCount: Int,
         val disabledCount: Int,
-        val packages: List<SandboxPackageResultItem>
+        val packages: List<SandboxPackageResultItem>,
+        val packageLoadErrors: Map<String, String> = emptyMap()
 ) : ToolResultData() {
     override fun toString(): String {
         return "Sandbox packages: total=$totalCount, enabled=$enabledCount, builtIn=$builtInCount, external=$externalCount"
@@ -271,6 +280,25 @@ data class TerminalCommandResultData(
         sb.appendLine("\nOutput:")
         sb.appendLine(output)
         return sb.toString()
+    }
+}
+
+/** 终端命令流式事件数据 */
+@Serializable
+data class TerminalStreamEventData(
+        val type: String,
+        val command: String,
+        val sessionId: String,
+        val chunk: String? = null,
+        val chunkIndex: Int? = null,
+        val receivedChars: Int? = null
+) : ToolResultData() {
+    override fun toString(): String {
+        return when (type) {
+            "chunk" -> chunk.orEmpty()
+            "start" -> "Terminal stream started"
+            else -> "Terminal stream event: $type"
+        }
     }
 }
 
@@ -578,6 +606,28 @@ data class HttpResponseData(
     }
 }
 
+@Serializable
+data class HttpStreamEventData(
+        val type: String,
+        val url: String,
+        val statusCode: Int? = null,
+        val statusMessage: String? = null,
+        val headers: Map<String, String> = emptyMap(),
+        val contentType: String? = null,
+        val chunk: String? = null,
+        val chunkIndex: Int? = null,
+        val receivedBytes: Long? = null
+) : ToolResultData() {
+    override fun toString(): String {
+        return when (type) {
+            "chunk" -> chunk.orEmpty()
+            "response_started" ->
+                "HTTP stream started: ${statusCode ?: "?"} ${statusMessage.orEmpty()}".trim()
+            else -> "HTTP stream event: $type"
+        }
+    }
+}
+
 /** 系统设置数据 */
 @Serializable
 data class SystemSettingData(val namespace: String, val setting: String, val value: String) :
@@ -613,6 +663,63 @@ data class AppListData(val includesSystemApps: Boolean, val packages: List<Strin
     override fun toString(): String {
         val appType = if (includesSystemApps) "All Apps" else "Third-Party Apps"
         return "Installed ${appType} List:\n${packages.joinToString("\n")}"
+    }
+}
+
+/** 单个应用的使用时长统计 */
+@Serializable
+data class AppUsageTimeEntry(
+        val packageName: String,
+        val appName: String,
+        val totalForegroundTimeMs: Long,
+        val lastTimeUsed: Long,
+        val isSystemApp: Boolean
+)
+
+/** 应用使用时长数据 */
+@Serializable
+data class AppUsageTimeResultData(
+        val startTime: Long,
+        val endTime: Long,
+        val sinceHours: Int,
+        val requestedPackageName: String? = null,
+        val includesSystemApps: Boolean,
+        val totalEntries: Int,
+        val entries: List<AppUsageTimeEntry>
+) : ToolResultData() {
+    override fun toString(): String {
+        val header =
+                buildString {
+                    append("App usage time")
+                    append(" (last ${sinceHours}h)")
+                    requestedPackageName?.takeIf { it.isNotBlank() }?.let {
+                        append(" for $it")
+                    }
+                }
+
+        if (entries.isEmpty()) {
+            return "$header\nNo app usage found in the selected time window."
+        }
+
+        val lines =
+                entries.joinToString("\n") { entry ->
+                    "- ${entry.appName} (${entry.packageName}): ${formatDuration(entry.totalForegroundTimeMs)}"
+                }
+
+        return "$header\n$lines"
+    }
+
+    private fun formatDuration(durationMs: Long): String {
+        if (durationMs <= 0L) return "0s"
+        val totalSeconds = durationMs / 1000
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        val parts = mutableListOf<String>()
+        if (hours > 0) parts.add("${hours}h")
+        if (minutes > 0) parts.add("${minutes}m")
+        if (seconds > 0 || parts.isEmpty()) parts.add("${seconds}s")
+        return parts.joinToString(" ")
     }
 }
 
@@ -1988,6 +2095,7 @@ data class SpeechTtsHttpConfigResultItem(
     val httpMethod: String,
     val requestBody: String,
     val contentType: String,
+    val localeTag: String,
     val voiceId: String,
     val modelName: String,
     val responsePipeline: List<HttpTtsResponsePipelineStep>
@@ -2061,6 +2169,7 @@ data class ModelConfigResultItem(
     val id: String,
     val name: String,
     val apiProviderType: String,
+    val apiProviderTypeId: String,
     val apiEndpoint: String,
     val modelName: String,
     val modelList: List<String>,

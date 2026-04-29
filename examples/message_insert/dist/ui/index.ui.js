@@ -9,12 +9,6 @@ function useStateValue(ctx, key, initialValue) {
 function readSettings() {
     return (0, shared_1.loadSettings)();
 }
-function formatDecimal(value) {
-    if (!Number.isFinite(value)) {
-        return "0";
-    }
-    return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
-}
 function createSectionTitle(ctx, icon, title) {
     return ctx.UI.Row({ verticalAlignment: "center" }, [
         ctx.UI.Icon({ name: icon, tint: "primary", size: 20 }),
@@ -72,7 +66,7 @@ function createToggleRow(ctx, title, subtitle, checked, onCheckedChange, enabled
         }),
     ]);
 }
-function createMemoryConfigSection(ctx, text, enabled, allowRepeatedMemorySearch, onAllowRepeatedMemorySearchChange, thresholdValue, limitValue, onThresholdChange, onLimitChange, onApply) {
+function createMemoryConfigSection(ctx, text, enabled, allowRepeatedMemorySearch, onAllowRepeatedMemorySearchChange, limitValue, onLimitChange, onApply) {
     return ctx.UI.Column({
         fillMaxWidth: true,
         padding: { horizontal: 14, vertical: 12 },
@@ -90,19 +84,6 @@ function createMemoryConfigSection(ctx, text, enabled, allowRepeatedMemorySearch
         }),
         createToggleRow(ctx, text.memoryRepeatToggleTitle, text.memoryRepeatToggleDescription, allowRepeatedMemorySearch, onAllowRepeatedMemorySearchChange, enabled),
         createDivider(ctx),
-        ctx.UI.TextField({
-            enabled,
-            label: text.memoryThresholdFieldLabel,
-            placeholder: text.memoryThresholdFieldPlaceholder,
-            value: thresholdValue,
-            onValueChange: onThresholdChange,
-            singleLine: true,
-        }),
-        ctx.UI.Text({
-            text: text.memoryThresholdFieldDescription,
-            style: "bodySmall",
-            color: "onSurfaceVariant",
-        }),
         ctx.UI.TextField({
             enabled,
             label: text.memoryLimitFieldLabel,
@@ -146,12 +127,13 @@ function Screen(ctx) {
     const injectBatteryState = useStateValue(ctx, "injectBattery", initial.injectBattery);
     const injectWeatherState = useStateValue(ctx, "injectWeather", initial.injectWeather);
     const injectLocationState = useStateValue(ctx, "injectLocation", initial.injectLocation);
+    const injectCurrentScreenAppState = useStateValue(ctx, "injectCurrentScreenApp", initial.injectCurrentScreenApp);
+    const injectRecentAppUsageState = useStateValue(ctx, "injectRecentAppUsage", initial.injectRecentAppUsage);
+    const injectScreenTextState = useStateValue(ctx, "injectScreenText", initial.injectScreenText);
     const injectNotificationsState = useStateValue(ctx, "injectNotifications", initial.injectNotifications);
     const injectMemoryState = useStateValue(ctx, "injectMemory", initial.injectMemory);
     const allowRepeatedMemorySearchState = useStateValue(ctx, "allowRepeatedMemorySearch", initial.allowRepeatedMemorySearch);
-    const memoryThresholdState = useStateValue(ctx, "memoryThreshold", initial.memoryThreshold);
     const memoryLimitState = useStateValue(ctx, "memoryLimit", initial.memoryLimit);
-    const memoryThresholdInputState = useStateValue(ctx, "memoryThresholdInput", formatDecimal(initial.memoryThreshold));
     const memoryLimitInputState = useStateValue(ctx, "memoryLimitInput", String(initial.memoryLimit));
     const successMessageState = useStateValue(ctx, "successMessage", "");
     const errorMessageState = useStateValue(ctx, "errorMessage", "");
@@ -163,12 +145,13 @@ function Screen(ctx) {
         injectBatteryState.set(next.injectBattery);
         injectWeatherState.set(next.injectWeather);
         injectLocationState.set(next.injectLocation);
+        injectCurrentScreenAppState.set(next.injectCurrentScreenApp);
+        injectRecentAppUsageState.set(next.injectRecentAppUsage);
+        injectScreenTextState.set(next.injectScreenText);
         injectNotificationsState.set(next.injectNotifications);
         injectMemoryState.set(next.injectMemory);
         allowRepeatedMemorySearchState.set(next.allowRepeatedMemorySearch);
-        memoryThresholdState.set(next.memoryThreshold);
         memoryLimitState.set(next.memoryLimit);
-        memoryThresholdInputState.set(formatDecimal(next.memoryThreshold));
         memoryLimitInputState.set(String(next.memoryLimit));
     };
     const persistSettings = (patch, successMessage = "") => {
@@ -185,20 +168,13 @@ function Screen(ctx) {
         }
     };
     const applyMemorySettings = () => {
-        const threshold = Number(memoryThresholdInputState.value.trim());
         const limit = Number(memoryLimitInputState.value.trim());
-        if (!Number.isFinite(threshold) || threshold < 0) {
-            successMessageState.set("");
-            errorMessageState.set(`${text.saveErrorPrefix}${text.invalidMemoryThresholdMessage}`);
-            return;
-        }
         if (!Number.isFinite(limit) || limit < 1) {
             successMessageState.set("");
             errorMessageState.set(`${text.saveErrorPrefix}${text.invalidMemoryLimitMessage}`);
             return;
         }
         persistSettings({
-            memoryThreshold: threshold,
             memoryLimit: Math.floor(limit),
         });
     };
@@ -211,11 +187,20 @@ function Screen(ctx) {
         injectBatteryState.value ? text.summaryBatteryEnabled : text.summaryBatteryDisabled,
         injectWeatherState.value ? text.summaryWeatherEnabled : text.summaryWeatherDisabled,
         injectLocationState.value ? text.summaryLocationEnabled : text.summaryLocationDisabled,
+        injectCurrentScreenAppState.value
+            ? text.summaryCurrentScreenAppEnabled
+            : text.summaryCurrentScreenAppDisabled,
+        injectRecentAppUsageState.value
+            ? text.summaryRecentAppUsageEnabled
+            : text.summaryRecentAppUsageDisabled,
+        injectScreenTextState.value
+            ? text.summaryScreenTextEnabled
+            : text.summaryScreenTextDisabled,
         injectNotificationsState.value
             ? text.summaryNotificationsEnabled
             : text.summaryNotificationsDisabled,
         injectMemoryState.value
-            ? `${text.summaryMemoryEnabled} (${text.memoryThresholdLabel}: ${formatDecimal(memoryThresholdState.value)}; ${text.memoryLimitLabel}: ${memoryLimitState.value}; ${allowRepeatedMemorySearchState.value
+            ? `${text.summaryMemoryEnabled} (${text.memoryLimitLabel}: ${memoryLimitState.value}; ${allowRepeatedMemorySearchState.value
                 ? text.summaryMemoryRepeatEnabled
                 : text.summaryMemoryRepeatDisabled})`
             : text.summaryMemoryDisabled,
@@ -293,6 +278,30 @@ function Screen(ctx) {
                 },
             },
             {
+                title: text.currentScreenAppToggleTitle,
+                subtitle: text.currentScreenAppToggleDescription,
+                checked: injectCurrentScreenAppState.value,
+                onCheckedChange: checked => {
+                    persistSettings({ injectCurrentScreenApp: checked });
+                },
+            },
+            {
+                title: text.recentAppUsageToggleTitle,
+                subtitle: text.recentAppUsageToggleDescription,
+                checked: injectRecentAppUsageState.value,
+                onCheckedChange: checked => {
+                    persistSettings({ injectRecentAppUsage: checked });
+                },
+            },
+            {
+                title: text.screenTextToggleTitle,
+                subtitle: text.screenTextToggleDescription,
+                checked: injectScreenTextState.value,
+                onCheckedChange: checked => {
+                    persistSettings({ injectScreenText: checked });
+                },
+            },
+            {
                 title: text.notificationsToggleTitle,
                 subtitle: text.notificationsToggleDescription,
                 checked: injectNotificationsState.value,
@@ -310,9 +319,7 @@ function Screen(ctx) {
             },
         ], createMemoryConfigSection(ctx, text, injectMemoryState.value, allowRepeatedMemorySearchState.value, checked => {
             persistSettings({ allowRepeatedMemorySearch: checked });
-        }, memoryThresholdInputState.value, memoryLimitInputState.value, value => {
-            memoryThresholdInputState.set(value);
-        }, value => {
+        }, memoryLimitInputState.value, value => {
             memoryLimitInputState.set(value);
         }, applyMemorySettings)),
         createSectionTitle(ctx, "checkCircle", text.summarySectionTitle),

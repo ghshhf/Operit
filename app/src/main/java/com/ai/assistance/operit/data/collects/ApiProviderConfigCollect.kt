@@ -60,7 +60,7 @@ object ApiProviderConfigs {
         ),
         ProviderApiConfig(
             providerType = ApiProviderType.DEEPSEEK,
-            defaultModelName = "deepseek-chat",
+            defaultModelName = "deepseek-v4-flash",
             defaultApiEndpoint = "https://api.deepseek.com/v1/chat/completions"
         ),
         ProviderApiConfig(
@@ -144,6 +144,11 @@ object ApiProviderConfigs {
             providerType = ApiProviderType.OPENROUTER,
             defaultModelName = "google/gemini-pro",
             defaultApiEndpoint = "https://openrouter.ai/api/v1/chat/completions"
+        ),
+        ProviderApiConfig(
+            providerType = ApiProviderType.NOUS_PORTAL,
+            defaultModelName = "",
+            defaultApiEndpoint = "https://inference-api.nousresearch.com/v1/chat/completions"
         ),
         ProviderApiConfig(
             providerType = ApiProviderType.INFINIAI,
@@ -250,6 +255,11 @@ object ApiProviderConfigs {
         return !isLoopbackEndpoint(apiEndpoint)
     }
 
+    fun requiresApiKey(providerTypeId: String, apiEndpoint: String = ""): Boolean {
+        val providerType = ApiProviderType.fromProviderTypeId(providerTypeId) ?: return !isLoopbackEndpoint(apiEndpoint)
+        return requiresApiKey(providerType, apiEndpoint)
+    }
+
     fun isDefaultModelName(modelName: String): Boolean {
         return configs.values.any { it.defaultModelName == modelName }
     }
@@ -258,7 +268,7 @@ object ApiProviderConfigs {
         return configs.values.any { it.defaultApiEndpoint == endpoint }
     }
 
-    private fun isLoopbackEndpoint(apiEndpoint: String): Boolean {
+    fun isLoopbackEndpoint(apiEndpoint: String): Boolean {
         if (apiEndpoint.isBlank()) {
             return false
         }

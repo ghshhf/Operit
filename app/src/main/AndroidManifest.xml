@@ -23,6 +23,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
     <!-- 麦克风前台服务权限 -->
@@ -74,10 +75,10 @@
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_launcher_simple"
         android:label="@string/app_name"
         android:resizeableActivity="true"
-        android:roundIcon="@mipmap/ic_launcher_round"
+        android:roundIcon="@mipmap/ic_launcher_simple_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Operit"
         android:requestLegacyExternalStorage="true"
@@ -86,7 +87,7 @@
         android:usesCleartextTraffic="true"
         android:largeHeap="true"
         tools:targetApi="31"
-        tools:replace="android:theme">
+        tools:replace="android:theme,android:icon,android:roundIcon">
 
         <!-- OpenCL 库权限声明 (Android 10+ 命名空间隔离解决方案) -->
         <uses-native-library 
@@ -199,15 +200,6 @@
             android:windowSoftInputMode="adjustPan"
             android:theme="@style/Theme.Operit"
             android:launchMode="singleTask">
-            <!-- GitHub OAuth Callback -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="operit"
-                    android:host="github-oauth-callback" />
-            </intent-filter>
             <!-- File open and share support -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -221,6 +213,14 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="http" />
                 <data android:scheme="https" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="operit"
+                    android:host="github-oauth-callback" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -251,7 +251,7 @@
         <activity-alias
             android:name=".ui.main.MainActivityDefaultLauncherAlias"
             android:targetActivity=".ui.main.MainActivity"
-            android:enabled="true"
+            android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher_round"
@@ -268,7 +268,7 @@
         <activity-alias
             android:name=".ui.main.MainActivitySimpleAlias"
             android:targetActivity=".ui.main.MainActivity"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_simple"
             android:roundIcon="@mipmap/ic_launcher_simple_round"
@@ -329,7 +329,7 @@
             android:name=".services.FloatingChatService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="dataSync|specialUse" />
+            android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".core.tools.system.ScreenCaptureService"
@@ -352,7 +352,11 @@
             android:name=".api.chat.AIForegroundService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="dataSync|microphone|specialUse" />
+            android:foregroundServiceType="dataSync|microphone|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the user-requested assistant runtime alive for external HTTP control when no standard foreground service type fully describes that mode." />
+        </service>
         
         <!-- 添加广播接收器配置 -->
         <receiver
@@ -372,6 +376,22 @@
         </receiver>
 
         <receiver
+            android:name=".core.tools.packTool.PackageDebugRefreshReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.ai.assistance.operit.DEBUG_REFRESH_PACKAGES" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".core.tools.packTool.ToolPkgComposeDslDebugDumpReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.ai.assistance.operit.DUMP_COMPOSE_DSL_UI" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".integrations.intent.ExternalChatReceiver"
             android:exported="true">
             <intent-filter>
@@ -383,7 +403,11 @@
             android:name=".services.UIDebuggerService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Shows a user-triggered floating UI debugger overlay across apps for inspection tasks that do not match other foreground service types." />
+        </service>
         
         <!-- Voice Assistant Widget Receiver -->
         <receiver

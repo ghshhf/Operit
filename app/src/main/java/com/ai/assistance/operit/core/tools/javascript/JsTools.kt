@@ -201,11 +201,20 @@ fun getJsToolsDefinition(): String {
                     if (params.ref !== undefined && params.ref !== null) {
                         params.ref = String(params.ref).trim();
                     }
-                    if (!params.ref) {
-                        throw new Error("browserClick requires ref");
+                    if (params.selector !== undefined && params.selector !== null) {
+                        params.selector = String(params.selector).trim();
+                        if (!params.selector) {
+                            delete params.selector;
+                        }
+                    }
+                    if (!params.ref && !params.selector) {
+                        throw new Error("browserClick requires ref or selector");
                     }
                     if (params.element !== undefined && params.element !== null) {
-                        params.element = String(params.element);
+                        params.element = String(params.element).trim();
+                        if (!params.element) {
+                            delete params.element;
+                        }
                     }
                     if (params.button !== undefined && params.button !== null) {
                         const button = String(params.button).trim();
@@ -236,6 +245,12 @@ fun getJsToolsDefinition(): String {
                         throw new Error("browserClose only accepts one options object");
                     }
                     return toolCall("browser_close", options || {});
+                },
+                browserCloseAll: (options) => {
+                    if (options !== undefined && (typeof options !== 'object' || Array.isArray(options))) {
+                        throw new Error("browserCloseAll only accepts one options object");
+                    }
+                    return toolCall("browser_close_all", options || {});
                 },
                 browserConsoleMessages: (options) => {
                     if (options !== undefined && (typeof options !== 'object' || Array.isArray(options))) {
@@ -414,10 +429,16 @@ fun getJsToolsDefinition(): String {
                     }
                     const params = { ...(options || {}) };
                     if (params.filename !== undefined && params.filename !== null) {
-                        params.filename = String(params.filename);
+                        params.filename = String(params.filename).trim();
+                        if (!params.filename) {
+                            delete params.filename;
+                        }
                     }
                     if (params.selector !== undefined && params.selector !== null) {
-                        params.selector = String(params.selector);
+                        params.selector = String(params.selector).trim();
+                        if (!params.selector) {
+                            delete params.selector;
+                        }
                     }
                     if (params.depth !== undefined && params.depth !== null) {
                         const depth = Number(params.depth);
@@ -581,6 +602,26 @@ fun getJsToolsDefinition(): String {
                 // 获取设备通知
                 getNotifications: (limit = 10, includeOngoing = false) => 
                     toolCall("get_notifications", { limit: parseInt(limit), include_ongoing: !!includeOngoing }),
+                // 获取应用使用时长
+                getAppUsageTime: (options = {}) => {
+                    const params = { ...(options || {}) };
+                    if (params.packageName !== undefined && params.packageName !== null) {
+                        params.package_name = String(params.packageName);
+                        delete params.packageName;
+                    }
+                    if (params.sinceHours !== undefined && params.sinceHours !== null) {
+                        params.since_hours = parseInt(params.sinceHours);
+                        delete params.sinceHours;
+                    }
+                    if (params.includeSystemApps !== undefined) {
+                        params.include_system_apps = !!params.includeSystemApps;
+                        delete params.includeSystemApps;
+                    }
+                    if (params.limit !== undefined && params.limit !== null) {
+                        params.limit = parseInt(params.limit);
+                    }
+                    return toolCall("get_app_usage_time", params);
+                },
                 // 获取设备位置
                 getLocation: (highAccuracy = false, timeout = 10) => 
                     toolCall("get_device_location", { high_accuracy: !!highAccuracy, timeout: parseInt(timeout) }),
@@ -594,6 +635,19 @@ fun getJsToolsDefinition(): String {
                             params.timeout_ms = String(timeoutMs);
                         }
                         return toolCall("execute_in_terminal_session", params);
+                    },
+                    execStreaming: (sessionId, command, options = {}) => {
+                        const params = { session_id: sessionId, command };
+                        const toolOptions = {};
+                        if (options && typeof options === "object") {
+                            if (options.timeoutMs !== undefined && options.timeoutMs !== null) {
+                                params.timeout_ms = String(options.timeoutMs);
+                            }
+                            if (typeof options.onIntermediateResult === "function") {
+                                toolOptions.onIntermediateResult = options.onIntermediateResult;
+                            }
+                        }
+                        return toolCall("execute_in_terminal_session_streaming", params, toolOptions);
                     },
                     hiddenExec: (command, options = {}) => {
                         const params = { command };
@@ -664,6 +718,9 @@ fun getJsToolsDefinition(): String {
                 },
                 setSpeechServicesConfig: (updates = {}) => {
                     const params = { ...(updates || {}) };
+                    if (params.tts_locale !== undefined && params.tts_locale !== null) {
+                        params.tts_locale = String(params.tts_locale);
+                    }
                     if (params.tts_headers !== undefined && params.tts_headers !== null && typeof params.tts_headers === 'object') {
                         params.tts_headers = JSON.stringify(params.tts_headers);
                     }
@@ -1000,7 +1057,25 @@ fun getJsToolsDefinition(): String {
             // 对话管理工具
             Chat: {
                 // 启动对话服务
-                startService: () => toolCall("start_chat_service", {}),
+                startService: (options = {}) => {
+                    const params = {};
+                    if (options.initial_mode !== undefined && options.initial_mode !== null && String(options.initial_mode).trim() !== "") {
+                        params.initial_mode = String(options.initial_mode);
+                    }
+                    if (options.auto_enter_voice_chat !== undefined && options.auto_enter_voice_chat !== null) {
+                        params.auto_enter_voice_chat = options.auto_enter_voice_chat;
+                    }
+                    if (options.wake_launched !== undefined && options.wake_launched !== null) {
+                        params.wake_launched = options.wake_launched;
+                    }
+                    if (options.timeout_ms !== undefined && options.timeout_ms !== null && !isNaN(Number(options.timeout_ms))) {
+                        params.timeout_ms = String(options.timeout_ms);
+                    }
+                    if (options.keep_if_exists !== undefined && options.keep_if_exists !== null) {
+                        params.keep_if_exists = options.keep_if_exists;
+                    }
+                    return toolCall("start_chat_service", params);
+                },
                 // 创建新对话
                 createNew: (group, setAsCurrentChat, characterCardId) => {
                     const params = {};
@@ -1029,22 +1104,24 @@ fun getJsToolsDefinition(): String {
                 deleteChat: (chatId) => {
                     return toolCall("delete_chat", { chat_id: String(chatId ?? "") });
                 },
-                getMessages: (chatId, order, limit) => {
-                    const params = { chat_id: chatId };
-                    if (order !== undefined && order !== null && String(order).trim() !== "") params.order = String(order);
-                    if (limit !== undefined && limit !== null && !isNaN(Number(limit))) params.limit = String(limit);
+                getMessages: (chatId, options = {}) => {
+                    const params = { chat_id: String(chatId ?? "") };
+                    if (options.order !== undefined && options.order !== null && String(options.order).trim() !== "") params.order = String(options.order);
+                    if (options.limit !== undefined && options.limit !== null && !isNaN(Number(options.limit))) params.limit = String(options.limit);
                     return toolCall("get_chat_messages", params);
                 },
                 // 发送消息给AI
-                sendMessage: (message, chatId, roleCardId, senderName) => {
+                sendMessage: (message, chatId, roleCardId, senderName, options = {}) => {
                     const params = { message };
                     if (chatId) params.chat_id = chatId;
                     if (roleCardId) params.role_card_id = roleCardId;
                     if (senderName) params.sender_name = senderName;
+                    if (options.persist_turn !== undefined) params.persist_turn = options.persist_turn;
+                    if (options.notify_reply !== undefined) params.notify_reply = options.notify_reply;
+                    if (options.hide_user_message !== undefined) params.hide_user_message = options.hide_user_message;
+                    if (options.disable_warning !== undefined) params.disable_warning = options.disable_warning;
+                    if (options.timeout_ms !== undefined && options.timeout_ms !== null) params.timeout_ms = String(options.timeout_ms);
                     return toolCall("send_message_to_ai", params);
-                },
-                sendMessageAdvanced: (params = {}) => {
-                    return toolCall("send_message_to_ai_advanced", params);
                 },
                 // 列出所有角色卡
                 listCharacterCards: () => toolCall("list_character_cards", {})

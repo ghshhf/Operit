@@ -34,6 +34,8 @@ import javax.crypto.spec.SecretKeySpec
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.encodeToString
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.collect
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -243,21 +245,21 @@ internal object JsNativeInterfaceDelegates {
 
     fun isPackageImported(packageManager: PackageManager, packageName: String): Boolean {
         return guard(false, "Error checking package imported from JS: $packageName") {
-            normalizeNonBlank(packageName)?.let(packageManager::isPackageImported) ?: false
+            normalizeNonBlank(packageName)?.let(packageManager::isPackageEnabled) ?: false
         }
     }
 
     fun importPackage(packageManager: PackageManager, packageName: String): String {
         return guard("Error: package import failed", "Error importing package from JS: $packageName") {
             val normalized = normalizeNonBlank(packageName) ?: return@guard "Package name is required"
-            packageManager.importPackage(normalized)
+            packageManager.enablePackage(normalized)
         }
     }
 
     fun removePackage(packageManager: PackageManager, packageName: String): String {
         return guard("Error: package removal failed", "Error removing package from JS: $packageName") {
             val normalized = normalizeNonBlank(packageName) ?: return@guard "Package name is required"
-            packageManager.removePackage(normalized)
+            packageManager.disablePackage(normalized)
         }
     }
 
@@ -272,7 +274,7 @@ internal object JsNativeInterfaceDelegates {
         return guard("[]", "Error listing imported packages from JS") {
             Json.encodeToString(
                 ListSerializer(String.serializer()),
-                packageManager.getImportedPackages()
+                packageManager.getEnabledPackageNames()
             )
         }
     }
@@ -293,17 +295,17 @@ internal object JsNativeInterfaceDelegates {
                 return@guard normalizedTool
             }
 
-            val preferImportedBool = !preferImported.equals("false", ignoreCase = true)
+            val preferEnabledBool = !preferImported.equals("false", ignoreCase = true)
             val resolvedPackageName =
                 normalizeNonBlank(packageName)?.let { candidate ->
                     packageManager.findPreferredPackageNameForSubpackageId(
                         candidate,
-                        preferImported = preferImportedBool
+                        preferEnabled = preferEnabledBool
                     ) ?: candidate
                 } ?: normalizeNonBlank(subpackageId)?.let { candidate ->
                     packageManager.findPreferredPackageNameForSubpackageId(
                         candidate,
-                        preferImported = preferImportedBool
+                        preferEnabled = preferEnabledBool
                     ) ?: candidate
                 }.orEmpty()
 
@@ -333,7 +335,7 @@ internal object JsNativeInterfaceDelegates {
                 ?: packageManager.getToolPkgResourceOutputFileName(
                     packageNameOrSubpackageId = target,
                     resourceKey = key,
-                    preferImportedContainer = true
+                    preferEnabledContainer = true
                 )
                 ?: "$key.bin"
             val safeName = fileName.substringAfterLast('/').substringAfterLast('\\').ifBlank { "$key.bin" }
@@ -351,7 +353,7 @@ internal object JsNativeInterfaceDelegates {
                         subpackageId = target,
                         resourceKey = key,
                         destinationFile = outputFile,
-                        preferImportedContainer = true
+                        preferEnabledContainer = true
                     )
             if (copied) outputFile.absolutePath else ""
         }
@@ -585,6 +587,85 @@ internal object JsNativeInterfaceDelegates {
                 sendToolResult(callbackId, resultJson, !result.success)
             } catch (e: Exception) {
                 AppLogger.e(TAG, "[Async] Error in async tool execution: ${e.message}", e)
+                sendToolResult(
+                    callbackId,
+                    buildToolErrorJson("Error: ${e.message}"),
+                    true
+                )
+            }
+        }.start()
+    }
+
+    fun callToolAsyncStreaming(
+        toolHandler: AIToolHandler,
+        callbackId: String,
+        intermediateCallbackId: String,
+        toolType: String,
+        toolName: String,
+        paramsJson: String,
+        binaryDataRegistry: ConcurrentHashMap<String, ByteArray>,
+        binaryHandlePrefix: String,
+        binaryDataThreshold: Int,
+        sendToolResult: (callbackId: String, result: String, isError: Boolean) -> Unit,
+        sendIntermediateResult: (callbackId: String, result: String, isError: Boolean) -> Unit
+    ) {
+        val parsed =
+            try {
+                parseToolCall(toolType, toolName, paramsJson)
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "[AsyncStream] Error preparing tool call: ${e.message}", e)
+                sendToolResult(
+                    callbackId,
+                    buildToolErrorJson("Error: ${e.message ?: "Unknown error"}"),
+                    true
+                )
+                return
+            }
+
+        AppLogger.d(
+            TAG,
+            "[AsyncStream] JavaScript tool call: ${parsed.fullToolName} with params: ${parsed.params}, callbackId: $callbackId, intermediateCallbackId: $intermediateCallbackId"
+        )
+
+        Thread {
+            try {
+                var pendingFinalResult: ToolResult? = null
+                runBlocking {
+                    toolHandler.executeToolAndStream(parsed.aiTool).collect { result ->
+                        val previous = pendingFinalResult
+                        pendingFinalResult = result
+                        if (previous != null) {
+                            val intermediateJson =
+                                serializeToolExecutionResult(
+                                    result = previous,
+                                    binaryDataRegistry = binaryDataRegistry,
+                                    binaryHandlePrefix = binaryHandlePrefix,
+                                    binaryDataThreshold = binaryDataThreshold
+                                )
+                            sendIntermediateResult(intermediateCallbackId, intermediateJson, !previous.success)
+                        }
+                    }
+                }
+
+                val finalResult =
+                    pendingFinalResult
+                        ?: ToolResult(
+                            toolName = parsed.fullToolName,
+                            success = false,
+                            result = StringResultData(""),
+                            error = "Tool did not produce a result"
+                        )
+
+                val finalJson =
+                    serializeToolExecutionResult(
+                        result = finalResult,
+                        binaryDataRegistry = binaryDataRegistry,
+                        binaryHandlePrefix = binaryHandlePrefix,
+                        binaryDataThreshold = binaryDataThreshold
+                    )
+                sendToolResult(callbackId, finalJson, !finalResult.success)
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "[AsyncStream] Error in async streaming tool execution: ${e.message}", e)
                 sendToolResult(
                     callbackId,
                     buildToolErrorJson("Error: ${e.message}"),

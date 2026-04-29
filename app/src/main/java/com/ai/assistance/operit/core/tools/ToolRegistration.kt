@@ -133,6 +133,29 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
     )
 
     handler.registerTool(
+            name = "execute_in_terminal_session_streaming",
+            descriptionGenerator = { tool ->
+                val command = tool.parameters.find { it.name == "command" }?.value ?: ""
+                val sessionId = tool.parameters.find { it.name == "session_id" }?.value
+                s(R.string.toolreg_execute_in_terminal_session_desc, sessionId ?: "", command)
+            },
+            executor =
+                    object : ToolExecutor {
+                        override fun invoke(tool: AITool): ToolResult {
+                            val terminalTool = ToolGetter.getTerminalCommandExecutor(context)
+                            return terminalTool.executeCommandInSession(tool)
+                        }
+
+                        override fun invokeAndStream(
+                                tool: AITool
+                        ): kotlinx.coroutines.flow.Flow<ToolResult> {
+                            val terminalTool = ToolGetter.getTerminalCommandExecutor(context)
+                            return terminalTool.executeCommandInSessionStream(tool)
+                        }
+                    }
+    )
+
+    handler.registerTool(
             name = "execute_hidden_terminal_command",
             descriptionGenerator = { tool ->
                 val command = tool.parameters.find { it.name == "command" }?.value ?: ""
@@ -402,7 +425,7 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
             }
     )
 
-    // 注册问题库查询工具
+    // 注册记忆库查询工具
     handler.registerTool(
             name = "query_memory",
             descriptionGenerator = { tool ->
@@ -620,14 +643,19 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
                 "Proxy call to package tool: $targetToolName"
             },
             executor = { tool ->
-                val allowedParamNames = setOf("tool_name", "params")
+                val packageContextParamNames = setOf(
+                    "__operit_package_caller_name",
+                    "__operit_package_chat_id",
+                    "__operit_package_caller_card_id"
+                )
+                val allowedParamNames = setOf("tool_name", "params") + packageContextParamNames
                 val unknownParamNames = tool.parameters.map { it.name }.filter { it !in allowedParamNames }
                 if (unknownParamNames.isNotEmpty()) {
                     return@registerTool ToolResult(
                         toolName = tool.name,
                         success = false,
                         result = StringResultData(""),
-                        error = "Unexpected parameters: ${unknownParamNames.joinToString(", ")}. Only tool_name and params are allowed"
+                        error = "Unexpected parameters: ${unknownParamNames.joinToString(", ")}. Only tool_name, params, and supported system context parameters are allowed"
                     )
                 }
 
@@ -711,6 +739,16 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
                     forwardedParameters.add(ToolParameter(name = key, value = valueString))
                 }
 
+                packageContextParamNames.forEach { paramName ->
+                    val value = tool.parameters
+                        .firstOrNull { it.name == paramName }
+                        ?.value
+                        ?.trim()
+                    if (!value.isNullOrBlank() && forwardedParameters.none { it.name == paramName }) {
+                        forwardedParameters.add(ToolParameter(name = paramName, value = value))
+                    }
+                }
+
                 val proxiedTool = AITool(
                     name = targetToolName,
                     parameters = forwardedParameters
@@ -783,7 +821,12 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
             name = "browser_click",
             descriptionGenerator = { tool ->
                 val ref = tool.parameters.find { it.name == "ref" }?.value ?: ""
-                "Click browser element ref ${ref.ifBlank { "(missing ref)" }}"
+                val selector = tool.parameters.find { it.name == "selector" }?.value ?: ""
+                when {
+                    ref.isNotBlank() -> "Click browser element ref $ref from browser_snapshot"
+                    selector.isNotBlank() -> "Click browser element by selector $selector"
+                    else -> "Click browser element (missing ref/selector)"
+                }
             },
             executor = { tool -> ToolGetter.getBrowserSessionTools(context).invoke(tool) }
     )
@@ -791,6 +834,12 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
     handler.registerTool(
             name = "browser_close",
             descriptionGenerator = { "Close the current browser tab" },
+            executor = { tool -> ToolGetter.getBrowserSessionTools(context).invoke(tool) }
+    )
+
+    handler.registerTool(
+            name = "browser_close_all",
+            descriptionGenerator = { "Close all browser tabs" },
             executor = { tool -> ToolGetter.getBrowserSessionTools(context).invoke(tool) }
     )
 
@@ -886,7 +935,7 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
 
     handler.registerTool(
             name = "browser_snapshot",
-            descriptionGenerator = { "Capture a browser accessibility snapshot" },
+            descriptionGenerator = { "Capture a browser accessibility snapshot, including same-origin iframe content" },
             executor = { tool -> ToolGetter.getBrowserSessionTools(context).invoke(tool) }
     )
 
@@ -941,7 +990,10 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
                 ToolResult(
                         toolName = tool.name,
                         success = true,
-                        result = StringResultData("Slept for ${safeDuration}ms")
+                        result = SleepResultData(
+                                requestedMs = durationMs,
+                                sleptMs = safeDuration
+                        )
                 )
             }
     )
@@ -1242,17 +1294,6 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
             executor = { tool -> runBlocking(Dispatchers.IO) { chatManagerTool.sendMessageToAI(tool) } }
     )
 
-    // 高级发送消息给AI
-    handler.registerTool(
-            name = "send_message_to_ai_advanced",
-            descriptionGenerator = { tool ->
-                val message = tool.parameters.find { it.name == "message" }?.value ?: ""
-                val preview = if (message.length > 30) "${message.take(30)}..." else message
-                s(R.string.toolreg_send_message_to_ai_desc, preview)
-            },
-            executor = { tool -> runBlocking(Dispatchers.IO) { chatManagerTool.sendMessageToAIAdvanced(tool) } }
-    )
-
     // 列出所有角色卡
     handler.registerTool(
             name = "list_character_cards",
@@ -1476,7 +1517,18 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
                 val method = tool.parameters.find { it.name == "method" }?.value ?: "GET"
                 s(R.string.toolreg_http_request_desc, method, url)
             },
-            executor = { tool -> runBlocking(Dispatchers.IO) { httpTools.httpRequest(tool) } }
+            executor =
+                    object : ToolExecutor {
+                        override fun invoke(tool: AITool): ToolResult {
+                            return runBlocking(Dispatchers.IO) { httpTools.httpRequest(tool) }
+                        }
+
+                        override fun invokeAndStream(
+                                tool: AITool
+                        ): kotlinx.coroutines.flow.Flow<ToolResult> {
+                            return runBlocking(Dispatchers.IO) { httpTools.httpRequestStream(tool) }
+                        }
+                    }
     )
 
     // 多部分表单请求（文件上传）
@@ -1856,6 +1908,23 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
             },
             executor = { tool ->
                 runBlocking(Dispatchers.IO) { systemOperationTools.getNotifications(tool) }
+            }
+    )
+
+    // 获取应用使用时长
+    handler.registerTool(
+            name = "get_app_usage_time",
+            descriptionGenerator = { tool ->
+                val packageName = tool.parameters.find { it.name == "package_name" }?.value.orEmpty()
+                val sinceHours = tool.parameters.find { it.name == "since_hours" }?.value ?: "24"
+                if (packageName.isNotBlank()) {
+                    "Get app usage time for $packageName in the last ${sinceHours} hours"
+                } else {
+                    "Get app usage time ranking in the last ${sinceHours} hours"
+                }
+            },
+            executor = { tool ->
+                runBlocking(Dispatchers.IO) { systemOperationTools.getAppUsageTime(tool) }
             }
     )
 

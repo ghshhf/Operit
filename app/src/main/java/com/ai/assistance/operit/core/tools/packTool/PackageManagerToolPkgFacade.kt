@@ -3,13 +3,25 @@ package com.ai.assistance.operit.core.tools.packTool
 import android.content.Context
 import com.ai.assistance.operit.core.chat.logMessageTiming
 import com.ai.assistance.operit.core.chat.messageTimingNow
+import com.ai.assistance.operit.data.model.Workflow
+import com.ai.assistance.operit.data.repository.WorkflowRepository
+import com.ai.assistance.operit.ui.features.chat.webview.workspace.WorkspaceConfigReader
 import com.ai.assistance.operit.util.AppLogger
 import java.io.File
 import java.nio.charset.StandardCharsets
+import java.util.UUID
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 
 internal class PackageManagerToolPkgFacade(
     private val packageManager: PackageManager
 ) {
+    private val workflowTemplateJson =
+        Json {
+            ignoreUnknownKeys = true
+            classDiscriminator = "__type"
+        }
+
     private fun buildToolPkgToolboxUiModules(
         container: ToolPkgContainerRuntime,
         localizationContext: Context,
@@ -18,28 +30,38 @@ internal class PackageManagerToolPkgFacade(
         val containerDisplayName =
             container.displayName.resolve(localizationContext).ifBlank { container.packageName }
         val containerDescription = container.description.resolve(localizationContext)
-        return container.uiModules
-            .filter { module ->
-                module.runtime.equals(runtime, ignoreCase = true)
+        val toolboxRouteIds =
+            container.navigationEntries
+                .filter { it.surface.equals(TOOLPKG_NAV_SURFACE_TOOLBOX, ignoreCase = true) }
+                .map { it.routeId.lowercase() }
+                .toSet()
+        return container.uiRoutes
+            .filter { route ->
+                route.runtime.equals(runtime, ignoreCase = true) &&
+                    toolboxRouteIds.contains(route.routeId.lowercase())
             }
-            .map { module ->
+            .map { route ->
                 val moduleTitle =
-                    module.title.resolve(localizationContext).trim().ifBlank { containerDisplayName }
+                    route.title.resolve(localizationContext).trim().ifBlank { containerDisplayName }
                 PackageManager.ToolPkgToolboxUiModule(
                     containerPackageName = container.packageName,
                     toolPkgId = container.packageName,
-                    uiModuleId = module.id,
-                    runtime = module.runtime,
-                    screen = module.screen,
+                    routeId = route.routeId,
+                    uiModuleId = route.id,
+                    runtime = route.runtime,
+                    screen = route.screen,
                     title = moduleTitle,
                     description = containerDescription,
+                    keepAlive = route.keepAlive,
                     moduleSpec =
                         mapOf(
-                            "id" to module.id,
-                            "runtime" to module.runtime,
-                            "screen" to module.screen,
+                            "id" to route.id,
+                            "routeId" to route.routeId,
+                            "runtime" to route.runtime,
+                            "screen" to route.screen,
                             "title" to moduleTitle,
-                            "toolPkgId" to container.packageName
+                            "toolPkgId" to container.packageName,
+                            "keepAlive" to route.keepAlive
                         )
                 )
             }
@@ -48,6 +70,138 @@ internal class PackageManagerToolPkgFacade(
                     PackageManager.ToolPkgToolboxUiModule::title,
                     PackageManager.ToolPkgToolboxUiModule::containerPackageName,
                     PackageManager.ToolPkgToolboxUiModule::uiModuleId
+                )
+            )
+    }
+
+    private fun buildToolPkgUiRoutes(
+        container: ToolPkgContainerRuntime,
+        localizationContext: Context,
+        runtime: String = TOOLPKG_RUNTIME_COMPOSE_DSL
+    ): List<PackageManager.ToolPkgUiRoute> {
+        val containerDisplayName =
+            container.displayName.resolve(localizationContext).ifBlank { container.packageName }
+        val containerDescription = container.description.resolve(localizationContext)
+        return container.uiRoutes
+            .filter { route -> route.runtime.equals(runtime, ignoreCase = true) }
+            .map { route ->
+                val routeTitle =
+                    route.title.resolve(localizationContext).trim().ifBlank { containerDisplayName }
+                PackageManager.ToolPkgUiRoute(
+                    containerPackageName = container.packageName,
+                    toolPkgId = container.packageName,
+                    routeId = route.routeId,
+                    uiModuleId = route.id,
+                    runtime = route.runtime,
+                    screen = route.screen,
+                    title = routeTitle,
+                    description = containerDescription,
+                    keepAlive = route.keepAlive,
+                    moduleSpec =
+                        mapOf(
+                            "id" to route.id,
+                            "routeId" to route.routeId,
+                            "runtime" to route.runtime,
+                            "screen" to route.screen,
+                            "title" to routeTitle,
+                            "toolPkgId" to container.packageName,
+                            "keepAlive" to route.keepAlive
+                        )
+                )
+            }
+            .sortedWith(
+                compareBy(
+                    PackageManager.ToolPkgUiRoute::title,
+                    PackageManager.ToolPkgUiRoute::containerPackageName,
+                    PackageManager.ToolPkgUiRoute::uiModuleId
+                )
+            )
+    }
+
+    private fun buildToolPkgNavigationEntries(
+        container: ToolPkgContainerRuntime,
+        localizationContext: Context
+    ): List<PackageManager.ToolPkgNavigationEntry> {
+        val containerDescription = container.description.resolve(localizationContext)
+        return container.navigationEntries
+            .map { entry ->
+                PackageManager.ToolPkgNavigationEntry(
+                    containerPackageName = container.packageName,
+                    toolPkgId = container.packageName,
+                    entryId = entry.id,
+                    routeId = entry.routeId,
+                    surface = entry.surface,
+                    title = entry.title.resolve(localizationContext).trim().ifBlank { entry.id },
+                    description = containerDescription,
+                    action =
+                        entry.action?.let { action ->
+                            PackageManager.ToolPkgNavigationActionHook(
+                                functionName = action.function,
+                                functionSource = action.functionSource
+                            )
+                        },
+                    icon = entry.icon,
+                    order = entry.order
+                )
+            }
+            .sortedWith(
+                compareBy(
+                    PackageManager.ToolPkgNavigationEntry::surface,
+                    PackageManager.ToolPkgNavigationEntry::order,
+                    PackageManager.ToolPkgNavigationEntry::title
+                )
+            )
+    }
+
+    private fun buildToolPkgWorkflowTemplates(
+        container: ToolPkgContainerRuntime,
+        localizationContext: Context
+    ): List<PackageManager.ToolPkgWorkflowTemplate> {
+        return container.workflowTemplates
+            .map { template ->
+                PackageManager.ToolPkgWorkflowTemplate(
+                    containerPackageName = container.packageName,
+                    toolPkgId = container.packageName,
+                    templateId = template.id,
+                    displayName =
+                        template.displayName.resolve(localizationContext).trim().ifBlank {
+                            template.id
+                        },
+                    description = template.description.resolve(localizationContext),
+                    resourceKey = template.resourceKey
+                )
+            }
+            .sortedWith(
+                compareBy(
+                    PackageManager.ToolPkgWorkflowTemplate::displayName,
+                    PackageManager.ToolPkgWorkflowTemplate::templateId
+                )
+            )
+    }
+
+    private fun buildToolPkgWorkspaceTemplates(
+        container: ToolPkgContainerRuntime,
+        localizationContext: Context
+    ): List<PackageManager.ToolPkgWorkspaceTemplate> {
+        return container.workspaceTemplates
+            .map { template ->
+                PackageManager.ToolPkgWorkspaceTemplate(
+                    containerPackageName = container.packageName,
+                    toolPkgId = container.packageName,
+                    templateId = template.id,
+                    displayName =
+                        template.displayName.resolve(localizationContext).trim().ifBlank {
+                            template.id
+                        },
+                    description = template.description.resolve(localizationContext),
+                    resourceKey = template.resourceKey,
+                    projectType = template.projectType
+                )
+            }
+            .sortedWith(
+                compareBy(
+                    PackageManager.ToolPkgWorkspaceTemplate::displayName,
+                    PackageManager.ToolPkgWorkspaceTemplate::templateId
                 )
             )
     }
@@ -70,9 +224,9 @@ internal class PackageManagerToolPkgFacade(
         packageManager.ensureInitialized()
         val normalizedPackageName = packageManager.normalizePackageName(packageName)
         val container = packageManager.toolPkgContainersInternal[normalizedPackageName] ?: return null
-        val importedSet = packageManager.getImportedPackageSetInternal()
+        val enabledSet = packageManager.getEnabledPackageNameSetInternal()
         val localizationContext = resolveContext ?: packageManager.contextInternal
-        val containerEnabled = importedSet.contains(container.packageName)
+        val containerEnabled = enabledSet.contains(container.packageName)
         val toolboxUiModules =
             if (containerEnabled) {
                 buildToolPkgToolboxUiModules(
@@ -93,48 +247,239 @@ internal class PackageManagerToolPkgFacade(
                     description = subpackage.description.resolve(localizationContext),
                     enabledByDefault = subpackage.enabledByDefault,
                     toolCount = subpackage.toolCount,
-                    enabled = containerEnabled && importedSet.contains(subpackage.packageName)
+                    enabled = containerEnabled && enabledSet.contains(subpackage.packageName)
                 )
             }
+        val workflowTemplates = buildToolPkgWorkflowTemplates(container, localizationContext)
+        val workspaceTemplates = buildToolPkgWorkspaceTemplates(container, localizationContext)
 
         val result = PackageManager.ToolPkgContainerDetails(
             packageName = container.packageName,
             displayName = container.displayName.resolve(localizationContext),
             description = container.description.resolve(localizationContext),
             version = container.version,
+            author = container.author,
             resourceCount = container.resources.size,
+            workflowTemplateCount = workflowTemplates.size,
+            workspaceTemplateCount = workspaceTemplates.size,
             uiModuleCount = container.uiModules.size,
             toolboxUiModules = toolboxUiModules,
-            subpackages = subpackages
+            subpackages = subpackages,
+            workflowTemplates = workflowTemplates,
+            workspaceTemplates = workspaceTemplates
         )
         return result
     }
 
-    fun getToolPkgToolboxUiModules(
+    fun getToolPkgUiRoutes(
         runtime: String = TOOLPKG_RUNTIME_COMPOSE_DSL,
         resolveContext: Context? = null
-    ): List<PackageManager.ToolPkgToolboxUiModule> {
+    ): List<PackageManager.ToolPkgUiRoute> {
         packageManager.ensureInitialized()
-        val importedSet = packageManager.getImportedPackageSetInternal()
+        val enabledSet = packageManager.getEnabledPackageNameSetInternal()
         val localizationContext = resolveContext ?: packageManager.contextInternal
-
-        val result = packageManager.toolPkgContainersInternal.values
-            .filter { container -> importedSet.contains(container.packageName) }
+        return packageManager.toolPkgContainersInternal.values
+            .filter { container -> enabledSet.contains(container.packageName) }
             .flatMap { container ->
-                buildToolPkgToolboxUiModules(
+                buildToolPkgUiRoutes(
                     container = container,
                     localizationContext = localizationContext,
                     runtime = runtime
                 )
             }
-            .sortedWith(
-                compareBy(
-                    PackageManager.ToolPkgToolboxUiModule::title,
-                    PackageManager.ToolPkgToolboxUiModule::containerPackageName,
-                    PackageManager.ToolPkgToolboxUiModule::uiModuleId
+    }
+
+    fun getToolPkgNavigationEntries(
+        resolveContext: Context? = null
+    ): List<PackageManager.ToolPkgNavigationEntry> {
+        packageManager.ensureInitialized()
+        val enabledSet = packageManager.getEnabledPackageNameSetInternal()
+        val localizationContext = resolveContext ?: packageManager.contextInternal
+        return packageManager.toolPkgContainersInternal.values
+            .filter { container -> enabledSet.contains(container.packageName) }
+            .flatMap { container ->
+                buildToolPkgNavigationEntries(
+                    container = container,
+                    localizationContext = localizationContext
                 )
+            }
+    }
+
+    fun getToolPkgWorkflowTemplates(
+        resolveContext: Context? = null
+    ): List<PackageManager.ToolPkgWorkflowTemplate> {
+        packageManager.ensureInitialized()
+        val enabledSet = packageManager.getEnabledPackageNameSetInternal()
+        val localizationContext = resolveContext ?: packageManager.contextInternal
+        return packageManager.toolPkgContainersInternal.values
+            .filter { container -> enabledSet.contains(container.packageName) }
+            .flatMap { container ->
+                buildToolPkgWorkflowTemplates(
+                    container = container,
+                    localizationContext = localizationContext
+                )
+            }
+    }
+
+    fun importToolPkgWorkflowTemplate(
+        containerPackageName: String,
+        templateId: String
+    ): Result<Workflow> {
+        packageManager.ensureInitialized()
+        return runCatching {
+            val normalizedContainerPackageName = packageManager.normalizePackageName(containerPackageName)
+            val runtime =
+                packageManager.toolPkgContainersInternal[normalizedContainerPackageName]
+                    ?: throw IllegalArgumentException("ToolPkg container not found: $containerPackageName")
+            val enabledSet = packageManager.getEnabledPackageNameSetInternal()
+            if (!enabledSet.contains(runtime.packageName)) {
+                throw IllegalStateException("ToolPkg container is not enabled: ${runtime.packageName}")
+            }
+
+            val template =
+                runtime.workflowTemplates.firstOrNull {
+                    it.id.equals(templateId.trim(), ignoreCase = true)
+                } ?: throw IllegalArgumentException("Workflow template not found: $templateId")
+            val resource =
+                runtime.resources.firstOrNull {
+                    it.key.equals(template.resourceKey, ignoreCase = true)
+                } ?: throw IllegalStateException(
+                    "Workflow template resource not found: ${template.resourceKey}"
+                )
+            if (ToolPkgArchiveParser.isDirectoryResourceMime(resource.mime)) {
+                throw IllegalStateException(
+                    "Workflow template resource must be a file: ${template.resourceKey}"
+                )
+            }
+
+            val bytes =
+                packageManager.readToolPkgResourceBytes(runtime, resource.path)
+                    ?: throw IllegalStateException(
+                        "Workflow template resource is unavailable: ${template.resourceKey}"
+                    )
+            val decoded =
+                workflowTemplateJson.decodeFromString<Workflow>(
+                    bytes.toString(StandardCharsets.UTF_8)
+                )
+            val now = System.currentTimeMillis()
+            val importedWorkflow =
+                decoded.copy(
+                    id = UUID.randomUUID().toString(),
+                    createdAt = now,
+                    updatedAt = now,
+                    lastExecutionTime = null,
+                    lastExecutionStatus = null,
+                    totalExecutions = 0,
+                    successfulExecutions = 0,
+                    failedExecutions = 0
+                )
+            kotlinx.coroutines.runBlocking {
+                WorkflowRepository(packageManager.contextInternal).createWorkflow(importedWorkflow)
+                    .getOrThrow()
+            }
+        }
+    }
+
+    fun getToolPkgWorkspaceTemplates(
+        resolveContext: Context? = null
+    ): List<PackageManager.ToolPkgWorkspaceTemplate> {
+        packageManager.ensureInitialized()
+        val enabledSet = packageManager.getEnabledPackageNameSetInternal()
+        val localizationContext = resolveContext ?: packageManager.contextInternal
+        return packageManager.toolPkgContainersInternal.values
+            .filter { container -> enabledSet.contains(container.packageName) }
+            .flatMap { container ->
+                buildToolPkgWorkspaceTemplates(
+                    container = container,
+                    localizationContext = localizationContext
+                )
+            }
+    }
+
+    fun importToolPkgWorkspaceTemplate(
+        containerPackageName: String,
+        templateId: String,
+        destinationDir: File
+    ): Result<PackageManager.ToolPkgWorkspaceTemplateImportResult> {
+        packageManager.ensureInitialized()
+        return runCatching {
+            val normalizedContainerPackageName = packageManager.normalizePackageName(containerPackageName)
+            val runtime =
+                packageManager.toolPkgContainersInternal[normalizedContainerPackageName]
+                    ?: throw IllegalArgumentException("ToolPkg container not found: $containerPackageName")
+            val enabledSet = packageManager.getEnabledPackageNameSetInternal()
+            if (!enabledSet.contains(runtime.packageName)) {
+                throw IllegalStateException("ToolPkg container is not enabled: ${runtime.packageName}")
+            }
+
+            val template =
+                runtime.workspaceTemplates.firstOrNull {
+                    it.id.equals(templateId.trim(), ignoreCase = true)
+                } ?: throw IllegalArgumentException("Workspace template not found: $templateId")
+            val resource =
+                runtime.resources.firstOrNull {
+                    it.key.equals(template.resourceKey, ignoreCase = true)
+                } ?: throw IllegalStateException(
+                    "Workspace template resource not found: ${template.resourceKey}"
+                )
+            if (!ToolPkgArchiveParser.isDirectoryResourceMime(resource.mime)) {
+                throw IllegalStateException(
+                    "Workspace template resource must be a directory: ${template.resourceKey}"
+                )
+            }
+
+            if (destinationDir.exists()) {
+                if (!destinationDir.isDirectory) {
+                    throw IllegalArgumentException(
+                        "Workspace destination is not a directory: ${destinationDir.absolutePath}"
+                    )
+                }
+                if (!destinationDir.listFiles().isNullOrEmpty()) {
+                    throw IllegalArgumentException(
+                        "Workspace destination must be empty: ${destinationDir.absolutePath}"
+                    )
+                }
+            } else if (!destinationDir.mkdirs()) {
+                throw IllegalStateException(
+                    "Failed to create workspace destination: ${destinationDir.absolutePath}"
+                )
+            }
+
+            val resourceDir =
+                packageManager.resolveToolPkgResourceFile(runtime, resource.path)
+                    ?: throw IllegalStateException(
+                        "Workspace template directory is unavailable: ${template.resourceKey}"
+                    )
+            if (!resourceDir.isDirectory) {
+                throw IllegalStateException(
+                    "Workspace template directory is invalid: ${template.resourceKey}"
+                )
+            }
+
+            resourceDir.listFiles().orEmpty().forEach { child ->
+                val copied = child.copyRecursively(File(destinationDir, child.name), overwrite = false)
+                if (!copied) {
+                    throw IllegalStateException(
+                        "Failed to copy workspace template content: ${child.absolutePath}"
+                    )
+                }
+            }
+
+            if (!WorkspaceConfigReader.hasConfig(destinationDir.absolutePath)) {
+                throw IllegalStateException(
+                    "Workspace template is missing .operit/config.json: ${template.id}"
+                )
+            }
+
+            val config = WorkspaceConfigReader.readConfig(destinationDir.absolutePath)
+            PackageManager.ToolPkgWorkspaceTemplateImportResult(
+                containerPackageName = runtime.packageName,
+                toolPkgId = runtime.packageName,
+                templateId = template.id,
+                workspacePath = destinationDir.absolutePath,
+                workspaceConfig = config
             )
-        return result
+        }
     }
 
     fun setToolPkgSubpackageEnabled(subpackagePackageName: String, enabled: Boolean): Boolean {
@@ -145,43 +490,43 @@ internal class PackageManagerToolPkgFacade(
             return false
         }
 
-        val importedPackages = LinkedHashSet(packageManager.getImportedPackages())
+        val enabledPackageNames = LinkedHashSet(packageManager.getEnabledPackageNames())
         val subpackageStates = packageManager.getToolPkgSubpackageStatesInternal().toMutableMap()
-        val containerEnabled = importedPackages.contains(subpackageRuntime.containerPackageName)
+        val containerEnabled = enabledPackageNames.contains(subpackageRuntime.containerPackageName)
 
         subpackageStates[normalizedPackageName] = enabled
 
         if (containerEnabled && enabled) {
-            importedPackages.add(normalizedPackageName)
+            enabledPackageNames.add(normalizedPackageName)
         } else {
-            importedPackages.remove(normalizedPackageName)
+            enabledPackageNames.remove(normalizedPackageName)
             packageManager.unregisterPackageTools(normalizedPackageName)
         }
 
-        packageManager.saveImportedPackages(importedPackages.toList())
+        packageManager.saveEnabledPackageNames(enabledPackageNames.toList())
         packageManager.saveToolPkgSubpackageStates(subpackageStates)
 
         val stateSaved = packageManager.getToolPkgSubpackageStatesInternal()[normalizedPackageName] == enabled
         val importedMatches =
             if (containerEnabled) {
-                packageManager.getImportedPackages().contains(normalizedPackageName) == enabled
+                packageManager.getEnabledPackageNames().contains(normalizedPackageName) == enabled
             } else {
-                !packageManager.getImportedPackages().contains(normalizedPackageName)
+                !packageManager.getEnabledPackageNames().contains(normalizedPackageName)
             }
         return stateSaved && importedMatches
     }
 
     fun findPreferredPackageNameForSubpackageId(
         subpackageId: String,
-        preferImported: Boolean = true
+        preferEnabled: Boolean = true
     ): String? {
         packageManager.ensureInitialized()
         if (subpackageId.isBlank()) return null
 
         val directRuntime = packageManager.resolveToolPkgSubpackageRuntimeInternal(subpackageId)
         if (directRuntime != null) {
-            if (preferImported) {
-                if (packageManager.isPackageImported(directRuntime.packageName)) {
+            if (preferEnabled) {
+                if (packageManager.isPackageEnabled(directRuntime.packageName)) {
                     return directRuntime.packageName
                 }
             }
@@ -197,10 +542,10 @@ internal class PackageManagerToolPkgFacade(
             return null
         }
 
-        if (preferImported) {
-            val importedCandidate = candidates.firstOrNull { packageManager.isPackageImported(it.packageName) }
-            if (importedCandidate != null) {
-                return importedCandidate.packageName
+        if (preferEnabled) {
+            val enabledCandidate = candidates.firstOrNull { packageManager.isPackageEnabled(it.packageName) }
+            if (enabledCandidate != null) {
+                return enabledCandidate.packageName
             }
         }
 
@@ -211,7 +556,7 @@ internal class PackageManagerToolPkgFacade(
         subpackageId: String,
         resourceKey: String,
         destinationFile: File,
-        preferImportedContainer: Boolean = true
+        preferEnabledContainer: Boolean = true
     ): Boolean {
         packageManager.ensureInitialized()
         if (subpackageId.isBlank() || resourceKey.isBlank()) {
@@ -233,15 +578,15 @@ internal class PackageManagerToolPkgFacade(
         }
 
         val candidateContainers =
-            if (preferImportedContainer) {
-                val imported = packageManager.getImportedPackageSetInternal()
-                val importedContainers =
+            if (preferEnabledContainer) {
+                val enabledSet = packageManager.getEnabledPackageNameSetInternal()
+                val enabledContainers =
                     subpackages
                         .map { it.containerPackageName }
                         .distinct()
-                        .filter { imported.contains(it) }
-                if (importedContainers.isNotEmpty()) {
-                    importedContainers
+                        .filter { enabledSet.contains(it) }
+                if (enabledContainers.isNotEmpty()) {
+                    enabledContainers
                 } else {
                     subpackages.map { it.containerPackageName }.distinct()
                 }
@@ -266,8 +611,8 @@ internal class PackageManagerToolPkgFacade(
         packageManager.ensureInitialized()
         val normalizedContainerPackageName = packageManager.normalizePackageName(containerPackageName)
         val runtime = packageManager.toolPkgContainersInternal[normalizedContainerPackageName] ?: return false
-        val importedSet = packageManager.getImportedPackageSetInternal()
-        if (!importedSet.contains(runtime.packageName)) {
+        val enabledSet = packageManager.getEnabledPackageNameSetInternal()
+        if (!enabledSet.contains(runtime.packageName)) {
             return false
         }
         val resource =
@@ -286,7 +631,7 @@ internal class PackageManagerToolPkgFacade(
     fun getToolPkgResourceOutputFileName(
         packageNameOrSubpackageId: String,
         resourceKey: String,
-        preferImportedContainer: Boolean = true
+        preferEnabledContainer: Boolean = true
     ): String? {
         packageManager.ensureInitialized()
         val target = packageNameOrSubpackageId.trim()
@@ -330,15 +675,15 @@ internal class PackageManagerToolPkgFacade(
         }
 
         val candidateContainers =
-            if (preferImportedContainer) {
-                val imported = packageManager.getImportedPackageSetInternal()
-                val importedContainers =
+            if (preferEnabledContainer) {
+                val enabledSet = packageManager.getEnabledPackageNameSetInternal()
+                val enabledContainers =
                     subpackages
                         .map { it.containerPackageName }
                         .distinct()
-                        .filter { imported.contains(it) }
-                if (importedContainers.isNotEmpty()) {
-                    importedContainers
+                        .filter { enabledSet.contains(it) }
+                if (enabledContainers.isNotEmpty()) {
+                    enabledContainers
                 } else {
                     subpackages.map { it.containerPackageName }.distinct()
                 }
@@ -356,7 +701,7 @@ internal class PackageManagerToolPkgFacade(
     fun getToolPkgComposeDslScriptBySubpackageId(
         subpackageId: String,
         uiModuleId: String? = null,
-        preferImportedContainer: Boolean = true
+        preferEnabledContainer: Boolean = true
     ): String? {
         packageManager.ensureInitialized()
         if (subpackageId.isBlank()) {
@@ -378,12 +723,12 @@ internal class PackageManagerToolPkgFacade(
         }
 
         val candidateContainers =
-            if (preferImportedContainer) {
-                val imported = packageManager.getImportedPackageSetInternal()
+            if (preferEnabledContainer) {
+                val enabledSet = packageManager.getEnabledPackageNameSetInternal()
                 subpackages
                     .map { it.containerPackageName }
                     .distinct()
-                    .filter { imported.contains(it) }
+                    .filter { enabledSet.contains(it) }
             } else {
                 subpackages.map { it.containerPackageName }.distinct()
             }
@@ -405,8 +750,8 @@ internal class PackageManagerToolPkgFacade(
         packageManager.ensureInitialized()
         val normalizedContainerPackageName = packageManager.normalizePackageName(containerPackageName)
         val runtime = packageManager.toolPkgContainersInternal[normalizedContainerPackageName] ?: return null
-        val importedSet = packageManager.getImportedPackageSetInternal()
-        if (!importedSet.contains(runtime.packageName)) {
+        val enabledSet = packageManager.getEnabledPackageNameSetInternal()
+        if (!enabledSet.contains(runtime.packageName)) {
             return null
         }
 
@@ -446,8 +791,8 @@ internal class PackageManagerToolPkgFacade(
         packageManager.ensureInitialized()
         val normalizedContainerPackageName = packageManager.normalizePackageName(containerPackageName)
         val runtime = packageManager.toolPkgContainersInternal[normalizedContainerPackageName] ?: return null
-        val importedSet = packageManager.getImportedPackageSetInternal()
-        if (!importedSet.contains(runtime.packageName)) {
+        val enabledSet = packageManager.getEnabledPackageNameSetInternal()
+        if (!enabledSet.contains(runtime.packageName)) {
             return null
         }
 
@@ -584,6 +929,26 @@ internal class PackageManagerToolPkgFacade(
         }
     }
 
+    fun runToolPkgNavigationEntryAction(
+        containerPackageName: String,
+        entryId: String,
+        functionName: String,
+        inlineFunctionSource: String? = null,
+        eventPayload: Map<String, Any?> = emptyMap(),
+        onIntermediateResult: ((Any?) -> Unit)? = null
+    ): Result<Any?> {
+        return runToolPkgMainHook(
+            containerPackageName = containerPackageName,
+            functionName = functionName,
+            event = TOOLPKG_EVENT_NAVIGATION_ENTRY_ACTION,
+            eventName = "navigation_entry_action",
+            pluginId = entryId,
+            inlineFunctionSource = inlineFunctionSource,
+            eventPayload = eventPayload,
+            onIntermediateResult = onIntermediateResult
+        )
+    }
+
     private fun resolveToolPkgExecutionContextKey(
         containerPackageName: String,
         params: Map<String, Any?>
@@ -601,7 +966,7 @@ internal class PackageManagerToolPkgFacade(
     fun readToolPkgTextResource(
         packageNameOrSubpackageId: String,
         resourcePath: String,
-        preferImportedContainer: Boolean = true
+        preferEnabledContainer: Boolean = true
     ): String? {
         packageManager.ensureInitialized()
         val target = packageNameOrSubpackageId.trim()
@@ -617,8 +982,8 @@ internal class PackageManagerToolPkgFacade(
 
         val containerRuntime = packageManager.toolPkgContainersInternal[target]
         if (containerRuntime != null) {
-            val importedSet = packageManager.getImportedPackageSetInternal()
-            if (!importedSet.contains(containerRuntime.packageName)) {
+            val enabledSet = packageManager.getEnabledPackageNameSetInternal()
+            if (!enabledSet.contains(containerRuntime.packageName)) {
                 return null
             }
             return packageManager.readToolPkgResourceBytes(containerRuntime, normalizedPath)
@@ -629,8 +994,8 @@ internal class PackageManagerToolPkgFacade(
         if (directSubpackageRuntime != null) {
             val directContainer = packageManager.toolPkgContainersInternal[directSubpackageRuntime.containerPackageName]
             if (directContainer != null) {
-                val importedSet = packageManager.getImportedPackageSetInternal()
-                if (!importedSet.contains(directContainer.packageName)) {
+                val enabledSet = packageManager.getEnabledPackageNameSetInternal()
+                if (!enabledSet.contains(directContainer.packageName)) {
                     return null
                 }
                 return packageManager.readToolPkgResourceBytes(directContainer, normalizedPath)
@@ -647,12 +1012,12 @@ internal class PackageManagerToolPkgFacade(
         }
 
         val candidateContainers =
-            if (preferImportedContainer) {
-                val imported = packageManager.getImportedPackageSetInternal()
+            if (preferEnabledContainer) {
+                val enabledSet = packageManager.getEnabledPackageNameSetInternal()
                 subpackages
                     .map { it.containerPackageName }
                     .distinct()
-                    .filter { imported.contains(it) }
+                    .filter { enabledSet.contains(it) }
             } else {
                 subpackages.map { it.containerPackageName }.distinct()
             }

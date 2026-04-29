@@ -6,6 +6,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import com.ai.assistance.operit.api.chat.EnhancedAIService
 import com.ai.assistance.operit.data.model.AttachmentInfo
 import com.ai.assistance.operit.data.model.ChatMessage
+import com.ai.assistance.operit.data.model.ChatTurnOptions
 import com.ai.assistance.operit.data.model.InputProcessingState
 import com.ai.assistance.operit.data.model.PromptFunctionType
 import com.ai.assistance.operit.services.core.ApiConfigDelegate
@@ -154,12 +155,19 @@ class ChatServiceCore(
             updateChatTitle = { chatId, title ->
                 chatHistoryDelegate.updateChatTitle(chatId, title)
             },
-            onTurnComplete = { chatId, service, nextWindowSize ->
+            onTurnComplete = { chatId, service, nextWindowSize, turnOptions ->
                 tokenStatisticsDelegate.updateCumulativeStatistics(chatId, service)
                 val (inputTokens, outputTokens) = tokenStatisticsDelegate.getCumulativeTokenCounts(chatId)
                 val windowSize = nextWindowSize ?: tokenStatisticsDelegate.getLastCurrentWindowSize(chatId)
                 tokenStatisticsDelegate.setTokenCounts(chatId, inputTokens, outputTokens, windowSize)
-                chatHistoryDelegate.saveCurrentChat(inputTokens, outputTokens, windowSize, chatIdOverride = chatId)
+                if (turnOptions.persistTurn) {
+                    chatHistoryDelegate.saveCurrentChat(
+                        inputTokens,
+                        outputTokens,
+                        windowSize,
+                        chatIdOverride = chatId
+                    )
+                }
                 additionalOnTurnComplete?.invoke(chatId, inputTokens, outputTokens, windowSize)
             },
             getIsAutoReadEnabled = {
@@ -168,8 +176,13 @@ class ChatServiceCore(
             speakMessageHandler = { text, _ ->
                 AppLogger.d(TAG, "朗读消息: $text")
             },
-            onTokenLimitExceeded = { chatId ->
-                messageCoordinationDelegate.handleTokenLimitExceeded(chatId)
+            onTokenLimitExceeded = { chatId, roleCardId, isGroupOrchestrationTurn, groupParticipantNamesText ->
+                messageCoordinationDelegate.handleTokenLimitExceeded(
+                    chatId = chatId,
+                    roleCardId = roleCardId,
+                    isGroupOrchestrationTurn = isGroupOrchestrationTurn,
+                    groupParticipantNamesText = groupParticipantNamesText
+                )
             }
         )
 
@@ -209,7 +222,8 @@ class ChatServiceCore(
         messageTextOverride: String? = null,
         proxySenderNameOverride: String? = null,
         chatModelConfigIdOverride: String? = null,
-        chatModelIndexOverride: Int? = null
+        chatModelIndexOverride: Int? = null,
+        turnOptions: ChatTurnOptions = ChatTurnOptions()
     ) {
         messageCoordinationDelegate.sendUserMessage(
             promptFunctionType = promptFunctionType,
@@ -218,7 +232,8 @@ class ChatServiceCore(
             messageTextOverride = messageTextOverride,
             proxySenderNameOverride = proxySenderNameOverride,
             chatModelConfigIdOverride = chatModelConfigIdOverride,
-            chatModelIndexOverride = chatModelIndexOverride
+            chatModelIndexOverride = chatModelIndexOverride,
+            turnOptions = turnOptions
         )
     }
 
@@ -383,11 +398,8 @@ class ChatServiceCore(
     val enableThinkingMode: StateFlow<Boolean>
         get() = apiConfigDelegate.enableThinkingMode
 
-    val enableThinkingGuidance: StateFlow<Boolean>
-        get() = apiConfigDelegate.enableThinkingGuidance
-
-    val enableMemoryQuery: StateFlow<Boolean>
-        get() = apiConfigDelegate.enableMemoryQuery
+    val enableMemoryAutoUpdate: StateFlow<Boolean>
+        get() = apiConfigDelegate.enableMemoryAutoUpdate
 
     val enableAutoRead: StateFlow<Boolean>
         get() = apiConfigDelegate.enableAutoRead

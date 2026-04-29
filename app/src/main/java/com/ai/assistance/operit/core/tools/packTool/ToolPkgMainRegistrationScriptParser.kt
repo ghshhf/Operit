@@ -13,7 +13,7 @@ internal object ToolPkgMainRegistrationScriptParser {
         toolPkgId: String,
         mainScriptPath: String,
         jsEngine: JsEngine
-    ): ToolPkgMainRegistration? {
+    ): ToolPkgMainRegistrationParseResult {
         return try {
             val captured =
                 jsEngine.executeToolPkgMainRegistrationFunction(
@@ -29,6 +29,8 @@ internal object ToolPkgMainRegistrationScriptParser {
                         )
                 )
             val uiModules = parseRegisteredUiModules(captured.toolboxUiModules)
+            val uiRoutes = parseRegisteredUiRoutes(captured.uiRoutes, toolPkgId)
+            val navigationEntries = parseRegisteredNavigationEntries(captured.navigationEntries)
             val appLifecycleHooks = parseRegisteredAppLifecycleHooks(captured.appLifecycleHooks)
             val messageProcessingPlugins =
                 parseRegisteredFunctionHooks(
@@ -85,31 +87,61 @@ internal object ToolPkgMainRegistrationScriptParser {
                     registrations = captured.promptEstimateFinalizeHooks,
                     registryName = TOOLPKG_REGISTRATION_PROMPT_ESTIMATE_FINALIZE_HOOK
                 )
-            ToolPkgMainRegistration(
-                toolboxUiModules = uiModules,
-                appLifecycleHooks = appLifecycleHooks,
-                messageProcessingPlugins = messageProcessingPlugins,
-                xmlRenderPlugins = xmlRenderPlugins,
-                inputMenuTogglePlugins = inputMenuTogglePlugins,
-                toolLifecycleHooks = toolLifecycleHooks,
-                promptInputHooks = promptInputHooks,
-                promptHistoryHooks = promptHistoryHooks,
-                promptEstimateHistoryHooks = promptEstimateHistoryHooks,
-                systemPromptComposeHooks = systemPromptComposeHooks,
-                toolPromptComposeHooks = toolPromptComposeHooks,
-                promptFinalizeHooks = promptFinalizeHooks,
-                promptEstimateFinalizeHooks = promptEstimateFinalizeHooks
+            val aiProviders =
+                parseRegisteredAiProviders(
+                    registrations = captured.aiProviders,
+                    registryName = TOOLPKG_REGISTRATION_AI_PROVIDER
+                )
+            ToolPkgMainRegistrationParseResult.Success(
+                registration =
+                    ToolPkgMainRegistration(
+                        toolboxUiModules = uiModules,
+                        uiRoutes = uiRoutes,
+                        navigationEntries = navigationEntries,
+                        appLifecycleHooks = appLifecycleHooks,
+                        messageProcessingPlugins = messageProcessingPlugins,
+                        xmlRenderPlugins = xmlRenderPlugins,
+                        inputMenuTogglePlugins = inputMenuTogglePlugins,
+                        toolLifecycleHooks = toolLifecycleHooks,
+                        promptInputHooks = promptInputHooks,
+                        promptHistoryHooks = promptHistoryHooks,
+                        promptEstimateHistoryHooks = promptEstimateHistoryHooks,
+                        systemPromptComposeHooks = systemPromptComposeHooks,
+                        toolPromptComposeHooks = toolPromptComposeHooks,
+                        promptFinalizeHooks = promptFinalizeHooks,
+                        promptEstimateFinalizeHooks = promptEstimateFinalizeHooks,
+                        aiProviders = aiProviders
+                    )
             )
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to parse toolpkg main registration: $toolPkgId", e)
-            val message = e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
+            val message =
+                buildDeveloperFacingFailureMessage(
+                    mainScriptPath = mainScriptPath,
+                    error = e
+                )
             AppLogger.e(
                 "ToolPkg",
                 "PKG: main registration parse failed, toolPkgId=$toolPkgId, reason=$message",
                 e
             )
-            null
+            ToolPkgMainRegistrationParseResult.Failure(message)
         }
+    }
+
+    private fun buildDeveloperFacingFailureMessage(
+        mainScriptPath: String,
+        error: Exception
+    ): String {
+        val rawMessage = error.message?.trim().orEmpty()
+        val compactMessage =
+            rawMessage
+                .lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.isNotEmpty() }
+                ?: error.javaClass.simpleName
+
+        return "main script '$mainScriptPath' failed while loading or running registerToolPkg(): $compactMessage"
     }
 
     private fun parseRegisteredUiModules(
@@ -138,16 +170,145 @@ internal object ToolPkgMainRegistrationScriptParser {
 
             val runtime = item.optString("runtime").trim().ifBlank { TOOLPKG_RUNTIME_COMPOSE_DSL }
             val title = parseLocalizedText(item.opt("title"), fallback = id)
+            val keepAlive = item.optBoolean("keepAlive", false)
             modules.add(
                 ToolPkgRegisteredUiModule(
                     id = id,
                     runtime = runtime,
                     screen = screen,
-                    title = title
+                    title = title,
+                    keepAlive = keepAlive
                 )
             )
         }
         return modules
+    }
+
+    private fun parseRegisteredUiRoutes(
+        registrations: List<String>,
+        toolPkgId: String
+    ): List<ToolPkgRegisteredUiRoute> {
+        val routes = mutableListOf<ToolPkgRegisteredUiRoute>()
+        registrations.forEachIndexed { index, raw ->
+            val item =
+                try {
+                    JSONObject(raw)
+                } catch (e: Exception) {
+                    throw IllegalArgumentException(
+                        "$TOOLPKG_REGISTRATION_UI_ROUTE payload[$index] must be a JSON object",
+                        e
+                    )
+                }
+
+            val id = item.optString("id").trim()
+            val screen = item.optString("screen").trim()
+            val routeId =
+                item.optString("route").trim().ifBlank {
+                    item.optString("routeId").trim()
+                }.ifBlank {
+                    buildToolPkgRouteId(toolPkgId, id)
+                }
+            if (id.isBlank()) {
+                throw IllegalArgumentException("$TOOLPKG_REGISTRATION_UI_ROUTE[$index].id is required")
+            }
+            if (screen.isBlank()) {
+                throw IllegalArgumentException("$TOOLPKG_REGISTRATION_UI_ROUTE[$index].screen is required")
+            }
+            if (routeId.isBlank()) {
+                throw IllegalArgumentException("$TOOLPKG_REGISTRATION_UI_ROUTE[$index].route is required")
+            }
+
+            val runtime = item.optString("runtime").trim().ifBlank { TOOLPKG_RUNTIME_COMPOSE_DSL }
+            val title = parseLocalizedText(item.opt("title"), fallback = id)
+            val keepAlive = item.optBoolean("keepAlive", false)
+            routes.add(
+                ToolPkgRegisteredUiRoute(
+                    id = id,
+                    routeId = routeId,
+                    runtime = runtime,
+                    screen = screen,
+                    title = title,
+                    keepAlive = keepAlive
+                )
+            )
+        }
+        return routes
+    }
+
+    private fun parseRegisteredNavigationEntries(
+        registrations: List<String>
+    ): List<ToolPkgRegisteredNavigationEntry> {
+        val entries = mutableListOf<ToolPkgRegisteredNavigationEntry>()
+        registrations.forEachIndexed { index, raw ->
+            val item =
+                try {
+                    JSONObject(raw)
+                } catch (e: Exception) {
+                    throw IllegalArgumentException(
+                        "$TOOLPKG_REGISTRATION_NAVIGATION_ENTRY payload[$index] must be a JSON object",
+                        e
+                    )
+                }
+            val id = item.optString("id").trim()
+            val routeId =
+                item.optString("route").trim().ifBlank {
+                    item.optString("routeId").trim()
+                }
+            val surface = item.optString("surface").trim().lowercase()
+            val action = parseNavigationEntryAction(item, index)
+            if (id.isBlank()) {
+                throw IllegalArgumentException("$TOOLPKG_REGISTRATION_NAVIGATION_ENTRY[$index].id is required")
+            }
+            if (routeId.isBlank() && action == null) {
+                throw IllegalArgumentException(
+                    "$TOOLPKG_REGISTRATION_NAVIGATION_ENTRY[$index].route or action is required"
+                )
+            }
+            if (surface.isBlank()) {
+                throw IllegalArgumentException("$TOOLPKG_REGISTRATION_NAVIGATION_ENTRY[$index].surface is required")
+            }
+            entries.add(
+                ToolPkgRegisteredNavigationEntry(
+                    id = id,
+                    routeId = routeId,
+                    surface = surface,
+                    title = parseLocalizedText(item.opt("title"), fallback = id),
+                    action = action,
+                    icon = item.optString("icon").trim().ifBlank { null },
+                    order = item.optInt("order", 0)
+                )
+            )
+        }
+        return entries
+    }
+
+    private fun parseNavigationEntryAction(
+        item: JSONObject,
+        index: Int
+    ): ToolPkgNavigationActionHookRuntime? {
+        val directFunctionName = item.optString("action").trim()
+        val directFunctionSource = item.optString("function_source").trim().ifBlank { null }
+        if (directFunctionName.isNotBlank()) {
+            return ToolPkgNavigationActionHookRuntime(
+                function = directFunctionName,
+                functionSource = directFunctionSource
+            )
+        }
+
+        val actionObj =
+            item.optJSONObject("action")
+                ?: return null
+        val functionName = actionObj.optString("function").trim()
+        if (functionName.isBlank()) {
+            throw IllegalArgumentException(
+                "$TOOLPKG_REGISTRATION_NAVIGATION_ENTRY[$index].action function is required"
+            )
+        }
+
+        return ToolPkgNavigationActionHookRuntime(
+            function = functionName,
+            functionSource = actionObj.optString("function_source").trim().ifBlank { null }
+        )
     }
 
     private fun parseRegisteredAppLifecycleHooks(
@@ -268,6 +429,72 @@ internal object ToolPkgMainRegistrationScriptParser {
             )
         }
         return hooks
+    }
+
+    private fun parseRegisteredAiProviders(
+        registrations: List<String>,
+        registryName: String
+    ): List<ToolPkgRegisteredAiProvider> {
+        val providers = mutableListOf<ToolPkgRegisteredAiProvider>()
+        registrations.forEachIndexed { index, raw ->
+            val item =
+                try {
+                    JSONObject(raw)
+                } catch (e: Exception) {
+                    throw IllegalArgumentException(
+                        "$registryName payload[$index] must be a JSON object",
+                        e
+                    )
+                }
+            val id = item.optString("id").trim()
+            val displayName = item.optString("displayName").trim()
+            val description = item.optString("description").trim()
+
+            if (id.isBlank()) {
+                throw IllegalArgumentException("$registryName[$index].id is required")
+            }
+
+            fun parseHandler(fieldName: String): ToolPkgRegisteredAiProviderHandler {
+                val rawHandler = item.opt(fieldName)
+                val handlerObject =
+                    when (rawHandler) {
+                        is JSONObject -> rawHandler
+                        null, JSONObject.NULL ->
+                            throw IllegalArgumentException(
+                                "$registryName[$index].$fieldName is required"
+                            )
+                        else ->
+                            throw IllegalArgumentException(
+                                "$registryName[$index].$fieldName must be an object"
+                            )
+                    }
+                val functionName = handlerObject.optString("function").trim()
+                val functionSource =
+                    handlerObject.optString("function_source").trim().ifBlank { null }
+                if (functionName.isBlank()) {
+                    throw IllegalArgumentException(
+                        "$registryName[$index].$fieldName.function is required"
+                    )
+                }
+                return ToolPkgRegisteredAiProviderHandler(
+                    function = functionName,
+                    functionSource = functionSource
+                )
+            }
+
+            providers.add(
+                ToolPkgRegisteredAiProvider(
+                    id = id,
+                    displayName = displayName.ifBlank { id },
+                    description = description,
+                    listModelsHandler = parseHandler("listModels"),
+                    sendMessageHandler = parseHandler("sendMessage"),
+                    testConnectionHandler = parseHandler("testConnection"),
+                    calculateInputTokensHandler = parseHandler("calculateInputTokens")
+                )
+            )
+        }
+        return providers
     }
 
     private fun parseLocalizedText(raw: Any?, fallback: String): LocalizedText {

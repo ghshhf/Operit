@@ -5,6 +5,8 @@ import org.json.JSONTokener
 
 data class ToolPkgMainRegistrationCapture(
     val toolboxUiModules: List<String>,
+    val uiRoutes: List<String>,
+    val navigationEntries: List<String>,
     val appLifecycleHooks: List<String>,
     val messageProcessingPlugins: List<String>,
     val xmlRenderPlugins: List<String>,
@@ -16,11 +18,14 @@ data class ToolPkgMainRegistrationCapture(
     val systemPromptComposeHooks: List<String>,
     val toolPromptComposeHooks: List<String>,
     val promptFinalizeHooks: List<String>,
-    val promptEstimateFinalizeHooks: List<String>
+    val promptEstimateFinalizeHooks: List<String>,
+    val aiProviders: List<String>
 )
 
 private enum class RegistrationBucket {
     TOOLBOX_UI,
+    UI_ROUTE,
+    NAVIGATION_ENTRY,
     APP_LIFECYCLE,
     MESSAGE_PROCESSING,
     XML_RENDER,
@@ -32,7 +37,8 @@ private enum class RegistrationBucket {
     SYSTEM_PROMPT_COMPOSE,
     TOOL_PROMPT_COMPOSE,
     PROMPT_FINALIZE,
-    PROMPT_ESTIMATE_FINALIZE
+    PROMPT_ESTIMATE_FINALIZE,
+    AI_PROVIDER
 }
 
 internal class JsToolPkgRegistrationSession {
@@ -46,6 +52,8 @@ internal class JsToolPkgRegistrationSession {
     }
 
     fun appendToolboxUiModule(specJson: String) = append(RegistrationBucket.TOOLBOX_UI, specJson)
+    fun appendUiRoute(specJson: String) = append(RegistrationBucket.UI_ROUTE, specJson)
+    fun appendNavigationEntry(specJson: String) = append(RegistrationBucket.NAVIGATION_ENTRY, specJson)
     fun appendAppLifecycleHook(specJson: String) = append(RegistrationBucket.APP_LIFECYCLE, specJson)
     fun appendMessageProcessingPlugin(specJson: String) =
         append(RegistrationBucket.MESSAGE_PROCESSING, specJson)
@@ -73,6 +81,8 @@ internal class JsToolPkgRegistrationSession {
         append(RegistrationBucket.PROMPT_FINALIZE, specJson)
     fun appendPromptEstimateFinalizeHook(specJson: String) =
         append(RegistrationBucket.PROMPT_ESTIMATE_FINALIZE, specJson)
+    fun appendAiProvider(specJson: String) =
+        append(RegistrationBucket.AI_PROVIDER, specJson)
 
     fun finish(executionResult: Any?): ToolPkgMainRegistrationCapture {
         if (executionResult is String && executionResult.trim().startsWith("Error:", ignoreCase = true)) {
@@ -84,6 +94,8 @@ internal class JsToolPkgRegistrationSession {
             fun read(bucket: RegistrationBucket): List<String> = current[bucket]?.toList().orEmpty()
             return ToolPkgMainRegistrationCapture(
                 toolboxUiModules = read(RegistrationBucket.TOOLBOX_UI),
+                uiRoutes = read(RegistrationBucket.UI_ROUTE),
+                navigationEntries = read(RegistrationBucket.NAVIGATION_ENTRY),
                 appLifecycleHooks = read(RegistrationBucket.APP_LIFECYCLE),
                 messageProcessingPlugins = read(RegistrationBucket.MESSAGE_PROCESSING),
                 xmlRenderPlugins = read(RegistrationBucket.XML_RENDER),
@@ -95,7 +107,8 @@ internal class JsToolPkgRegistrationSession {
                 systemPromptComposeHooks = read(RegistrationBucket.SYSTEM_PROMPT_COMPOSE),
                 toolPromptComposeHooks = read(RegistrationBucket.TOOL_PROMPT_COMPOSE),
                 promptFinalizeHooks = read(RegistrationBucket.PROMPT_FINALIZE),
-                promptEstimateFinalizeHooks = read(RegistrationBucket.PROMPT_ESTIMATE_FINALIZE)
+                promptEstimateFinalizeHooks = read(RegistrationBucket.PROMPT_ESTIMATE_FINALIZE),
+                aiProviders = read(RegistrationBucket.AI_PROVIDER)
             )
         }
     }
@@ -207,6 +220,42 @@ internal fun buildToolPkgRegistrationBridgeScript(): String {
                 return normalized;
             }
 
+            function normalizeNestedFunctionField(definition, fieldName, label) {
+                if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
+                    throw new Error(label + ' expects an object');
+                }
+                var fieldValue = definition[fieldName];
+                if (!fieldValue || typeof fieldValue !== 'object' || Array.isArray(fieldValue)) {
+                    throw new Error(label + ' requires an object field: ' + fieldName);
+                }
+                var fn = fieldValue.function;
+                if (typeof fn !== 'function') {
+                    throw new Error(label + '.' + fieldName + '.function must be a function reference');
+                }
+                var exportedName = resolveExportedFunctionName(fn);
+                var normalizedField = copyObject(fieldValue, 'function');
+                normalizedField.function = exportedName || buildInlineFunctionName({
+                    id: String((definition && definition.id) || 'provider') + '_' + fieldName
+                });
+                if (!exportedName) {
+                    normalizedField.function_source = String(fn);
+                }
+                return normalizedField;
+            }
+
+            function normalizeAiProviderDefinition(definition, label) {
+                var normalized = copyObject(definition, '');
+                [
+                    'listModels',
+                    'sendMessage',
+                    'testConnection',
+                    'calculateInputTokens'
+                ].forEach(function(fieldName) {
+                    normalized[fieldName] = normalizeNestedFunctionField(definition, fieldName, label);
+                });
+                return normalized;
+            }
+
             function normalizeScreenField(definition, label) {
                 if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
                     throw new Error(label + ' expects an object');
@@ -238,6 +287,16 @@ internal fun buildToolPkgRegistrationBridgeScript(): String {
                     ? normalizeFunctionField(definition, fieldName, label)
                     : normalizeScreenField(definition, label);
                 requireNative(nativeMethod)(JSON.stringify(normalized));
+            }
+
+            function normalizeNavigationEntryDefinition(definition, label) {
+                if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
+                    throw new Error(label + ' expects an object');
+                }
+                if (typeof definition.action === 'function') {
+                    return normalizeFunctionField(definition, 'action', label);
+                }
+                return copyObject(definition, '');
             }
 
             function resolveCurrentToolPkgTarget() {
@@ -299,6 +358,23 @@ internal fun buildToolPkgRegistrationBridgeScript(): String {
                         ''
                     );
                 },
+                registerUiRoute: function(definition) {
+                    registerWithNative(
+                        definition,
+                        'registerToolPkgUiRoute',
+                        'registerToolPkgUiRoute',
+                        ''
+                    );
+                },
+                registerNavigationEntry: function(definition) {
+                    var normalized = normalizeNavigationEntryDefinition(
+                        definition,
+                        'registerToolPkgNavigationEntry'
+                    );
+                    requireNative('registerToolPkgNavigationEntry')(
+                        JSON.stringify(normalized)
+                    );
+                },
                 readResource: readToolPkgResource
             };
 
@@ -322,6 +398,11 @@ internal fun buildToolPkgRegistrationBridgeScript(): String {
                     registerWithNative(definition, apiName, nativeMethod, 'function');
                 };
             });
+
+            api.registerAiProvider = function(definition) {
+                var normalized = normalizeAiProviderDefinition(definition, 'registerAiProvider');
+                requireNative('registerToolPkgAiProvider')(JSON.stringify(normalized));
+            };
 
             installGlobal('ToolPkg', api);
         })();

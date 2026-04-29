@@ -19,8 +19,7 @@ const LEGACY_ATTACHMENT_ID_PREFIXES = [
 ] as const;
 
 const NOTIFICATION_FETCH_LIMIT = 5;
-const MEMORY_QUERY_TOKEN_LIMIT = 32;
-const MEMORY_QUERY_CLAUSE_SPLIT_REGEX = /[。！？!?；;，,、]+/;
+const APP_USAGE_FETCH_LIMIT = 3;
 
 export type ExtraInfoInjectionSettings = {
   masterEnabled: boolean;
@@ -29,10 +28,12 @@ export type ExtraInfoInjectionSettings = {
   injectBattery: boolean;
   injectWeather: boolean;
   injectLocation: boolean;
+  injectCurrentScreenApp: boolean;
+  injectRecentAppUsage: boolean;
+  injectScreenText: boolean;
   injectNotifications: boolean;
   injectMemory: boolean;
   allowRepeatedMemorySearch: boolean;
-  memoryThreshold: number;
   memoryLimit: number;
 };
 
@@ -56,6 +57,12 @@ export type ExtraInfoI18n = {
   weatherToggleDescription: string;
   locationToggleTitle: string;
   locationToggleDescription: string;
+  currentScreenAppToggleTitle: string;
+  currentScreenAppToggleDescription: string;
+  recentAppUsageToggleTitle: string;
+  recentAppUsageToggleDescription: string;
+  screenTextToggleTitle: string;
+  screenTextToggleDescription: string;
   notificationsToggleTitle: string;
   notificationsToggleDescription: string;
   memoryToggleTitle: string;
@@ -64,14 +71,10 @@ export type ExtraInfoI18n = {
   memoryConfigDescription: string;
   memoryRepeatToggleTitle: string;
   memoryRepeatToggleDescription: string;
-  memoryThresholdFieldLabel: string;
-  memoryThresholdFieldDescription: string;
-  memoryThresholdFieldPlaceholder: string;
   memoryLimitFieldLabel: string;
   memoryLimitFieldDescription: string;
   memoryLimitFieldPlaceholder: string;
   memoryConfigApplyButton: string;
-  invalidMemoryThresholdMessage: string;
   invalidMemoryLimitMessage: string;
   summarySectionTitle: string;
   summaryMasterEnabled: string;
@@ -86,6 +89,12 @@ export type ExtraInfoI18n = {
   summaryWeatherDisabled: string;
   summaryLocationEnabled: string;
   summaryLocationDisabled: string;
+  summaryCurrentScreenAppEnabled: string;
+  summaryCurrentScreenAppDisabled: string;
+  summaryRecentAppUsageEnabled: string;
+  summaryRecentAppUsageDisabled: string;
+  summaryScreenTextEnabled: string;
+  summaryScreenTextDisabled: string;
   summaryNotificationsEnabled: string;
   summaryNotificationsDisabled: string;
   summaryMemoryEnabled: string;
@@ -98,6 +107,9 @@ export type ExtraInfoI18n = {
   attachmentBatteryTitle: string;
   attachmentWeatherTitle: string;
   attachmentLocationTitle: string;
+  attachmentCurrentScreenAppTitle: string;
+  attachmentRecentAppUsageTitle: string;
+  attachmentScreenTextTitle: string;
   attachmentNotificationsTitle: string;
   attachmentMemoryTitle: string;
   timeZoneLabel: string;
@@ -119,6 +131,16 @@ export type ExtraInfoI18n = {
   locationAccuracyLabel: string;
   locationProviderLabel: string;
   locationTimestampLabel: string;
+  currentScreenAppLabel: string;
+  currentScreenPackageLabel: string;
+  currentScreenActivityLabel: string;
+  appUsageWindowLabel: string;
+  appUsageDurationLabel: string;
+  appUsageLastUsedLabel: string;
+  appUsageEmpty: string;
+  screenTextScreenshotPathLabel: string;
+  screenTextLineCountLabel: string;
+  screenTextEmpty: string;
   notificationCountLabel: string;
   notificationAppLabel: string;
   notificationTextLabel: string;
@@ -126,7 +148,6 @@ export type ExtraInfoI18n = {
   notificationsEmpty: string;
   memoryQueryLabel: string;
   memorySnapshotLabel: string;
-  memoryThresholdLabel: string;
   memoryLimitLabel: string;
   memoryResultCountLabel: string;
   memoryTitleLabel: string;
@@ -160,22 +181,24 @@ const ZH_CN_I18N: ExtraInfoI18n = {
   weatherToggleDescription: "每次发送消息时都插入当前天气信息。",
   locationToggleTitle: "注入位置",
   locationToggleDescription: "每次发送消息时都插入当前定位信息与地址。",
+  currentScreenAppToggleTitle: "注入当前屏幕应用",
+  currentScreenAppToggleDescription: "每次发送消息时都插入当前屏幕所属应用与 Activity。",
+  recentAppUsageToggleTitle: "注入前几个应用使用时长",
+  recentAppUsageToggleDescription: "每次发送消息时都插入最近 24 小时内前几个应用的前台使用时长。",
+  screenTextToggleTitle: "注入屏幕文本",
+  screenTextToggleDescription: "截图当前屏幕后调用 OCR 提取文本，并作为附件插入。",
   notificationsToggleTitle: "注入通知",
   notificationsToggleDescription: "每次发送消息时都插入最近通知摘要。",
   memoryToggleTitle: "注入记忆",
   memoryToggleDescription: "每次发送消息时根据当前输入自动分词检索记忆，并把命中的记忆摘要附加进去。",
   memoryConfigTitle: "记忆检索设置",
-  memoryConfigDescription: "默认会复用当前会话 id 的前六位作为快照 id；开启“允许重复命中”后，将不再复用快照，同一条记忆后续还可以再次被检索到。",
+  memoryConfigDescription: "记忆搜索会直接使用软件内的记忆搜索设置；这里仅控制同会话去重和每次最多注入多少条。默认会复用当前会话 id 的前六位作为快照 id；开启“允许重复命中”后，将不再复用快照，同一条记忆后续还可以再次被检索到。",
   memoryRepeatToggleTitle: "允许重复命中同一记忆",
   memoryRepeatToggleDescription: "开启后，每次都会使用新的记忆查询快照，不再排除本会话里之前命中过的记忆。",
-  memoryThresholdFieldLabel: "记忆阈值",
-  memoryThresholdFieldDescription: "默认 0。数值越高，返回结果越严格。",
-  memoryThresholdFieldPlaceholder: "例如 0",
   memoryLimitFieldLabel: "记忆上限",
   memoryLimitFieldDescription: "默认 3。控制每次最多注入多少条记忆。",
   memoryLimitFieldPlaceholder: "例如 3",
   memoryConfigApplyButton: "保存记忆设置",
-  invalidMemoryThresholdMessage: "记忆阈值必须是大于等于 0 的数字",
   invalidMemoryLimitMessage: "记忆上限必须是大于等于 1 的整数",
   summarySectionTitle: "当前规则",
   summaryMasterEnabled: "额外信息注入：已开启",
@@ -190,6 +213,12 @@ const ZH_CN_I18N: ExtraInfoI18n = {
   summaryWeatherDisabled: "天气：已关闭",
   summaryLocationEnabled: "位置：每次发送都注入",
   summaryLocationDisabled: "位置：已关闭",
+  summaryCurrentScreenAppEnabled: "当前屏幕应用：每次发送都注入",
+  summaryCurrentScreenAppDisabled: "当前屏幕应用：已关闭",
+  summaryRecentAppUsageEnabled: "应用使用时长：每次发送都注入前几个应用的使用时长",
+  summaryRecentAppUsageDisabled: "应用使用时长：已关闭",
+  summaryScreenTextEnabled: "屏幕文本：每次发送都会截图并执行 OCR",
+  summaryScreenTextDisabled: "屏幕文本：已关闭",
   summaryNotificationsEnabled: "通知：每次发送都注入",
   summaryNotificationsDisabled: "通知：已关闭",
   summaryMemoryEnabled: "记忆：已开启，按当前输入自动分词检索",
@@ -202,6 +231,9 @@ const ZH_CN_I18N: ExtraInfoI18n = {
   attachmentBatteryTitle: "【当前电量】",
   attachmentWeatherTitle: "【当前天气】",
   attachmentLocationTitle: "【当前位置】",
+  attachmentCurrentScreenAppTitle: "【当前屏幕应用】",
+  attachmentRecentAppUsageTitle: "【应用使用时长】",
+  attachmentScreenTextTitle: "【屏幕文本】",
   attachmentNotificationsTitle: "【最近通知】",
   attachmentMemoryTitle: "【相关记忆】",
   timeZoneLabel: "时区",
@@ -223,6 +255,16 @@ const ZH_CN_I18N: ExtraInfoI18n = {
   locationAccuracyLabel: "精度",
   locationProviderLabel: "定位源",
   locationTimestampLabel: "时间",
+  currentScreenAppLabel: "应用",
+  currentScreenPackageLabel: "包名",
+  currentScreenActivityLabel: "Activity",
+  appUsageWindowLabel: "统计窗口",
+  appUsageDurationLabel: "使用时长",
+  appUsageLastUsedLabel: "最近使用",
+  appUsageEmpty: "当前没有可注入的应用使用时长数据",
+  screenTextScreenshotPathLabel: "截图路径",
+  screenTextLineCountLabel: "文本行数",
+  screenTextEmpty: "当前屏幕未识别到可用文本",
   notificationCountLabel: "通知数量",
   notificationAppLabel: "应用",
   notificationTextLabel: "内容",
@@ -230,7 +272,6 @@ const ZH_CN_I18N: ExtraInfoI18n = {
   notificationsEmpty: "当前没有可注入的通知",
   memoryQueryLabel: "查询",
   memorySnapshotLabel: "快照",
-  memoryThresholdLabel: "阈值",
   memoryLimitLabel: "上限",
   memoryResultCountLabel: "命中数量",
   memoryTitleLabel: "标题",
@@ -264,22 +305,24 @@ const EN_US_I18N: ExtraInfoI18n = {
   weatherToggleDescription: "Insert current weather information on every send.",
   locationToggleTitle: "Inject Location",
   locationToggleDescription: "Insert current location and address on every send.",
+  currentScreenAppToggleTitle: "Inject Current Screen App",
+  currentScreenAppToggleDescription: "Insert the current foreground app and activity shown on screen on every send.",
+  recentAppUsageToggleTitle: "Inject Recent App Usage",
+  recentAppUsageToggleDescription: "Insert the top few app foreground usage durations from the last 24 hours on every send.",
+  screenTextToggleTitle: "Inject Screen Text",
+  screenTextToggleDescription: "Capture the current screen, run OCR, and insert the recognized text as an attachment.",
   notificationsToggleTitle: "Inject Notifications",
   notificationsToggleDescription: "Insert a summary of recent notifications on every send.",
   memoryToggleTitle: "Inject Memory",
   memoryToggleDescription: "Tokenize the current input, query related memories, and attach the matched memory summaries on every send.",
   memoryConfigTitle: "Memory Search Settings",
-  memoryConfigDescription: "By default, the first 6 characters of the current chat id are reused as the snapshot id. When repeated hits are allowed, a fresh snapshot is used for each query so previously matched memories can appear again.",
+  memoryConfigDescription: "Memory lookup directly uses the app's memory search settings. This panel only controls same-chat de-duplication and how many memories are injected each time. By default, the first 6 characters of the current chat id are reused as the snapshot id. When repeated hits are allowed, a fresh snapshot is used for each query so previously matched memories can appear again.",
   memoryRepeatToggleTitle: "Allow repeated memory hits",
   memoryRepeatToggleDescription: "When enabled, each query uses a fresh snapshot instead of excluding memories that were already matched earlier in this chat.",
-  memoryThresholdFieldLabel: "Memory threshold",
-  memoryThresholdFieldDescription: "Default is 0. Higher values make the results stricter.",
-  memoryThresholdFieldPlaceholder: "For example 0",
   memoryLimitFieldLabel: "Memory limit",
   memoryLimitFieldDescription: "Default is 3. Controls how many memories can be injected each time.",
   memoryLimitFieldPlaceholder: "For example 3",
   memoryConfigApplyButton: "Save memory settings",
-  invalidMemoryThresholdMessage: "Memory threshold must be a number greater than or equal to 0",
   invalidMemoryLimitMessage: "Memory limit must be an integer greater than or equal to 1",
   summarySectionTitle: "Current Rules",
   summaryMasterEnabled: "Extra info injection: enabled",
@@ -294,6 +337,12 @@ const EN_US_I18N: ExtraInfoI18n = {
   summaryWeatherDisabled: "Weather: disabled",
   summaryLocationEnabled: "Location: inject on every send",
   summaryLocationDisabled: "Location: disabled",
+  summaryCurrentScreenAppEnabled: "Current screen app: inject on every send",
+  summaryCurrentScreenAppDisabled: "Current screen app: disabled",
+  summaryRecentAppUsageEnabled: "App usage: inject recent top app usage on every send",
+  summaryRecentAppUsageDisabled: "App usage: disabled",
+  summaryScreenTextEnabled: "Screen text: capture and run OCR on every send",
+  summaryScreenTextDisabled: "Screen text: disabled",
   summaryNotificationsEnabled: "Notifications: inject on every send",
   summaryNotificationsDisabled: "Notifications: disabled",
   summaryMemoryEnabled: "Memory: enabled with automatic tokenized lookup",
@@ -306,6 +355,9 @@ const EN_US_I18N: ExtraInfoI18n = {
   attachmentBatteryTitle: "[Current Battery]",
   attachmentWeatherTitle: "[Current Weather]",
   attachmentLocationTitle: "[Current Location]",
+  attachmentCurrentScreenAppTitle: "[Current Screen App]",
+  attachmentRecentAppUsageTitle: "[Recent App Usage]",
+  attachmentScreenTextTitle: "[Screen Text]",
   attachmentNotificationsTitle: "[Recent Notifications]",
   attachmentMemoryTitle: "[Related Memories]",
   timeZoneLabel: "Time zone",
@@ -327,6 +379,16 @@ const EN_US_I18N: ExtraInfoI18n = {
   locationAccuracyLabel: "Accuracy",
   locationProviderLabel: "Provider",
   locationTimestampLabel: "Time",
+  currentScreenAppLabel: "App",
+  currentScreenPackageLabel: "Package",
+  currentScreenActivityLabel: "Activity",
+  appUsageWindowLabel: "Time window",
+  appUsageDurationLabel: "Duration",
+  appUsageLastUsedLabel: "Last used",
+  appUsageEmpty: "There is no app usage data to inject right now",
+  screenTextScreenshotPathLabel: "Screenshot path",
+  screenTextLineCountLabel: "Line count",
+  screenTextEmpty: "No usable text was recognized on the current screen",
   notificationCountLabel: "Notification count",
   notificationAppLabel: "App",
   notificationTextLabel: "Content",
@@ -334,7 +396,6 @@ const EN_US_I18N: ExtraInfoI18n = {
   notificationsEmpty: "There are no notifications to inject right now",
   memoryQueryLabel: "Query",
   memorySnapshotLabel: "Snapshot",
-  memoryThresholdLabel: "Threshold",
   memoryLimitLabel: "Limit",
   memoryResultCountLabel: "Matched",
   memoryTitleLabel: "Title",
@@ -355,10 +416,12 @@ const DEFAULT_SETTINGS: ExtraInfoInjectionSettings = {
   injectBattery: false,
   injectWeather: false,
   injectLocation: false,
+  injectCurrentScreenApp: false,
+  injectRecentAppUsage: false,
+  injectScreenText: false,
   injectNotifications: false,
   injectMemory: false,
   allowRepeatedMemorySearch: false,
-  memoryThreshold: 0,
   memoryLimit: 3,
 };
 
@@ -397,7 +460,6 @@ function getPrefs() {
 }
 
 function sanitizeSettings(input: Partial<ExtraInfoInjectionSettings> | null | undefined): ExtraInfoInjectionSettings {
-  const memoryThreshold = Number(input?.memoryThreshold);
   const memoryLimit = Number(input?.memoryLimit);
   return {
     masterEnabled: Boolean(input?.masterEnabled ?? DEFAULT_SETTINGS.masterEnabled),
@@ -408,14 +470,18 @@ function sanitizeSettings(input: Partial<ExtraInfoInjectionSettings> | null | un
     injectBattery: Boolean(input?.injectBattery ?? DEFAULT_SETTINGS.injectBattery),
     injectWeather: Boolean(input?.injectWeather ?? DEFAULT_SETTINGS.injectWeather),
     injectLocation: Boolean(input?.injectLocation ?? DEFAULT_SETTINGS.injectLocation),
+    injectCurrentScreenApp: Boolean(
+      input?.injectCurrentScreenApp ?? DEFAULT_SETTINGS.injectCurrentScreenApp
+    ),
+    injectRecentAppUsage: Boolean(
+      input?.injectRecentAppUsage ?? DEFAULT_SETTINGS.injectRecentAppUsage
+    ),
+    injectScreenText: Boolean(input?.injectScreenText ?? DEFAULT_SETTINGS.injectScreenText),
     injectNotifications: Boolean(input?.injectNotifications ?? DEFAULT_SETTINGS.injectNotifications),
     injectMemory: Boolean(input?.injectMemory ?? DEFAULT_SETTINGS.injectMemory),
     allowRepeatedMemorySearch: Boolean(
       input?.allowRepeatedMemorySearch ?? DEFAULT_SETTINGS.allowRepeatedMemorySearch
     ),
-    memoryThreshold: Number.isFinite(memoryThreshold) && memoryThreshold >= 0
-      ? memoryThreshold
-      : DEFAULT_SETTINGS.memoryThreshold,
     memoryLimit: Number.isFinite(memoryLimit) && memoryLimit >= 1
       ? Math.floor(memoryLimit)
       : DEFAULT_SETTINGS.memoryLimit,
@@ -519,7 +585,6 @@ function formatCoordinates(latitude: number, longitude: number): string {
 
 function buildLocationParts(location: any): string[] {
   return [
-    location?.address,
     location?.city,
     location?.province,
     location?.country,
@@ -669,8 +734,8 @@ async function buildWeatherContent(): Promise<string> {
   );
   const current = Array.isArray(payload?.current_condition) ? payload.current_condition[0] : null;
   const locationText = locationSnapshot.addressParts.length
-    ? `${locationSnapshot.addressParts.join(" / ")} (${formatCoordinates(locationSnapshot.latitude, locationSnapshot.longitude)})`
-    : formatCoordinates(locationSnapshot.latitude, locationSnapshot.longitude);
+    ? locationSnapshot.addressParts.join(" / ")
+    : "-";
   const weatherDesc = normalizeLocale(locale) === "en-US"
     ? String(current?.weatherDesc?.[0]?.value || "").trim()
     : String(current?.lang_zh?.[0]?.value || "").trim();
@@ -712,6 +777,162 @@ async function buildLocationContent(): Promise<string> {
     `${text.locationAccuracyLabel}: ${accuracy}`,
     `${text.locationProviderLabel}: ${String(location.provider || "-").trim() || "-"}`,
     `${text.locationTimestampLabel}: ${timestamp}`,
+  ].join("\n");
+}
+
+function resolveAppLabel(packageName: string): string {
+  const normalizedPackageName = String(packageName || "").trim();
+  if (!normalizedPackageName) {
+    return "-";
+  }
+
+  const context = getAppContext();
+  if (!context) {
+    return normalizedPackageName;
+  }
+
+  try {
+    const applicationInfo = context.packageManager.getApplicationInfo(normalizedPackageName, 0);
+    const label = String(applicationInfo.loadLabel(context.packageManager) || "").trim();
+    return label || normalizedPackageName;
+  } catch {
+    return normalizedPackageName;
+  }
+}
+
+async function readCurrentPageInfo(): Promise<any> {
+  const result = await toolCall("get_page_info", {});
+  if (!result || typeof result !== "object") {
+    throw new Error("page info unavailable");
+  }
+  return result;
+}
+
+async function buildCurrentScreenAppContent(): Promise<string> {
+  const text = resolveExtraInfoI18n();
+  const pageInfo = await readCurrentPageInfo();
+  const packageName = String(pageInfo?.packageName || "").trim();
+  const activityName = String(pageInfo?.activityName || "").trim();
+
+  if (!packageName) {
+    throw new Error("current screen package unavailable");
+  }
+
+  return [
+    text.attachmentCurrentScreenAppTitle,
+    `${text.currentScreenAppLabel}: ${resolveAppLabel(packageName)}`,
+    `${text.currentScreenPackageLabel}: ${packageName}`,
+    `${text.currentScreenActivityLabel}: ${activityName || "-"}`,
+  ].join("\n");
+}
+
+function formatDurationMs(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts: string[] = [];
+
+  if (hours > 0) {
+    parts.push(`${hours}h`);
+  }
+  if (minutes > 0 || hours > 0) {
+    parts.push(`${minutes}m`);
+  }
+  parts.push(`${seconds}s`);
+
+  return parts.join(" ");
+}
+
+async function buildRecentAppUsageContent(): Promise<string> {
+  const text = resolveExtraInfoI18n();
+  const result = await Tools.System.getAppUsageTime({
+    sinceHours: 24,
+    limit: APP_USAGE_FETCH_LIMIT,
+    includeSystemApps: false,
+  });
+  const entries = Array.isArray(result?.entries) ? result.entries : [];
+  const lines = [
+    text.attachmentRecentAppUsageTitle,
+    `${text.appUsageWindowLabel}: 24h`,
+  ];
+
+  if (!entries.length) {
+    lines.push(text.appUsageEmpty);
+    return lines.join("\n");
+  }
+
+  entries.forEach((entry: any, index: number) => {
+    const packageName = String(entry?.packageName || "").trim() || "-";
+    const appName = String(entry?.appName || "").trim() || resolveAppLabel(packageName);
+    const durationMs = Number(entry?.totalForegroundTimeMs);
+    const lastTimeUsed = Number(entry?.lastTimeUsed);
+
+    lines.push(
+      `#${index + 1}`,
+      `${text.currentScreenAppLabel}: ${appName}`,
+      `${text.currentScreenPackageLabel}: ${packageName}`,
+      `${text.appUsageDurationLabel}: ${Number.isFinite(durationMs) ? formatDurationMs(durationMs) : "-"}`,
+      `${text.appUsageLastUsedLabel}: ${
+        Number.isFinite(lastTimeUsed) && lastTimeUsed > 0 ? formatLocalTimestamp(lastTimeUsed) : "-"
+      }`
+    );
+  });
+
+  return lines.join("\n");
+}
+
+function extractScreenshotPath(result: any): string {
+  if (typeof result === "string") {
+    return result.trim();
+  }
+  if (!result || typeof result !== "object") {
+    return "";
+  }
+
+  const value = String(result?.value || result?.path || "").trim();
+  return value;
+}
+
+async function readScreenTextFromScreenshot(screenshotPath: string): Promise<string> {
+  const normalizedPath = String(screenshotPath || "").trim();
+  if (!normalizedPath) {
+    throw new Error("screenshot path unavailable");
+  }
+
+  const context = getAppContext();
+  if (!context) {
+    throw new Error("application context unavailable");
+  }
+
+  const FileClass = Java.java.io.File;
+  const UriClass = Java.android.net.Uri;
+  const OCRUtils = Java.com.ai.assistance.operit.util.OCRUtils;
+  const screenshotUri = UriClass.fromFile(new FileClass(normalizedPath));
+
+  return String(
+    await OCRUtils.callSuspend("recognizeText", context, screenshotUri, OCRUtils.Quality.HIGH)
+  ).trim();
+}
+
+function countTextLines(value: string): number {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean).length;
+}
+
+async function buildScreenTextContent(): Promise<string> {
+  const text = resolveExtraInfoI18n();
+  const screenshotResult = await toolCall("capture_screenshot", {});
+  const screenshotPath = extractScreenshotPath(screenshotResult);
+  const recognizedText = await readScreenTextFromScreenshot(screenshotPath);
+
+  return [
+    text.attachmentScreenTextTitle,
+    `${text.screenTextScreenshotPathLabel}: ${screenshotPath || "-"}`,
+    `${text.screenTextLineCountLabel}: ${countTextLines(recognizedText)}`,
+    recognizedText || text.screenTextEmpty,
   ].join("\n");
 }
 
@@ -775,99 +996,6 @@ function buildMemorySnapshotId(chatId?: string): string {
   return normalized.slice(0, 6);
 }
 
-function expandHanKeywordSegment(segment: string): string[] {
-  const chars = Array.from(segment.trim());
-  if (chars.length < 2) {
-    return [];
-  }
-
-  const tokens = new Set<string>();
-  tokens.add(chars.join(""));
-
-  const maxGram = Math.min(chars.length, 4);
-  for (let size = 2; size <= maxGram; size += 1) {
-    for (let index = 0; index + size <= chars.length; index += 1) {
-      tokens.add(chars.slice(index, index + size).join(""));
-    }
-  }
-
-  return Array.from(tokens);
-}
-
-function collectMemorySearchTokensFromClause(clause: string): string[] {
-  const rawSegments =
-    clause.match(/[\u3400-\u9FFF]+|[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*/g) || [];
-  const tokens: string[] = [];
-  const seen = new Set<string>();
-
-  const pushToken = (token: string) => {
-    const normalizedToken = String(token || "").trim().toLowerCase();
-    if (normalizedToken.length < 2 || seen.has(normalizedToken)) {
-      return;
-    }
-    seen.add(normalizedToken);
-    tokens.push(normalizedToken);
-  };
-
-  rawSegments.forEach(segment => {
-    if (/^[\u3400-\u9FFF]+$/.test(segment)) {
-      expandHanKeywordSegment(segment).forEach(pushToken);
-      return;
-    }
-
-    const normalizedToken = segment.trim().toLowerCase();
-    pushToken(normalizedToken);
-
-    normalizedToken
-      .split(/[._-]+/)
-      .forEach(pushToken);
-  });
-
-  return tokens;
-}
-
-function buildBalancedMemorySearchTokens(
-  tokenGroups: string[][],
-  limit: number
-): string[] {
-  const results: string[] = [];
-  const seen = new Set<string>();
-  const cursors = tokenGroups.map(() => 0);
-
-  // Round-robin token picking keeps later feedback clauses from being crowded out.
-  while (results.length < limit) {
-    let advanced = false;
-
-    for (let index = 0; index < tokenGroups.length; index += 1) {
-      const group = tokenGroups[index];
-
-      while (cursors[index] < group.length) {
-        const token = group[cursors[index]];
-        cursors[index] += 1;
-
-        if (!token || seen.has(token)) {
-          continue;
-        }
-
-        seen.add(token);
-        results.push(token);
-        advanced = true;
-        break;
-      }
-
-      if (results.length >= limit) {
-        break;
-      }
-    }
-
-    if (!advanced) {
-      break;
-    }
-  }
-
-  return results;
-}
-
 function stripMessageForMemorySearch(messageText: string): string {
   return String(messageText || "")
     .replace(/<attachment\b[\s\S]*?<\/attachment>/gi, " ")
@@ -882,24 +1010,7 @@ function stripMessageForMemorySearch(messageText: string): string {
 }
 
 function buildMemorySearchQuery(messageText: string): string {
-  const normalized = stripMessageForMemorySearch(messageText);
-  if (!normalized) {
-    return "";
-  }
-
-  const clauses = normalized
-    .split(MEMORY_QUERY_CLAUSE_SPLIT_REGEX)
-    .map(item => item.trim())
-    .filter(Boolean);
-
-  const tokenGroups = (clauses.length ? clauses : [normalized])
-    .map(collectMemorySearchTokensFromClause)
-    .filter(group => group.length);
-
-  return buildBalancedMemorySearchTokens(
-    tokenGroups,
-    MEMORY_QUERY_TOKEN_LIMIT
-  ).join("|");
+  return stripMessageForMemorySearch(messageText);
 }
 
 async function buildMemoryContent(
@@ -919,7 +1030,6 @@ async function buildMemoryContent(
     text.attachmentMemoryTitle,
     `${text.memoryQueryLabel}: ${searchQuery || "-"}`,
     `${text.memorySnapshotLabel}: ${snapshotId || "-"}`,
-    `${text.memoryThresholdLabel}: ${formatDecimal(settings.memoryThreshold)}`,
     `${text.memoryLimitLabel}: ${settings.memoryLimit}`,
   ];
 
@@ -934,7 +1044,6 @@ async function buildMemoryContent(
   const result = await toolCall("query_memory", {
     query: searchQuery,
     limit: settings.memoryLimit,
-    threshold: settings.memoryThreshold,
     ...(reuseSnapshot ? { snapshot_id: snapshotId } : {}),
   });
 
@@ -1031,6 +1140,36 @@ export async function buildExtraInfoAttachmentTags(
       content = await buildLocationContent();
     } catch (error) {
       content = buildErrorContent(resolveExtraInfoI18n().attachmentLocationTitle, error);
+    }
+    contentBlocks.push(content);
+  }
+
+  if (settings.injectCurrentScreenApp) {
+    let content = "";
+    try {
+      content = await buildCurrentScreenAppContent();
+    } catch (error) {
+      content = buildErrorContent(resolveExtraInfoI18n().attachmentCurrentScreenAppTitle, error);
+    }
+    contentBlocks.push(content);
+  }
+
+  if (settings.injectRecentAppUsage) {
+    let content = "";
+    try {
+      content = await buildRecentAppUsageContent();
+    } catch (error) {
+      content = buildErrorContent(resolveExtraInfoI18n().attachmentRecentAppUsageTitle, error);
+    }
+    contentBlocks.push(content);
+  }
+
+  if (settings.injectScreenText) {
+    let content = "";
+    try {
+      content = await buildScreenTextContent();
+    } catch (error) {
+      content = buildErrorContent(resolveExtraInfoI18n().attachmentScreenTextTitle, error);
     }
     contentBlocks.push(content);
   }

@@ -26,6 +26,7 @@ data class MessageEntity(
         val timestamp: Long = System.currentTimeMillis(),
         val orderIndex: Int, // 保持消息顺序
         val roleName: String = "", // 角色名字段
+        val selectedVariantIndex: Int = 0,
         val provider: String = "", // 供应商
         val modelName: String = "", // 模型名称
         val inputTokens: Int = 0,
@@ -33,7 +34,8 @@ data class MessageEntity(
         val cachedInputTokens: Int = 0,
         val sentAt: Long = 0L,
         val outputDurationMs: Long = 0L,
-        val waitDurationMs: Long = 0L
+        val waitDurationMs: Long = 0L,
+        val displayMode: String = ChatMessageDisplayMode.NORMAL.name
 ) {
     /** 转换为ChatMessage对象（供UI层使用） */
     fun toChatMessage(): ChatMessage {
@@ -42,6 +44,7 @@ data class MessageEntity(
             content = content, 
             timestamp = timestamp,
             roleName = roleName,
+            selectedVariantIndex = selectedVariantIndex,
             provider = provider,
             modelName = modelName,
             inputTokens = inputTokens,
@@ -49,7 +52,10 @@ data class MessageEntity(
             cachedInputTokens = cachedInputTokens,
             sentAt = sentAt,
             outputDurationMs = outputDurationMs,
-            waitDurationMs = waitDurationMs
+            waitDurationMs = waitDurationMs,
+            displayMode =
+                runCatching { ChatMessageDisplayMode.valueOf(displayMode) }
+                    .getOrDefault(ChatMessageDisplayMode.NORMAL)
         )
     }
 
@@ -69,6 +75,7 @@ data class MessageEntity(
                     timestamp = message.timestamp,
                     orderIndex = orderIndex,
                     roleName = message.roleName,
+                    selectedVariantIndex = message.selectedVariantIndex,
                     provider = message.provider,
                     modelName = message.modelName,
                     inputTokens = message.inputTokens,
@@ -76,7 +83,8 @@ data class MessageEntity(
                     cachedInputTokens = message.cachedInputTokens,
                     sentAt = message.sentAt,
                     outputDurationMs = message.outputDurationMs,
-                    waitDurationMs = message.waitDurationMs
+                    waitDurationMs = message.waitDurationMs,
+                    displayMode = message.displayMode.name
             )
         }
     }

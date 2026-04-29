@@ -4,8 +4,6 @@ exports.TaskExecutor = void 0;
 const plan_parser_1 = require("./plan-parser");
 const i18n_1 = require("../i18n");
 const prompt_turns_1 = require("../prompt-turns");
-const FunctionType = Java.com.ai.assistance.operit.data.model.FunctionType;
-const PromptFunctionType = Java.com.ai.assistance.operit.data.model.PromptFunctionType;
 const SystemPromptConfig = Java.com.ai.assistance.operit.core.config.SystemPromptConfig;
 const Unit = Java.kotlin.Unit;
 const TAG = "TaskExecutor";
@@ -71,23 +69,38 @@ async function collectStreamToString(stream, onChunk) {
     return buffer;
 }
 async function sendMessage(enhancedAIService, options) {
-    const onNonFatalError = (_value) => Unit.INSTANCE;
-    const onToolInvocation = options.onToolInvocation
-        ? (toolName) => {
-            options.onToolInvocation?.(toolName);
-            return Unit.INSTANCE;
-        }
-        : null;
-    const stream = await enhancedAIService.callSuspend("sendMessage", options.message, null, (0, prompt_turns_1.toKotlinPromptTurnList)(options.chatHistory), options.workspacePath ?? null, null, FunctionType.CHAT, PromptFunctionType.CHAT, false, false, false, options.maxTokens, options.tokenUsageThreshold, onNonFatalError, null, options.customSystemPromptTemplate ?? null, options.isSubTask, null, null, null, false, null, options.proxySenderName ?? null, onToolInvocation, null, null, true);
+    const stream = await enhancedAIService.callSuspend("sendMessage", (0, prompt_turns_1.createSendMessageOptions)({
+        message: options.message,
+        chatId: options.chatId ?? null,
+        chatHistory: options.chatHistory,
+        workspacePath: options.workspacePath ?? null,
+        maxTokens: options.maxTokens,
+        tokenUsageThreshold: options.tokenUsageThreshold,
+        customSystemPromptTemplate: options.customSystemPromptTemplate ?? null,
+        isSubTask: options.isSubTask,
+        proxySenderName: options.proxySenderName ?? null,
+        enableMemoryAutoUpdate: options.enableMemoryAutoUpdate ?? false,
+        callbacks: options.onToolInvocation
+            ? {
+                onToolInvocation(toolName) {
+                    options.onToolInvocation?.(toolName);
+                    return Unit.INSTANCE;
+                }
+            }
+            : null
+    }));
     return collectStreamToString(stream, options.onChunk);
 }
 class TaskExecutor {
-    constructor(context, enhancedAIService, onChunk) {
+    constructor(context, enhancedAIService, onChunk, sendMessageWithScope) {
         this.taskResults = {};
         this.isCancelled = false;
         this.context = context;
         this.enhancedAIService = enhancedAIService;
         this.onChunk = onChunk;
+        this.sendMessageWithScope =
+            sendMessageWithScope ??
+                (async (_scopeKey, options) => sendMessage(this.enhancedAIService, options));
     }
     setChunkEmitter(onChunk) {
         this.onChunk = onChunk;
@@ -119,6 +132,7 @@ class TaskExecutor {
         const startLog = `<log>📋 ${getI18n().planLogStartingExecution(String(sortedTasks.length))}</log>\n`;
         output += startLog;
         this.emitChunk(startLog);
+        console.log(`${TAG} executeSubtasks start taskCount=${sortedTasks.length}`);
         const completed = new Set();
         const pending = [...sortedTasks];
         while (pending.length > 0 && !this.isCancelled) {
@@ -127,12 +141,12 @@ class TaskExecutor {
                 output += `<error>❌ ${getI18n().planErrorNoExecutableTasks}</error>\n`;
                 break;
             }
-            for (const task of ready) {
-                const res = await this.executeTask(task, originalMessage, chatHistory, workspacePath, maxTokens, tokenUsageThreshold);
-                output += res;
-                if (this.isCancelled)
-                    break;
-            }
+            console.log(`${TAG} executeSubtasks readyBatch size=${ready.length} ids=${ready.map(task => task.id).join(",")}`);
+            ready.forEach(task => {
+                console.log(`${TAG} executeSubtasks taskReady id=${task.id} deps=${(task.dependencies || []).join(",")}`);
+            });
+            const batchResults = await Promise.all(ready.map(task => this.executeTask(task, originalMessage, chatHistory, workspacePath, maxTokens, tokenUsageThreshold)));
+            output += batchResults.join("");
             if (this.isCancelled)
                 break;
             ready.forEach(task => {
@@ -143,6 +157,7 @@ class TaskExecutor {
             });
         }
         this.isCancelled = false;
+        console.log(`${TAG} executeSubtasks done completed=${completed.size}`);
         return output;
     }
     async summarize(graph, originalMessage, chatHistory, workspacePath, maxTokens, tokenUsageThreshold) {
@@ -163,10 +178,11 @@ class TaskExecutor {
         const initialUpdate = `<update id="${task.id}" status="IN_PROGRESS" tool_count="0"/>\n`;
         outputParts.push(initialUpdate);
         this.emitChunk(initialUpdate);
+        console.log(`${TAG} executeTask start id=${task.id} name=${task.name} workspaceBound=${Boolean(workspacePath)}`);
         const contextInfo = this.buildTaskContext(task, originalMessage);
         const fullInstruction = this.buildFullInstruction(task, contextInfo);
         try {
-            const raw = await sendMessage(this.enhancedAIService, {
+            const raw = await this.sendMessageWithScope(`task:${task.id}`, {
                 message: fullInstruction,
                 chatHistory: [],
                 workspacePath: workspacePath ?? null,
@@ -176,6 +192,7 @@ class TaskExecutor {
                 isSubTask: true,
                 onToolInvocation: (toolName) => {
                     toolCount += 1;
+                    console.log(`${TAG} executeTask toolInvocation id=${task.id} tool=${toolName} count=${toolCount}`);
                     const progressUpdate = `<update id="${task.id}" status="IN_PROGRESS" tool_count="${toolCount}"/>\n`;
                     outputParts.push(progressUpdate);
                     this.emitChunk(progressUpdate);
@@ -183,12 +200,14 @@ class TaskExecutor {
             });
             const finalText = extractFinalNonToolAssistantContent(raw);
             this.taskResults[task.id] = finalText;
+            console.log(`${TAG} executeTask done id=${task.id} toolCount=${toolCount} resultLength=${finalText.length}`);
             const completedUpdate = `<update id="${task.id}" status="COMPLETED" tool_count="${toolCount}"/>\n`;
             outputParts.push(completedUpdate);
             this.emitChunk(completedUpdate);
         }
         catch (e) {
             const errMsg = String(e || "Unknown error").replace(/"/g, "&quot;");
+            console.log(`${TAG} executeTask failed id=${task.id} toolCount=${toolCount} error=${String(e)}`);
             const failedUpdate = `<update id="${task.id}" status="FAILED" tool_count="${toolCount}" error="${errMsg}"/>\n`;
             outputParts.push(failedUpdate);
             this.emitChunk(failedUpdate);
@@ -212,13 +231,19 @@ class TaskExecutor {
         return contextText;
     }
     buildFullInstruction(task, contextInfo) {
-        return getI18n().taskInstructionWithContext(contextInfo, task.instruction).trim();
+        const toolUseHint = [
+            "执行要求：",
+            "1. 如果任务涉及查找事实、资料、网页、数据、案例或外部信息，优先使用可用工具获取信息，不要只凭记忆作答。",
+            "2. 如果可用工具不足以完成任务，再明确说明限制。",
+            "3. 最终输出保持简洁，直接给出对当前子任务有用的结果。"
+        ].join("\n");
+        return getI18n().taskInstructionWithContext(contextInfo, `${task.instruction}\n\n${toolUseHint}`).trim();
     }
     async executeFinalSummary(graph, originalMessage, chatHistory, workspacePath, maxTokens, tokenUsageThreshold) {
         const summaryContext = this.buildSummaryContext(originalMessage, graph);
         const i18n = getI18n();
         const fullSummaryInstruction = `${summaryContext}\n\n${i18n.finalSummaryInstructionPrefix}\n${graph.finalSummaryInstruction}\n\n${i18n.finalSummaryInstructionSuffix}`;
-        return sendMessage(this.enhancedAIService, {
+        return this.sendMessageWithScope("summary", {
             message: fullSummaryInstruction,
             chatHistory,
             workspacePath: workspacePath ?? null,

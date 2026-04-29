@@ -20,7 +20,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import com.ai.assistance.operit.data.db.ObjectBoxManager
-import com.ai.assistance.operit.util.LocaleUtils.AUTO_LANGUAGE_CODE
+import com.ai.assistance.operit.util.LocaleUtils.LanguageCodes
 
 private val Context.userPreferencesDataStore: DataStore<Preferences> by
         preferencesDataStore(name = "user_preferences")
@@ -91,6 +91,24 @@ class UserPreferencesManager private constructor(private val context: Context) {
 
         // 工具栏透明度设置
         private val TOOLBAR_TRANSPARENT = booleanPreferencesKey("toolbar_transparent")
+
+        // 侧滑菜单玻璃效果设置
+        private val NAVIGATION_DRAWER_WATER_GLASS =
+            booleanPreferencesKey("navigation_drawer_water_glass")
+        private val NAVIGATION_DRAWER_BUTTON_LIQUID_GLASS =
+            booleanPreferencesKey("navigation_drawer_button_liquid_glass")
+
+        // 侧滑菜单背景色设置
+        private val USE_CUSTOM_NAVIGATION_DRAWER_BACKGROUND_COLOR =
+            booleanPreferencesKey("use_custom_navigation_drawer_background_color")
+        private val CUSTOM_NAVIGATION_DRAWER_BACKGROUND_COLOR =
+            intPreferencesKey("custom_navigation_drawer_background_color")
+
+        // 侧滑菜单强调色设置（品牌标识/小标题/网络状态/分隔线共用）
+        private val USE_CUSTOM_NAVIGATION_DRAWER_ACCENT_COLOR =
+            booleanPreferencesKey("use_custom_navigation_drawer_accent_color")
+        private val CUSTOM_NAVIGATION_DRAWER_ACCENT_COLOR =
+            intPreferencesKey("custom_navigation_drawer_accent_color")
         
         // AppBar 自定义颜色设置
         private val USE_CUSTOM_APP_BAR_COLOR = booleanPreferencesKey("use_custom_app_bar_color")
@@ -145,6 +163,10 @@ class UserPreferencesManager private constructor(private val context: Context) {
             booleanPreferencesKey("bubble_user_bubble_liquid_glass")
         private val BUBBLE_USER_BUBBLE_WATER_GLASS =
             booleanPreferencesKey("bubble_user_bubble_water_glass")
+        private val BUBBLE_AI_BUBBLE_LIQUID_GLASS =
+            booleanPreferencesKey("bubble_ai_bubble_liquid_glass")
+        private val BUBBLE_AI_BUBBLE_WATER_GLASS =
+            booleanPreferencesKey("bubble_ai_bubble_water_glass")
         private val BUBBLE_USER_BUBBLE_COLOR = intPreferencesKey("bubble_user_bubble_color")
         private val BUBBLE_AI_BUBBLE_COLOR = intPreferencesKey("bubble_ai_bubble_color")
         private val BUBBLE_USER_TEXT_COLOR = intPreferencesKey("bubble_user_text_color")
@@ -226,7 +248,11 @@ class UserPreferencesManager private constructor(private val context: Context) {
         const val MEDIA_TYPE_VIDEO = "video"
         
         // 默认语言
-        const val DEFAULT_LANGUAGE = AUTO_LANGUAGE_CODE
+        const val DEFAULT_LANGUAGE = LanguageCodes.AUTO
+
+        // Sidebar software identity (drawer header brand text)
+        const val SOFTWARE_IDENTITY_OPERIT = "operit_ai"
+        const val SOFTWARE_IDENTITY_LINGSHU = "lingshu_ai"
 
         const val CHAT_STYLE_CURSOR = "cursor"
         const val CHAT_STYLE_BUBBLE = "bubble"
@@ -250,6 +276,7 @@ class UserPreferencesManager private constructor(private val context: Context) {
         private val KEY_SHOW_CHAT_FLOATING_DOTS_ANIMATION = booleanPreferencesKey("show_chat_floating_dots_animation")
         private val KEY_UI_ACCESSIBILITY_MODE = booleanPreferencesKey("ui_accessibility_mode")
         private val KEY_BETA_PLAN_ENABLED = booleanPreferencesKey("beta_plan_enabled")
+        private val KEY_SOFTWARE_IDENTITY = stringPreferencesKey("software_identity")
 
 
         // 布局调整设置
@@ -260,6 +287,8 @@ class UserPreferencesManager private constructor(private val context: Context) {
             floatPreferencesKey("global_text_line_height_multiplier")
         private val AI_MARKDOWN_LETTER_SPACING =
             floatPreferencesKey("global_text_letter_spacing")
+        private val AI_MARKDOWN_PARAGRAPH_SPACING =
+            floatPreferencesKey("ai_markdown_paragraph_spacing")
 
         // 最近使用颜色
         private val RECENT_COLORS = stringPreferencesKey("recent_colors")
@@ -313,6 +342,12 @@ class UserPreferencesManager private constructor(private val context: Context) {
     suspend fun saveBetaPlanEnabled(enabled: Boolean) {
         context.userPreferencesDataStore.edit { preferences ->
             preferences[KEY_BETA_PLAN_ENABLED] = enabled
+        }
+    }
+
+    suspend fun saveSoftwareIdentity(identity: String) {
+        context.userPreferencesDataStore.edit { preferences ->
+            preferences[KEY_SOFTWARE_IDENTITY] = identity
         }
     }
 
@@ -413,6 +448,36 @@ class UserPreferencesManager private constructor(private val context: Context) {
     val toolbarTransparent: Flow<Boolean> =
             context.userPreferencesDataStore.data.map { preferences ->
                 preferences[TOOLBAR_TRANSPARENT] ?: false
+            }
+
+    val navigationDrawerWaterGlass: Flow<Boolean> =
+            context.userPreferencesDataStore.data.map { preferences ->
+                preferences[NAVIGATION_DRAWER_WATER_GLASS] ?: false
+            }
+
+    val navigationDrawerButtonLiquidGlass: Flow<Boolean> =
+            context.userPreferencesDataStore.data.map { preferences ->
+                preferences[NAVIGATION_DRAWER_BUTTON_LIQUID_GLASS] ?: false
+            }
+
+    val useCustomNavigationDrawerBackgroundColor: Flow<Boolean> =
+            context.userPreferencesDataStore.data.map { preferences ->
+                preferences[USE_CUSTOM_NAVIGATION_DRAWER_BACKGROUND_COLOR] ?: false
+            }
+
+    val customNavigationDrawerBackgroundColor: Flow<Int?> =
+            context.userPreferencesDataStore.data.map { preferences ->
+                preferences[CUSTOM_NAVIGATION_DRAWER_BACKGROUND_COLOR]
+            }
+
+    val customNavigationDrawerAccentColor: Flow<Int?> =
+            context.userPreferencesDataStore.data.map { preferences ->
+                preferences[CUSTOM_NAVIGATION_DRAWER_ACCENT_COLOR]
+            }
+
+    val useCustomNavigationDrawerAccentColor: Flow<Boolean> =
+            context.userPreferencesDataStore.data.map { preferences ->
+                preferences[USE_CUSTOM_NAVIGATION_DRAWER_ACCENT_COLOR] ?: false
             }
 
     val useCustomAppBarColor: Flow<Boolean> =
@@ -559,6 +624,16 @@ class UserPreferencesManager private constructor(private val context: Context) {
     val bubbleUserBubbleColor: Flow<Int?> =
         context.userPreferencesDataStore.data.map { preferences ->
             preferences[BUBBLE_USER_BUBBLE_COLOR]
+        }
+
+    val bubbleAiBubbleLiquidGlass: Flow<Boolean> =
+        context.userPreferencesDataStore.data.map { preferences ->
+            preferences[BUBBLE_AI_BUBBLE_LIQUID_GLASS] ?: false
+        }
+
+    val bubbleAiBubbleWaterGlass: Flow<Boolean> =
+        context.userPreferencesDataStore.data.map { preferences ->
+            preferences[BUBBLE_AI_BUBBLE_WATER_GLASS] ?: false
         }
 
     val bubbleAiBubbleColor: Flow<Int?> =
@@ -828,6 +903,11 @@ class UserPreferencesManager private constructor(private val context: Context) {
             preferences[KEY_BETA_PLAN_ENABLED] ?: false
         }
 
+    val softwareIdentity: Flow<String> =
+        context.userPreferencesDataStore.data.map { preferences ->
+            preferences[KEY_SOFTWARE_IDENTITY] ?: SOFTWARE_IDENTITY_OPERIT
+        }
+
     // 字体设置相关Flow
     val useCustomFont: Flow<Boolean> =
         context.userPreferencesDataStore.data.map { preferences ->
@@ -873,6 +953,11 @@ class UserPreferencesManager private constructor(private val context: Context) {
     val aiMarkdownLetterSpacing: Flow<Float> =
         context.userPreferencesDataStore.data.map { preferences ->
             preferences[AI_MARKDOWN_LETTER_SPACING] ?: 0f
+        }
+
+    val aiMarkdownParagraphSpacing: Flow<Float> =
+        context.userPreferencesDataStore.data.map { preferences ->
+            preferences[AI_MARKDOWN_PARAGRAPH_SPACING] ?: 12f
         }
 
     // 获取最近使用颜色
@@ -935,6 +1020,12 @@ class UserPreferencesManager private constructor(private val context: Context) {
         }
     }
 
+    suspend fun saveAiMarkdownParagraphSpacing(value: Float) {
+        context.userPreferencesDataStore.edit { preferences ->
+            preferences[AI_MARKDOWN_PARAGRAPH_SPACING] = value
+        }
+    }
+
     // 重置布局设置
     suspend fun resetLayoutSettings() {
         context.userPreferencesDataStore.edit { preferences ->
@@ -942,6 +1033,7 @@ class UserPreferencesManager private constructor(private val context: Context) {
             preferences.remove(CHAT_AREA_HORIZONTAL_PADDING)
             preferences.remove(AI_MARKDOWN_LINE_HEIGHT_MULTIPLIER)
             preferences.remove(AI_MARKDOWN_LETTER_SPACING)
+            preferences.remove(AI_MARKDOWN_PARAGRAPH_SPACING)
         }
     }
 
@@ -1005,6 +1097,26 @@ class UserPreferencesManager private constructor(private val context: Context) {
         }
     }
 
+    fun getCustomChatTitleForCharacterGroupFlow(characterGroupId: String): Flow<String?> {
+        return context.userPreferencesDataStore.data.map { preferences ->
+            val prefix = getCharacterGroupThemePrefix(characterGroupId)
+            val key = stringPreferencesKey("${prefix}${KEY_CUSTOM_CHAT_TITLE.name}")
+            preferences[key]
+        }
+    }
+
+    suspend fun saveCustomChatTitleForCharacterGroup(characterGroupId: String, title: String?) {
+        context.userPreferencesDataStore.edit { preferences ->
+            val prefix = getCharacterGroupThemePrefix(characterGroupId)
+            val key = stringPreferencesKey("${prefix}${KEY_CUSTOM_CHAT_TITLE.name}")
+            if (!title.isNullOrEmpty()) {
+                preferences[key] = title
+            } else {
+                preferences.remove(key)
+            }
+        }
+    }
+
     // 保存主题设置
     suspend fun saveThemeSettings(
             themeMode: String? = null,
@@ -1019,6 +1131,12 @@ class UserPreferencesManager private constructor(private val context: Context) {
             videoBackgroundMuted: Boolean? = null,
             videoBackgroundLoop: Boolean? = null,
             toolbarTransparent: Boolean? = null,
+            navigationDrawerWaterGlass: Boolean? = null,
+            navigationDrawerButtonLiquidGlass: Boolean? = null,
+            useCustomNavigationDrawerBackgroundColor: Boolean? = null,
+            customNavigationDrawerBackgroundColor: Int? = null,
+            useCustomNavigationDrawerAccentColor: Boolean? = null,
+            customNavigationDrawerAccentColor: Int? = null,
             useCustomAppBarColor: Boolean? = null,
             customAppBarColor: Int? = null,
             useCustomStatusBarColor: Boolean? = null,
@@ -1047,6 +1165,8 @@ class UserPreferencesManager private constructor(private val context: Context) {
             bubbleUserBubbleLiquidGlass: Boolean? = null,
             bubbleUserBubbleWaterGlass: Boolean? = null,
             bubbleUserBubbleColor: Int? = null,
+            bubbleAiBubbleLiquidGlass: Boolean? = null,
+            bubbleAiBubbleWaterGlass: Boolean? = null,
             bubbleAiBubbleColor: Int? = null,
             bubbleUserTextColor: Int? = null,
             bubbleAiTextColor: Int? = null,
@@ -1121,6 +1241,22 @@ class UserPreferencesManager private constructor(private val context: Context) {
             videoBackgroundMuted?.let { preferences[VIDEO_BACKGROUND_MUTED] = it }
             videoBackgroundLoop?.let { preferences[VIDEO_BACKGROUND_LOOP] = it }
             toolbarTransparent?.let { preferences[TOOLBAR_TRANSPARENT] = it }
+            navigationDrawerWaterGlass?.let { preferences[NAVIGATION_DRAWER_WATER_GLASS] = it }
+            navigationDrawerButtonLiquidGlass?.let {
+                preferences[NAVIGATION_DRAWER_BUTTON_LIQUID_GLASS] = it
+            }
+            useCustomNavigationDrawerBackgroundColor?.let {
+                preferences[USE_CUSTOM_NAVIGATION_DRAWER_BACKGROUND_COLOR] = it
+            }
+            customNavigationDrawerBackgroundColor?.let {
+                preferences[CUSTOM_NAVIGATION_DRAWER_BACKGROUND_COLOR] = it
+            }
+            useCustomNavigationDrawerAccentColor?.let {
+                preferences[USE_CUSTOM_NAVIGATION_DRAWER_ACCENT_COLOR] = it
+            }
+            customNavigationDrawerAccentColor?.let {
+                preferences[CUSTOM_NAVIGATION_DRAWER_ACCENT_COLOR] = it
+            }
             useCustomAppBarColor?.let { preferences[USE_CUSTOM_APP_BAR_COLOR] = it }
             customAppBarColor?.let { preferences[CUSTOM_APP_BAR_COLOR] = it }
             useCustomStatusBarColor?.let { preferences[USE_CUSTOM_STATUS_BAR_COLOR] = it }
@@ -1181,6 +1317,20 @@ class UserPreferencesManager private constructor(private val context: Context) {
                 }
             }
             bubbleUserBubbleColor?.let { preferences[BUBBLE_USER_BUBBLE_COLOR] = it }
+            bubbleAiBubbleLiquidGlass?.let {
+                preferences[BUBBLE_AI_BUBBLE_LIQUID_GLASS] = it
+                if (it) {
+                    preferences[BUBBLE_AI_BUBBLE_WATER_GLASS] = false
+                    preferences[BUBBLE_AI_USE_IMAGE] = false
+                }
+            }
+            bubbleAiBubbleWaterGlass?.let {
+                preferences[BUBBLE_AI_BUBBLE_WATER_GLASS] = it
+                if (it) {
+                    preferences[BUBBLE_AI_BUBBLE_LIQUID_GLASS] = false
+                    preferences[BUBBLE_AI_USE_IMAGE] = false
+                }
+            }
             bubbleAiBubbleColor?.let { preferences[BUBBLE_AI_BUBBLE_COLOR] = it }
             bubbleUserTextColor?.let { preferences[BUBBLE_USER_TEXT_COLOR] = it }
             bubbleAiTextColor?.let { preferences[BUBBLE_AI_TEXT_COLOR] = it }
@@ -1257,6 +1407,12 @@ class UserPreferencesManager private constructor(private val context: Context) {
             preferences.remove(VIDEO_BACKGROUND_MUTED)
             preferences.remove(VIDEO_BACKGROUND_LOOP)
             preferences.remove(TOOLBAR_TRANSPARENT)
+            preferences.remove(NAVIGATION_DRAWER_WATER_GLASS)
+            preferences.remove(NAVIGATION_DRAWER_BUTTON_LIQUID_GLASS)
+            preferences.remove(USE_CUSTOM_NAVIGATION_DRAWER_BACKGROUND_COLOR)
+            preferences.remove(CUSTOM_NAVIGATION_DRAWER_BACKGROUND_COLOR)
+            preferences.remove(USE_CUSTOM_NAVIGATION_DRAWER_ACCENT_COLOR)
+            preferences.remove(CUSTOM_NAVIGATION_DRAWER_ACCENT_COLOR)
             preferences.remove(USE_CUSTOM_STATUS_BAR_COLOR)
             preferences.remove(CUSTOM_STATUS_BAR_COLOR)
             preferences.remove(STATUS_BAR_TRANSPARENT)
@@ -1283,6 +1439,8 @@ class UserPreferencesManager private constructor(private val context: Context) {
             preferences.remove(BUBBLE_USER_BUBBLE_LIQUID_GLASS)
             preferences.remove(BUBBLE_USER_BUBBLE_WATER_GLASS)
             preferences.remove(BUBBLE_USER_BUBBLE_COLOR)
+            preferences.remove(BUBBLE_AI_BUBBLE_LIQUID_GLASS)
+            preferences.remove(BUBBLE_AI_BUBBLE_WATER_GLASS)
             preferences.remove(BUBBLE_AI_BUBBLE_COLOR)
             preferences.remove(BUBBLE_USER_TEXT_COLOR)
             preferences.remove(BUBBLE_AI_TEXT_COLOR)
@@ -1598,13 +1756,18 @@ class UserPreferencesManager private constructor(private val context: Context) {
     private fun getAllBooleanThemeKeys(): List<Preferences.Key<Boolean>> {
         return listOf(
             USE_SYSTEM_THEME, USE_CUSTOM_COLORS, USE_BACKGROUND_IMAGE, VIDEO_BACKGROUND_MUTED,
-            VIDEO_BACKGROUND_LOOP, TOOLBAR_TRANSPARENT, USE_CUSTOM_APP_BAR_COLOR, USE_CUSTOM_STATUS_BAR_COLOR,
+            VIDEO_BACKGROUND_LOOP, TOOLBAR_TRANSPARENT, NAVIGATION_DRAWER_WATER_GLASS,
+            NAVIGATION_DRAWER_BUTTON_LIQUID_GLASS,
+            USE_CUSTOM_NAVIGATION_DRAWER_BACKGROUND_COLOR,
+            USE_CUSTOM_NAVIGATION_DRAWER_ACCENT_COLOR,
+            USE_CUSTOM_APP_BAR_COLOR, USE_CUSTOM_STATUS_BAR_COLOR,
             STATUS_BAR_TRANSPARENT, STATUS_BAR_HIDDEN, CHAT_HEADER_TRANSPARENT, CHAT_INPUT_TRANSPARENT, CHAT_INPUT_FLOATING,
             CHAT_INPUT_LIQUID_GLASS,
             CHAT_INPUT_WATER_GLASS,
             FORCE_APP_BAR_CONTENT_COLOR_ENABLED, CHAT_HEADER_OVERLAY_MODE, USE_BACKGROUND_BLUR,
             BUBBLE_SHOW_AVATAR, BUBBLE_WIDE_LAYOUT_ENABLED, CURSOR_USER_BUBBLE_FOLLOW_THEME, CURSOR_USER_BUBBLE_LIQUID_GLASS,
-            CURSOR_USER_BUBBLE_WATER_GLASS, BUBBLE_USER_USE_IMAGE,
+            CURSOR_USER_BUBBLE_WATER_GLASS, BUBBLE_USER_BUBBLE_LIQUID_GLASS, BUBBLE_USER_BUBBLE_WATER_GLASS,
+            BUBBLE_AI_BUBBLE_LIQUID_GLASS, BUBBLE_AI_BUBBLE_WATER_GLASS, BUBBLE_USER_USE_IMAGE,
             BUBBLE_AI_USE_IMAGE, BUBBLE_USER_ROUNDED_CORNERS_ENABLED, BUBBLE_AI_ROUNDED_CORNERS_ENABLED, KEY_SHOW_THINKING_PROCESS, KEY_SHOW_STATUS_TAGS,
             KEY_SHOW_INPUT_PROCESSING_STATUS, KEY_SHOW_CHAT_FLOATING_DOTS_ANIMATION, USE_CUSTOM_FONT,
             BUBBLE_USER_USE_CUSTOM_FONT, BUBBLE_AI_USE_CUSTOM_FONT
@@ -1614,7 +1777,8 @@ class UserPreferencesManager private constructor(private val context: Context) {
 
     private fun getAllIntThemeKeys(): List<Preferences.Key<Int>> {
         return listOf(
-            CUSTOM_PRIMARY_COLOR, CUSTOM_SECONDARY_COLOR, CUSTOM_APP_BAR_COLOR,
+            CUSTOM_PRIMARY_COLOR, CUSTOM_SECONDARY_COLOR, CUSTOM_NAVIGATION_DRAWER_BACKGROUND_COLOR,
+            CUSTOM_NAVIGATION_DRAWER_ACCENT_COLOR, CUSTOM_APP_BAR_COLOR,
             CUSTOM_STATUS_BAR_COLOR, CHAT_HEADER_HISTORY_ICON_COLOR, CHAT_HEADER_PIP_ICON_COLOR,
             CURSOR_USER_BUBBLE_COLOR, BUBBLE_USER_BUBBLE_COLOR, BUBBLE_AI_BUBBLE_COLOR,
             BUBBLE_USER_TEXT_COLOR, BUBBLE_AI_TEXT_COLOR
@@ -1813,5 +1977,127 @@ class UserPreferencesManager private constructor(private val context: Context) {
 
     suspend fun hasCharacterGroupTheme(characterGroupId: String): Boolean {
         return hasThemeByPrefix(getCharacterGroupThemePrefix(characterGroupId))
+    }
+
+    suspend fun resolveThemePreferenceSnapshot(
+        characterCardId: String? = null,
+        characterGroupId: String? = null
+    ): ThemePreferenceSnapshot {
+        val normalizedGroupId = characterGroupId?.trim()?.takeIf { it.isNotBlank() }
+        val normalizedCardId = characterCardId?.trim()?.takeIf { it.isNotBlank() }
+
+        val sourcePrefix = when {
+            normalizedGroupId != null && hasCharacterGroupTheme(normalizedGroupId) ->
+                "character_group" to getCharacterGroupThemePrefix(normalizedGroupId)
+
+            normalizedCardId != null && hasCharacterCardTheme(normalizedCardId) ->
+                "character_card" to getCharacterCardThemePrefix(normalizedCardId)
+
+            else -> "global" to null
+        }
+
+        val source = sourcePrefix.first
+        val prefix = sourcePrefix.second
+        val sourceId = when (source) {
+            "character_group" -> normalizedGroupId
+            "character_card" -> normalizedCardId
+            else -> null
+        }
+        val preferences = context.userPreferencesDataStore.data.first()
+
+        fun stringValue(key: Preferences.Key<String>, defaultValue: String? = null): String? {
+            val resolvedKey = if (prefix != null) {
+                stringPreferencesKey("${prefix}${key.name}")
+            } else {
+                key
+            }
+            return preferences[resolvedKey] ?: defaultValue
+        }
+
+        fun booleanValue(key: Preferences.Key<Boolean>, defaultValue: Boolean): Boolean {
+            val resolvedKey = if (prefix != null) {
+                booleanPreferencesKey("${prefix}${key.name}")
+            } else {
+                key
+            }
+            return preferences[resolvedKey] ?: defaultValue
+        }
+
+        fun intValue(key: Preferences.Key<Int>): Int? {
+            val resolvedKey = if (prefix != null) {
+                intPreferencesKey("${prefix}${key.name}")
+            } else {
+                key
+            }
+            return preferences[resolvedKey]
+        }
+
+        fun floatValue(key: Preferences.Key<Float>, defaultValue: Float): Float {
+            val resolvedKey = if (prefix != null) {
+                floatPreferencesKey("${prefix}${key.name}")
+            } else {
+                key
+            }
+            return preferences[resolvedKey] ?: defaultValue
+        }
+
+        return ThemePreferenceSnapshot(
+            source = source,
+            sourceId = sourceId,
+            themeMode = stringValue(THEME_MODE, THEME_MODE_LIGHT) ?: THEME_MODE_LIGHT,
+            useSystemTheme = booleanValue(USE_SYSTEM_THEME, true),
+            useCustomColors = booleanValue(USE_CUSTOM_COLORS, false),
+            customPrimaryColor = intValue(CUSTOM_PRIMARY_COLOR),
+            customSecondaryColor = intValue(CUSTOM_SECONDARY_COLOR),
+            onColorMode = stringValue(KEY_ON_COLOR_MODE, ON_COLOR_MODE_AUTO) ?: ON_COLOR_MODE_AUTO,
+            useBackgroundImage = booleanValue(USE_BACKGROUND_IMAGE, false),
+            backgroundImageUri = stringValue(BACKGROUND_IMAGE_URI),
+            backgroundMediaType = stringValue(BACKGROUND_MEDIA_TYPE, MEDIA_TYPE_IMAGE)
+                ?: MEDIA_TYPE_IMAGE,
+            backgroundImageOpacity = floatValue(BACKGROUND_IMAGE_OPACITY, 0.3f),
+            chatHeaderTransparent = booleanValue(CHAT_HEADER_TRANSPARENT, false),
+            chatHeaderOverlayMode = booleanValue(CHAT_HEADER_OVERLAY_MODE, false),
+            chatInputTransparent = booleanValue(CHAT_INPUT_TRANSPARENT, false),
+            chatInputFloating = booleanValue(CHAT_INPUT_FLOATING, false),
+            chatInputLiquidGlass = booleanValue(CHAT_INPUT_LIQUID_GLASS, false),
+            chatInputWaterGlass = booleanValue(CHAT_INPUT_WATER_GLASS, false),
+            chatStyle = stringValue(CHAT_STYLE, CHAT_STYLE_CURSOR) ?: CHAT_STYLE_CURSOR,
+            inputStyle = stringValue(INPUT_STYLE, INPUT_STYLE_AGENT) ?: INPUT_STYLE_AGENT,
+            bubbleShowAvatar = booleanValue(BUBBLE_SHOW_AVATAR, true),
+            bubbleWideLayoutEnabled = booleanValue(BUBBLE_WIDE_LAYOUT_ENABLED, false),
+            cursorUserBubbleFollowTheme = booleanValue(CURSOR_USER_BUBBLE_FOLLOW_THEME, true),
+            cursorUserBubbleColor = intValue(CURSOR_USER_BUBBLE_COLOR),
+            bubbleUserBubbleColor = intValue(BUBBLE_USER_BUBBLE_COLOR),
+            bubbleAiBubbleColor = intValue(BUBBLE_AI_BUBBLE_COLOR),
+            bubbleUserTextColor = intValue(BUBBLE_USER_TEXT_COLOR),
+            bubbleAiTextColor = intValue(BUBBLE_AI_TEXT_COLOR),
+            bubbleUserUseImage = booleanValue(BUBBLE_USER_USE_IMAGE, false),
+            bubbleAiUseImage = booleanValue(BUBBLE_AI_USE_IMAGE, false),
+            bubbleUserImageUri = stringValue(BUBBLE_USER_IMAGE_URI),
+            bubbleAiImageUri = stringValue(BUBBLE_AI_IMAGE_URI),
+            bubbleImageRenderMode =
+                stringValue(
+                    BUBBLE_IMAGE_RENDER_MODE,
+                    BUBBLE_IMAGE_RENDER_MODE_TILED_NINE_SLICE
+                ) ?: BUBBLE_IMAGE_RENDER_MODE_TILED_NINE_SLICE,
+            bubbleUserRoundedCornersEnabled =
+                booleanValue(BUBBLE_USER_ROUNDED_CORNERS_ENABLED, true),
+            bubbleAiRoundedCornersEnabled =
+                booleanValue(BUBBLE_AI_ROUNDED_CORNERS_ENABLED, true),
+            bubbleUserContentPaddingLeft = floatValue(BUBBLE_USER_CONTENT_PADDING_LEFT, 12f),
+            bubbleUserContentPaddingRight = floatValue(BUBBLE_USER_CONTENT_PADDING_RIGHT, 12f),
+            bubbleAiContentPaddingLeft = floatValue(BUBBLE_AI_CONTENT_PADDING_LEFT, 12f),
+            bubbleAiContentPaddingRight = floatValue(BUBBLE_AI_CONTENT_PADDING_RIGHT, 12f),
+            customUserAvatarUri = stringValue(KEY_CUSTOM_USER_AVATAR_URI),
+            customAiAvatarUri = stringValue(KEY_CUSTOM_AI_AVATAR_URI),
+            avatarShape = stringValue(KEY_AVATAR_SHAPE, AVATAR_SHAPE_CIRCLE) ?: AVATAR_SHAPE_CIRCLE,
+            fontType = stringValue(FONT_TYPE, FONT_TYPE_SYSTEM) ?: FONT_TYPE_SYSTEM,
+            systemFontName = stringValue(SYSTEM_FONT_NAME),
+            customFontPath = stringValue(CUSTOM_FONT_PATH),
+            fontScale = floatValue(FONT_SCALE, 1.0f),
+            showThinkingProcess = booleanValue(KEY_SHOW_THINKING_PROCESS, true),
+            showStatusTags = booleanValue(KEY_SHOW_STATUS_TAGS, true),
+            showInputProcessingStatus = booleanValue(KEY_SHOW_INPUT_PROCESSING_STATUS, true)
+        )
     }
 }

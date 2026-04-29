@@ -160,6 +160,7 @@ object DefaultModelPricingCollect {
         "GEMINI_GENERIC" to zeroPricing(PricingCurrency.USD),
         "MISTRAL" to zeroPricing(PricingCurrency.USD),
         "OPENROUTER" to zeroPricing(PricingCurrency.USD),
+        "NOUS_PORTAL" to zeroPricing(PricingCurrency.USD),
         "OTHER" to zeroPricing(PricingCurrency.USD),
         "DEEPSEEK" to zeroPricing(PricingCurrency.CNY),
         "BAIDU" to zeroPricing(PricingCurrency.CNY),

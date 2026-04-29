@@ -52,6 +52,7 @@ interface ToolResultMap {
 - `visit_web` → `VisitWebResultData`
 - `browser_click` → `StringResultData`
 - `browser_close` → `StringResultData`
+- `browser_close_all` → `StringResultData`
 - `browser_console_messages` → `StringResultData`
 - `browser_drag` → `StringResultData`
 - `browser_evaluate` → `StringResultData`
@@ -163,7 +164,6 @@ interface ToolResultMap {
 - `update_chat_title` → `ChatTitleUpdateResultData`
 - `delete_chat` → `ChatDeleteResultData`
 - `send_message_to_ai` → `MessageSendResultData`
-- `send_message_to_ai_advanced` → `MessageSendResultData`
 - `list_character_cards` → `CharacterCardListResultData`
 - `get_chat_messages` → `ChatMessagesResultData`
 

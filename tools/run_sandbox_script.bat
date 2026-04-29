@@ -132,8 +132,12 @@ if errorlevel 1 (
 
 if "%ENV_FILE_PATH%"=="" (
     for %%F in ("%FILE_PATH%") do set "SCRIPT_DIR=%%~dpF"
-    if exist "%SCRIPT_DIR%.env.local" (
-        set "ENV_FILE_PATH=%SCRIPT_DIR%.env.local"
+)
+if "%ENV_FILE_PATH%"=="" (
+    if defined SCRIPT_DIR (
+        if exist "%SCRIPT_DIR%.env.local" (
+            set "ENV_FILE_PATH=%SCRIPT_DIR%.env.local"
+        )
     )
 )
 
@@ -142,14 +146,16 @@ set "HAS_ENV_FILE=false"
 if not "%ENV_FILE_PATH%"=="" (
     if exist "%ENV_FILE_PATH%" (
         for %%E in ("%ENV_FILE_PATH%") do set "TARGET_ENV_FILE=%TARGET_DIR%/%%~nxE"
-        echo Pushing env file [%ENV_FILE_PATH%] to device...
-        adb -s "%DEVICE_SERIAL%" push "%ENV_FILE_PATH%" "%TARGET_ENV_FILE%"
-        if errorlevel 1 (
-            echo Error: Failed to push env file
-            exit /b 1
-        )
-        set "HAS_ENV_FILE=true"
     )
+)
+if defined TARGET_ENV_FILE (
+    echo Pushing env file [%ENV_FILE_PATH%] to device...
+    adb -s "%DEVICE_SERIAL%" push "%ENV_FILE_PATH%" "%TARGET_ENV_FILE%"
+    if errorlevel 1 (
+        echo Error: Failed to push env file
+        exit /b 1
+    )
+    set "HAS_ENV_FILE=true"
 )
 
 call :prepare_params_file

@@ -28,6 +28,11 @@ description: 用于 Operit Sandbox Package 开发。
 ```text
 /sdcard/Download/Operit/skills/SandboxPackage_DEV/
   SKILL.md
+  examples/
+    packages/
+      12306.js
+      operit_editor.js
+      ...
   references/
     SCRIPT_DEV_GUIDE.md
     TOOLPKG_FORMAT_GUIDE.md
@@ -54,13 +59,22 @@ description: 用于 Operit Sandbox Package 开发。
 
 - 创建 `SandboxPackage_DEV` 目录
 - 下载并更新 `SKILL.md`
+- 同步并更新 `examples/packages/` 下的示范文件
 - 下载并更新 `references/SCRIPT_DEV_GUIDE.md`
 - 下载并更新 `references/TOOLPKG_FORMAT_GUIDE.md`
 - 下载并更新 `types/` 下全部类型文件
 
+其中 `examples/packages/` 里的内容是 Operit 当前内置的包和脚本示范文件。
+
+- 它们主要用于参考写法，不是让你直接在这里改线上生效
+- 当你要自定义自己的 Sandbox Package 时，可以把这些文件当作示例来对照结构、元数据、工具实现方式和返回格式
+- 如果内置包更新了，重新运行安装脚本即可把这些示范文件同步到本地 skill 里
+
 更新时按下面规则处理：
 
-1. 每次正式开始新的 Sandbox Package 开发任务前，优先重新下载一次安装脚本并重新运行
+1. 每次正式开始新的 Sandbox Package 开发任务前，必须优先重新下载一次安装脚本，再重新运行本地脚本
+   - 安装脚本下载地址：`https://cdn.jsdelivr.net/gh/AAswordman/Operit@main/tools/sandboxpackage_dev_install_or_update.js`
+   - 安装脚本保存位置：`/sdcard/Download/Operit/skills/SandboxPackage_DEV/scripts/install_or_update.js`
 2. 如果怀疑两份 guide 文档、types 或 `SKILL.md` 已经过旧，也重新运行这个脚本
 3. 如果本地 skill 目录缺文件、文件名不对、或者内容明显陈旧，不要手动零散修补，直接重跑安装脚本
 
@@ -111,14 +125,28 @@ description: 用于 Operit Sandbox Package 开发。
 6. 需要普通脚本格式、元数据、示例写法时，再查 `references/SCRIPT_DEV_GUIDE.md`
 7. 需要 `ToolPkg` 的 `manifest`、目录结构、资源、UI 模块、注册函数与调试安装流程时，再查 `references/TOOLPKG_FORMAT_GUIDE.md`
 
+另外，`examples/packages/` 也应该被当作第一手示范材料来看。
+
+- 这里放的是 Operit 内置的包和脚本副本
+- 当你准备自己写一个普通 `.js` 包或想参考已有工具设计时，优先翻这些示范文件
+- 它们特别适合拿来参考：`METADATA` 写法、工具命名、参数结构、结果结构、Java bridge 用法，以及一些实际项目里的组织方式
+- 如果要写新的 ToolPkg 模板能力，可以优先参考 `examples/template_try/`
+  - 这个示例专门演示了 `workflow_templates`、`workspace_templates`、目录资源、`.operit/config.json` 以及最小 `main.ts`
+
 推荐的撰写流程：
 
 1. 先默认按普通 `.js` Sandbox Package 思路设计，确认是不是仅靠普通包脚本就能完成
-2. 如果需求明确涉及配置界面或软件 hook，再切换到 `ToolPkg` 方案
-3. 如果是普通 JS Sandbox Package，先用 `grep_code` 在 `SCRIPT_DEV_GUIDE.md` 里搜索 `METADATA`、`tool`、`execute`、`package` 等关键字
-4. 如果是 `ToolPkg`，用 `grep_code` 在 `TOOLPKG_FORMAT_GUIDE.md` 里搜索 `manifest`、`subpackage`、`registerToolPkg`、`resource`、`ui`、`debug_toolpkg`、`hook` 等关键字
-5. 用 `read_file_part` 读取相关段落，确认脚本结构、元数据、manifest 和注册写法
-6. 用 `types/` 里的定义约束参数、返回值、可调用能力和结果结构
-7. 开始写包时，优先遵循最新本地 types 和本地 guide，不要依赖旧记忆
+2. 在正式开始实现前，先检查现有接口、类型定义和工具能力是否足够支撑需求
+3. 如果能力不足、接口缺失，或者无法安全满足需求，不要硬做；先明确解释原因，再询问用户是否更换方案
+4. 如果需求明确涉及配置界面或软件 hook，再切换到 `ToolPkg` 方案
+5. 如果是普通 JS Sandbox Package，先用 `grep_code` 在 `SCRIPT_DEV_GUIDE.md` 里搜索 `METADATA`、`tool`、`execute`、`package` 等关键字
+6. 可以优先参考 `examples/` 或 `examples/packages/` 里已经存在的包，借鉴相近能力的结构、元数据、参数设计和返回格式
+7. 如果是 `ToolPkg`，用 `grep_code` 在 `TOOLPKG_FORMAT_GUIDE.md` 里搜索 `manifest`、`subpackage`、`registerToolPkg`、`resource`、`ui`、`debug_toolpkg`、`hook` 等关键字
+   - 如果目标就是模板注册，还应额外搜索 `workflow_templates`、`workspace_templates`、`project_type`
+8. 用 `read_file_part` 读取相关段落，确认脚本结构、元数据、manifest 和注册写法
+9. 用 `types/` 里的定义约束参数、返回值、可调用能力和结果结构
+10. 如果对代码片段或接口行为不确定，先用 `operit_editor` 的 `debug_run_sandbox_script` 做最小片段验证，再并回正式脚本或 ToolPkg
+11. 开始写包时，优先遵循最新本地 types 和本地 guide，不要依赖旧记忆
+12. 如果最终产物是普通 JS 包脚本，需要根据需求撰写 `main` 函数，并在交付前自行完成测试
 
 如果写到一半发现本地类型和实际需求对不上，先不要硬猜，先重新运行安装脚本，再继续写。

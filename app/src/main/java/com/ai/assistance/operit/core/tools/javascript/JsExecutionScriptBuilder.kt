@@ -108,9 +108,73 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
                 return !!value;
             }
 
+            function normalizeSerializableValue(value, seen) {
+                if (
+                    value == null ||
+                    typeof value === 'string' ||
+                    typeof value === 'number' ||
+                    typeof value === 'boolean'
+                ) {
+                    return value;
+                }
+                if (typeof value === 'bigint') {
+                    return text(value);
+                }
+                if (typeof value === 'function') {
+                    return text(value);
+                }
+                if (typeof value !== 'object') {
+                    return text(value);
+                }
+
+                if (!seen) {
+                    seen = [];
+                }
+                if (seen.indexOf(value) >= 0) {
+                    return '[Circular]';
+                }
+                seen.push(value);
+
+                try {
+                    if (typeof value.toJSON === 'function') {
+                        return normalizeSerializableValue(value.toJSON(), seen);
+                    }
+
+                    if (Array.isArray(value)) {
+                        return value.map(function(item) {
+                            return normalizeSerializableValue(item, seen);
+                        });
+                    }
+
+                    if (
+                        Object.prototype.hasOwnProperty.call(value, '__javaHandle') &&
+                        Object.prototype.hasOwnProperty.call(value, '__javaClass')
+                    ) {
+                        return {
+                            __javaHandle: text(value.__javaHandle),
+                            __javaClass: text(value.__javaClass)
+                        };
+                    }
+
+                    var out = {};
+                    var keys = Object.keys(value);
+                    for (var i = 0; i < keys.length; i += 1) {
+                        var key = keys[i];
+                        out[key] = normalizeSerializableValue(value[key], seen);
+                    }
+                    return out;
+                } finally {
+                    seen.pop();
+                }
+            }
+
+            function serializeOrThrow(value) {
+                return JSON.stringify(normalizeSerializableValue(value, []));
+            }
+
             function safeSerialize(value) {
                 try {
-                    return JSON.stringify(value);
+                    return serializeOrThrow(value);
                 } catch (error) {
                     return JSON.stringify({
                         error: 'Failed to serialize value',
@@ -335,6 +399,8 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
                 var safeTimeoutSec = Math.max(1, Number(timeoutSec) || 1);
                 var safePreTimeoutMs = Math.max(1000, Number(preTimeoutMs) || 1000);
                 var callState = registerCallSession(callId, params);
+                var previousCallId = root.__operitCurrentCallId;
+                var previousCallRuntime = root.__operit_call_runtime_ref;
                 root.__operitCurrentCallId = callId;
 
                 function markStage(stage) {
@@ -380,7 +446,22 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
                 function finalizeCall() {
                     clearExecutionTimeouts();
                     if (root.__operitCurrentCallId === callId) {
-                        root.__operitCurrentCallId = '';
+                        root.__operitCurrentCallId =
+                            typeof previousCallId === 'string' ? previousCallId : '';
+                    }
+                    if (root.__operit_call_runtime_ref === callRuntime) {
+                        if (
+                            previousCallRuntime &&
+                            typeof previousCallRuntime === 'object'
+                        ) {
+                            root.__operit_call_runtime_ref = previousCallRuntime;
+                        } else {
+                            try {
+                                delete root.__operit_call_runtime_ref;
+                            } catch (_deleteRuntimeError) {
+                                root.__operit_call_runtime_ref = null;
+                            }
+                        }
                     }
                     if (typeof root.__operitCleanupCallSession === 'function') {
                         root.__operitCleanupCallSession(callId);
@@ -448,7 +529,18 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
                 }
 
                 function complete(value) {
-                    emitSerializedResult(safeSerialize(normalizeComposeResult(value)));
+                    try {
+                        emitSerializedResult(serializeOrThrow(normalizeComposeResult(value)));
+                    } catch (error) {
+                        var report = callRuntimeReport(error, 'Result Serialization Failure');
+                        emitError(
+                            JSON.stringify({
+                                error: 'Result serialization failed',
+                                details: report.details,
+                                formatted: report.formatted
+                            })
+                        );
+                    }
                 }
 
                 function handleAsync(value) {

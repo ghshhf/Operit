@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.ai.assistance.operit.R
+import com.ai.assistance.operit.api.chat.AIForegroundService
 import com.ai.assistance.operit.core.tools.system.AndroidPermissionLevel
 import com.ai.assistance.operit.data.preferences.AndroidPermissionPreferences
 import com.ai.assistance.operit.data.preferences.ApiPreferences
@@ -51,19 +52,23 @@ fun GlobalDisplaySettingsScreen(
     val showModelName by displayPreferencesManager.showModelName.collectAsState(initial = false)
     val showRoleName by displayPreferencesManager.showRoleName.collectAsState(initial = false)
     val showUserName by displayPreferencesManager.showUserName.collectAsState(initial = false)
+    val showMessageTokenStats by displayPreferencesManager.showMessageTokenStats.collectAsState(initial = false)
+    val showMessageTimingStats by displayPreferencesManager.showMessageTimingStats.collectAsState(initial = false)
     val toolCollapseMode by displayPreferencesManager.toolCollapseMode.collectAsState(initial = ToolCollapseMode.ALL)
     val showFpsCounter by displayPreferencesManager.showFpsCounter.collectAsState(initial = false)
     val enableReplyNotification by displayPreferencesManager.enableReplyNotification.collectAsState(initial = true)
     val enableReplyNotificationSound by displayPreferencesManager.enableReplyNotificationSound.collectAsState(initial = false)
     val enableReplyNotificationVibration by displayPreferencesManager.enableReplyNotificationVibration.collectAsState(initial = false)
     val enableEnterToSend by displayPreferencesManager.enableEnterToSend.collectAsState(initial = false)
+    val enableNavigationAnimation by displayPreferencesManager.enableNavigationAnimation.collectAsState(initial = true)
+    val enableBackgroundKeepAlive by displayPreferencesManager.enableBackgroundKeepAlive.collectAsState(initial = false)
     val enableExperimentalVirtualDisplay by displayPreferencesManager.enableExperimentalVirtualDisplay.collectAsState(initial = true)
     val hideRuntimeTaskView by displayPreferencesManager.hideRuntimeTaskView.collectAsState(initial = false)
     val globalUserName by displayPreferencesManager.globalUserName.collectAsState(initial = null)
     val globalUserAvatarUri by displayPreferencesManager.globalUserAvatarUri.collectAsState(initial = null)
-    val screenshotFormat by displayPreferencesManager.screenshotFormat.collectAsState(initial = "PNG")
-    val screenshotQuality by displayPreferencesManager.screenshotQuality.collectAsState(initial = 90)
-    val screenshotScalePercent by displayPreferencesManager.screenshotScalePercent.collectAsState(initial = 100)
+    val screenshotFormat by displayPreferencesManager.screenshotFormat.collectAsState(initial = "JPG")
+    val screenshotQuality by displayPreferencesManager.screenshotQuality.collectAsState(initial = 75)
+    val screenshotScalePercent by displayPreferencesManager.screenshotScalePercent.collectAsState(initial = 75)
     val visitWebWaitSeconds by displayPreferencesManager.visitWebWaitSeconds.collectAsState(initial = 0)
     val virtualDisplayBitrateKbps by displayPreferencesManager.virtualDisplayBitrateKbps.collectAsState(initial = 3000)
     val keepScreenOn by apiPreferences.keepScreenOnFlow.collectAsState(initial = true)
@@ -71,6 +76,9 @@ fun GlobalDisplaySettingsScreen(
 
     val hasBackgroundImage by userPreferences.useBackgroundImage.collectAsState(initial = false)
     val uiAccessibilityMode by userPreferences.uiAccessibilityMode.collectAsState(initial = false)
+    val softwareIdentity by userPreferences.softwareIdentity.collectAsState(
+        initial = UserPreferencesManager.SOFTWARE_IDENTITY_OPERIT
+    )
     val preferredPermissionLevel by androidPermissionPreferences.preferredPermissionLevelFlow.collectAsState(initial = null)
     val rootExecutionMode by androidPermissionPreferences.rootExecutionModeFlow.collectAsState(initial = RootCommandExecutionMode.AUTO)
     val customSuCommand by androidPermissionPreferences.customSuCommandFlow.collectAsState(initial = AndroidPermissionPreferences.DEFAULT_SU_COMMAND)
@@ -226,6 +234,30 @@ fun GlobalDisplaySettingsScreen(
                 onCheckedChange = {
                     scope.launch {
                         displayPreferencesManager.saveDisplaySettings(showUserName = it)
+                    }
+                },
+                backgroundColor = componentBackgroundColor
+            )
+
+            DisplayToggleItem(
+                title = stringResource(R.string.show_message_token_stats),
+                subtitle = stringResource(R.string.show_message_token_stats_description),
+                checked = showMessageTokenStats,
+                onCheckedChange = {
+                    scope.launch {
+                        displayPreferencesManager.saveDisplaySettings(showMessageTokenStats = it)
+                    }
+                },
+                backgroundColor = componentBackgroundColor
+            )
+
+            DisplayToggleItem(
+                title = stringResource(R.string.show_message_timing_stats),
+                subtitle = stringResource(R.string.show_message_timing_stats_description),
+                checked = showMessageTimingStats,
+                onCheckedChange = {
+                    scope.launch {
+                        displayPreferencesManager.saveDisplaySettings(showMessageTimingStats = it)
                     }
                 },
                 backgroundColor = componentBackgroundColor
@@ -387,6 +419,20 @@ fun GlobalDisplaySettingsScreen(
                 backgroundColor = componentBackgroundColor
             )
 
+            DisplayToggleItem(
+                title = stringResource(R.string.enable_navigation_animation),
+                subtitle = stringResource(R.string.enable_navigation_animation_description),
+                checked = enableNavigationAnimation,
+                onCheckedChange = {
+                    scope.launch {
+                        displayPreferencesManager.saveDisplaySettings(
+                            enableNavigationAnimation = it
+                        )
+                    }
+                },
+                backgroundColor = componentBackgroundColor
+            )
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -483,6 +529,55 @@ fun GlobalDisplaySettingsScreen(
                 }
             }
 
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(componentBackgroundColor)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = stringResource(id = R.string.software_identity_title),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = stringResource(id = R.string.software_identity_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = softwareIdentity == UserPreferencesManager.SOFTWARE_IDENTITY_OPERIT,
+                        onClick = {
+                            if (softwareIdentity != UserPreferencesManager.SOFTWARE_IDENTITY_OPERIT) {
+                                scope.launch {
+                                    userPreferences.saveSoftwareIdentity(UserPreferencesManager.SOFTWARE_IDENTITY_OPERIT)
+                                }
+                            }
+                        },
+                        label = { Text(stringResource(id = R.string.software_identity_option_operit)) }
+                    )
+                    FilterChip(
+                        selected = softwareIdentity == UserPreferencesManager.SOFTWARE_IDENTITY_LINGSHU,
+                        onClick = {
+                            if (softwareIdentity != UserPreferencesManager.SOFTWARE_IDENTITY_LINGSHU) {
+                                scope.launch {
+                                    userPreferences.saveSoftwareIdentity(UserPreferencesManager.SOFTWARE_IDENTITY_LINGSHU)
+                                }
+                            }
+                        },
+                        label = { Text(stringResource(id = R.string.software_identity_option_lingshu)) }
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // ======= 自动化状态指示样式 =======
@@ -498,6 +593,21 @@ fun GlobalDisplaySettingsScreen(
                 onCheckedChange = {
                     scope.launch {
                         userPreferences.saveUiAccessibilityMode(it)
+                    }
+                },
+                backgroundColor = componentBackgroundColor
+            )
+
+            DisplayToggleItem(
+                title = stringResource(R.string.enable_background_keep_alive),
+                subtitle = stringResource(R.string.enable_background_keep_alive_description),
+                checked = enableBackgroundKeepAlive,
+                onCheckedChange = {
+                    scope.launch {
+                        displayPreferencesManager.saveDisplaySettings(
+                            enableBackgroundKeepAlive = it
+                        )
+                        AIForegroundService.refreshBackgroundKeepAlive(context)
                     }
                 },
                 backgroundColor = componentBackgroundColor

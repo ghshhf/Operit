@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -43,6 +45,7 @@ import com.ai.assistance.operit.core.tools.defaultTool.websession.browser.WebSes
 import com.ai.assistance.operit.core.tools.defaultTool.websession.browser.WebSessionBrowserHostState
 import com.ai.assistance.operit.core.tools.defaultTool.websession.browser.WebSessionBrowserSheetRoute
 import com.ai.assistance.operit.core.tools.defaultTool.websession.browser.WebSessionHistoryEntry
+import com.ai.assistance.operit.core.tools.defaultTool.websession.browser.WebSessionPendingDialogState
 import com.ai.assistance.operit.core.tools.defaultTool.websession.browser.WebSessionWebViewHost
 import com.ai.assistance.operit.core.tools.defaultTool.websession.userscript.ui.WebSessionUserscriptUiState
 import java.util.Locale
@@ -89,6 +92,7 @@ internal fun WebSessionBrowserScreen(
     onOpenDownloadLocation: (String) -> Unit,
     onConfirmExternalOpen: (String) -> Unit,
     onCancelExternalOpen: (String) -> Unit,
+    onHandlePendingDialog: (Boolean, String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val browserState = hostState.browserState
@@ -131,6 +135,9 @@ internal fun WebSessionBrowserScreen(
         }
     }
     val activeSheetRoute = hostState.sheetRoute
+    var promptDraft by remember(browserState.pendingDialog?.message, browserState.pendingDialog?.defaultValue) {
+        mutableStateOf(browserState.pendingDialog?.defaultValue.orEmpty())
+    }
 
     Box(
         modifier =
@@ -393,6 +400,86 @@ internal fun WebSessionBrowserScreen(
                     onOpenDownloadedFile = onOpenDownloadedFile,
                     onOpenDownloadLocation = onOpenDownloadLocation
                 )
+            }
+        }
+
+        browserState.pendingDialog?.let { pendingDialog ->
+            PendingDialogOverlay(
+                dialog = pendingDialog,
+                promptValue = promptDraft,
+                onPromptValueChange = { promptDraft = it },
+                onConfirm = {
+                    onHandlePendingDialog(true, promptDraft)
+                },
+                onDismiss = {
+                    onHandlePendingDialog(false, null)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PendingDialogOverlay(
+    dialog: WebSessionPendingDialogState,
+    promptValue: String,
+    onPromptValueChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.52f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier.padding(horizontal = 20.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 2.dp,
+            shadowElevation = 6.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text =
+                        when (dialog.type.lowercase(Locale.ROOT)) {
+                            "confirm" -> stringResource(R.string.web_session_dialog_title_confirm)
+                            "prompt" -> stringResource(R.string.web_session_dialog_title_prompt)
+                            else -> stringResource(R.string.web_session_dialog_title_alert)
+                        },
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = dialog.message.ifBlank { stringResource(R.string.web_session_dialog_empty_message) },
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                if (dialog.type.equals("prompt", ignoreCase = true)) {
+                    OutlinedTextField(
+                        value = promptValue,
+                        onValueChange = onPromptValueChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = false
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    if (!dialog.type.equals("alert", ignoreCase = true)) {
+                        TextButton(onClick = onDismiss) {
+                            Text(text = stringResource(android.R.string.cancel))
+                        }
+                    }
+                    TextButton(onClick = onConfirm) {
+                        Text(text = stringResource(android.R.string.ok))
+                    }
+                }
             }
         }
     }

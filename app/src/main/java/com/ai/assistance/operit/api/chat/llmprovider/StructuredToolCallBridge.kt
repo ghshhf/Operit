@@ -2,7 +2,6 @@ package com.ai.assistance.operit.api.chat.llmprovider
 
 import com.ai.assistance.operit.core.chat.hooks.PromptTurn
 import com.ai.assistance.operit.core.chat.hooks.PromptTurnKind
-import com.ai.assistance.operit.core.chat.hooks.mergeAdjacentTurns
 import com.ai.assistance.operit.data.model.ToolParameterSchema
 import com.ai.assistance.operit.data.model.ToolPrompt
 import com.ai.assistance.operit.util.ChatMarkupRegex
@@ -12,6 +11,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal object StructuredToolCallBridge {
+    private enum class ProviderHistoryBlockType {
+        ASSISTANT,
+        USER_INPUT,
+        TOOL_RESULT
+    }
+
     private data class ToolResultRecord(
         val name: String?,
         val content: String
@@ -32,6 +37,74 @@ internal object StructuredToolCallBridge {
         return buildStructuredMessages(history, preserveThinkInHistory).toString()
     }
 
+    fun compileHistoryForProvider(
+        history: List<PromptTurn>,
+        useToolCall: Boolean
+    ): List<PromptTurn> {
+        if (history.isEmpty()) {
+            return history
+        }
+
+        val compiled = mutableListOf<PromptTurn>()
+        var currentBlockType: ProviderHistoryBlockType? = null
+        var currentContent = StringBuilder()
+        var currentMetadata: Map<String, Any?> = emptyMap()
+
+        fun flushCurrentBlock() {
+            val blockType = currentBlockType ?: return
+            compiled.add(
+                PromptTurn(
+                    kind =
+                        when (blockType) {
+                            ProviderHistoryBlockType.ASSISTANT -> PromptTurnKind.ASSISTANT
+                            ProviderHistoryBlockType.USER_INPUT -> PromptTurnKind.USER
+                            ProviderHistoryBlockType.TOOL_RESULT ->
+                                if (useToolCall) PromptTurnKind.TOOL_RESULT else PromptTurnKind.USER
+                        },
+                    content = currentContent.toString().trim(),
+                    metadata = currentMetadata
+                )
+            )
+            currentBlockType = null
+            currentContent = StringBuilder()
+            currentMetadata = emptyMap()
+        }
+
+        fun appendToBlock(blockType: ProviderHistoryBlockType, turn: PromptTurn) {
+            if (currentBlockType != blockType) {
+                flushCurrentBlock()
+                currentBlockType = blockType
+            }
+            val trimmedContent = turn.content.trim()
+            if (trimmedContent.isNotEmpty()) {
+                if (currentContent.isNotEmpty()) {
+                    currentContent.append("\n")
+                }
+                currentContent.append(trimmedContent)
+            }
+            if (turn.metadata.isNotEmpty()) {
+                currentMetadata = currentMetadata + turn.metadata
+            }
+        }
+
+        for (turn in history) {
+            when (turn.kind) {
+                PromptTurnKind.SYSTEM -> {
+                    flushCurrentBlock()
+                    compiled.add(turn)
+                }
+                PromptTurnKind.ASSISTANT,
+                PromptTurnKind.TOOL_CALL -> appendToBlock(ProviderHistoryBlockType.ASSISTANT, turn)
+                PromptTurnKind.TOOL_RESULT -> appendToBlock(ProviderHistoryBlockType.TOOL_RESULT, turn)
+                PromptTurnKind.USER,
+                PromptTurnKind.SUMMARY -> appendToBlock(ProviderHistoryBlockType.USER_INPUT, turn)
+            }
+        }
+
+        flushCurrentBlock()
+        return compiled
+    }
+
     fun convertToolCallPayloadToXml(content: String): String {
         if (content.isBlank()) {
             return content
@@ -50,7 +123,7 @@ internal object StructuredToolCallBridge {
         history: List<PromptTurn>,
         preserveThinkInHistory: Boolean
     ): JSONArray {
-        val mergedHistory = mergeConsecutiveMessages(history)
+        val mergedHistory = compileHistoryForProvider(history, useToolCall = true)
         val messagesArray = JSONArray()
         var queuedAssistantToolText: String? = null
         var queuedToolCalls = JSONArray()
@@ -247,11 +320,6 @@ internal object StructuredToolCallBridge {
         flushOpenToolCallsAsCancelled()
         return messagesArray
     }
-
-    private fun mergeConsecutiveMessages(history: List<PromptTurn>): List<PromptTurn> {
-        return history.mergeAdjacentTurns()
-    }
-
     private fun nonEmptyContent(content: String): String {
         return if (content.isBlank()) "[Empty]" else content
     }

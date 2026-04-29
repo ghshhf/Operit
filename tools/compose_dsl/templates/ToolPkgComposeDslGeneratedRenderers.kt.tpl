@@ -3,8 +3,10 @@ package com.ai.assistance.operit.ui.common.composedsl
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -37,12 +39,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.sp
+import coil.compose.rememberAsyncImagePainter
 import com.ai.assistance.operit.core.tools.packTool.ToolPkgComposeDslNode
 import com.ai.assistance.operit.core.tools.packTool.ToolPkgComposeDslParser
 
@@ -51,46 +56,173 @@ import com.ai.assistance.operit.core.tools.packTool.ToolPkgComposeDslParser
  * Do not edit manually. Regenerate via tools/compose_dsl/generate_compose_dsl_artifacts.py.
  */
 @Composable
-internal fun renderNodeChildren(
-    node: ToolPkgComposeDslNode,
+internal fun defaultComposeDslModifierResolver(
+    base: Modifier,
+    props: Map<String, Any?>
+): Modifier {
+    return applyCommonModifier(base, props)
+}
+
+@Composable
+internal fun RowScope.rowComposeDslModifierResolver(
+    base: Modifier,
+    props: Map<String, Any?>
+): Modifier {
+    var modifier = applyCommonModifier(base, props)
+    val weight = props.floatOrNull("weight")
+    if (weight != null) {
+        modifier = modifier.weight(weight, props.bool("weightFill", true))
+    }
+    val alignToken = props.scopeAlignToken()
+    if (alignToken != null) {
+        modifier = modifier.align(verticalAlignmentFromToken(alignToken))
+    }
+    return modifier
+}
+
+@Composable
+internal fun ColumnScope.columnComposeDslModifierResolver(
+    base: Modifier,
+    props: Map<String, Any?>
+): Modifier {
+    var modifier = applyCommonModifier(base, props)
+    val weight = props.floatOrNull("weight")
+    if (weight != null) {
+        modifier = modifier.weight(weight, props.bool("weightFill", true))
+    }
+    val alignToken = props.scopeAlignToken()
+    if (alignToken != null) {
+        modifier = modifier.align(horizontalAlignmentFromToken(alignToken))
+    }
+    return modifier
+}
+
+@Composable
+internal fun BoxScope.boxComposeDslModifierResolver(
+    base: Modifier,
+    props: Map<String, Any?>
+): Modifier {
+    var modifier = applyCommonModifier(base, props)
+    val alignToken = props.scopeAlignToken()
+    if (alignToken != null) {
+        modifier = modifier.align(boxAlignmentFromToken(alignToken))
+    }
+    return modifier
+}
+
+@Composable
+internal fun applyScopedCommonModifier(
+    base: Modifier,
+    props: Map<String, Any?>,
+    modifierResolver: ComposeDslModifierResolver
+): Modifier {
+    return applyComposeDslNodeDebugLayoutModifier(modifierResolver(base, props))
+}
+
+@Composable
+internal fun renderComposeDslNodes(
+    nodes: List<ToolPkgComposeDslNode>,
     onAction: (String, Any?) -> Unit,
-    nodePath: String
+    nodePath: String,
+    modifierResolver: ComposeDslModifierResolver = { base, props ->
+        defaultComposeDslModifierResolver(base, props)
+    }
 ) {
-    node.children.forEachIndexed { index, child ->
+    nodes.forEachIndexed { index, child ->
         val childPath = "$nodePath/$index"
         renderComposeDslNode(
             node = child,
             onAction = onAction,
-            nodePath = childPath
+            nodePath = childPath,
+            modifierResolver = modifierResolver
         )
     }
 }
 
 @Composable
-internal fun ColumnScope.renderWeightedNodeChildren(
+internal fun renderNodeChildren(
+    node: ToolPkgComposeDslNode,
+    onAction: (String, Any?) -> Unit,
+    nodePath: String,
+    modifierResolver: ComposeDslModifierResolver = { base, props ->
+        defaultComposeDslModifierResolver(base, props)
+    }
+) {
+    renderComposeDslNodes(node.children, onAction, nodePath, modifierResolver)
+}
+
+private fun ToolPkgComposeDslNode.slotChildren(
+    slotName: String,
+    fallbackToChildren: Boolean = false
+): List<ToolPkgComposeDslNode> {
+    val normalizedSlotName = slotName.trim()
+    val slotNodes =
+        if (normalizedSlotName.isBlank()) {
+            emptyList()
+        } else {
+            slots[normalizedSlotName].orEmpty()
+        }
+    if (slotNodes.isNotEmpty()) {
+        return slotNodes
+    }
+    return if (fallbackToChildren) children else emptyList()
+}
+
+@Composable
+internal fun renderSlotChildren(
+    node: ToolPkgComposeDslNode,
+    slotName: String,
+    onAction: (String, Any?) -> Unit,
+    nodePath: String,
+    modifierResolver: ComposeDslModifierResolver = { base, props ->
+        defaultComposeDslModifierResolver(base, props)
+    },
+    fallbackToChildren: Boolean = false
+) {
+    val slotNodes = node.slotChildren(slotName, fallbackToChildren)
+    renderComposeDslNodes(slotNodes, onAction, "$nodePath:$slotName", modifierResolver)
+}
+
+@Composable
+internal fun RowScope.renderRowScopeNodeChildren(
     node: ToolPkgComposeDslNode,
     onAction: (String, Any?) -> Unit,
     nodePath: String
 ) {
-    node.children.forEachIndexed { index, child ->
-        val childPath = "$nodePath/$index"
-        val childWeight = child.props.floatOrNull("weight")
-        if (childWeight != null) {
-            Box(modifier = Modifier.weight(childWeight)) {
-                renderComposeDslNode(
-                    node = child,
-                    onAction = onAction,
-                    nodePath = childPath
-                )
-            }
-        } else {
-            renderComposeDslNode(
-                node = child,
-                onAction = onAction,
-                nodePath = childPath
-            )
-        }
-    }
+    renderNodeChildren(
+        node = node,
+        onAction = onAction,
+        nodePath = nodePath,
+        modifierResolver = { base, props -> rowComposeDslModifierResolver(base, props) }
+    )
+}
+
+@Composable
+internal fun ColumnScope.renderColumnScopeNodeChildren(
+    node: ToolPkgComposeDslNode,
+    onAction: (String, Any?) -> Unit,
+    nodePath: String
+) {
+    renderNodeChildren(
+        node = node,
+        onAction = onAction,
+        nodePath = nodePath,
+        modifierResolver = { base, props -> columnComposeDslModifierResolver(base, props) }
+    )
+}
+
+@Composable
+internal fun BoxScope.renderBoxScopeNodeChildren(
+    node: ToolPkgComposeDslNode,
+    onAction: (String, Any?) -> Unit,
+    nodePath: String
+) {
+    renderNodeChildren(
+        node = node,
+        onAction = onAction,
+        nodePath = nodePath,
+        modifierResolver = { base, props -> boxComposeDslModifierResolver(base, props) }
+    )
 }
 
 private fun ToolPkgComposeDslNode.autoScrollSignature(): Int {
@@ -102,34 +234,15 @@ private fun ToolPkgComposeDslNode.autoScrollSignature(): Int {
     children.forEach { child ->
         result = 31 * result + child.autoScrollSignature()
     }
-    return result
-}
-
-@Composable
-internal fun RowScope.renderWeightedNodeChildren(
-    node: ToolPkgComposeDslNode,
-    onAction: (String, Any?) -> Unit,
-    nodePath: String
-) {
-    node.children.forEachIndexed { index, child ->
-        val childPath = "$nodePath/$index"
-        val childWeight = child.props.floatOrNull("weight")
-        if (childWeight != null) {
-            Box(modifier = Modifier.weight(childWeight)) {
-                renderComposeDslNode(
-                    node = child,
-                    onAction = onAction,
-                    nodePath = childPath
-                )
-            }
-        } else {
-            renderComposeDslNode(
-                node = child,
-                onAction = onAction,
-                nodePath = childPath
-            )
+    result = 31 * result + slots.size
+    slots.toSortedMap().forEach { (slotName, slotChildren) ->
+        result = 31 * result + slotName.hashCode()
+        result = 31 * result + slotChildren.size
+        slotChildren.forEach { child ->
+            result = 31 * result + child.autoScrollSignature()
         }
     }
+    return result
 }
 
 // __GENERATED_COMPONENT_RENDERERS__

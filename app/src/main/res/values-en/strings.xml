@@ -231,7 +231,7 @@
     <string name="workflow_enabled_label">Enable workflow</string>
     <string name="workflow_disabled">Disabled</string>
 
-    <string name="problem_library_question">Question:</string>
+    <string name="memory_analysis_question">Question:</string>
     <string name="url_tab_chat">Chat</string>
     <string name="url_tab_projects">Projects</string>
     <string name="url_tab_artifacts">Artifacts</string>
@@ -259,6 +259,7 @@
     <string name="workflow_trigger_type_tasker">Tasker</string>
     <string name="workflow_trigger_type_intent">Intent</string>
     <string name="workflow_trigger_type_speech">Speech</string>
+    <string name="workflow_trigger_type_app_open">On App Open</string>
     <string name="workflow_trigger_fallback">Trigger</string>
 
     <string name="workflow_execute_config_title">Execution Config</string>
@@ -312,6 +313,7 @@
     <string name="workflow_trigger_config_json_label">Trigger config (JSON)</string>
     <string name="workflow_trigger_config_json_placeholder">{"key": "value"}</string>
     <string name="workflow_speech_trigger_help">Note: Speech trigger matches pattern against the background STT (speech-to-text) output events (partial/final). You must enable “Always listen” and set wake-up recognition mode to “STT”. If you are using “Personalized template wake-up”, no STT text events are produced, so this trigger will not work.</string>
+    <string name="workflow_app_open_trigger_help">Note: This trigger fires only on the first screen entry after a cold start, including launcher icon opens and external launches. Returning from background will not trigger it.</string>
 
     <string name="workflow_select_predecessor_node">Select predecessor node</string>
     <string name="workflow_no_available_predecessor_nodes">No available predecessor nodes</string>
@@ -708,6 +710,8 @@
 
     <!-- Context Menu -->
     <string name="copy_message">Copy Message</string>
+    <string name="chat_hidden_user_message_placeholder">Auto-triggered user message (content hidden)</string>
+    <string name="chat_hidden_user_message_badge">AUTO</string>
     <string name="info">Info</string>
     <string name="read_message">Read Message</string>
     <string name="auto_read_message">Auto Read</string>
@@ -722,10 +726,10 @@
     <string name="manage_packages">Manage Packages</string>
     <string name="disable_user_preference_description">Disable User Preference Description</string>
     <string name="disable_user_preference_description_desc">When disabled, the system prompt no longer appends the "User preference description" section</string>
-    <string name="disable_latex_description">Disable LaTeX Description</string>
-    <string name="disable_latex_description_desc">When disabled, the system prompt no longer includes LaTeX formula formatting guidance</string>
     <string name="disable_status_tags">Disable Status Tags</string>
     <string name="disable_status_tags_desc">When disabled, the system prompt no longer appends rules that require replies to end with Task Complete / Wait for User status tags</string>
+    <string name="pause_reading">Pause Reading</string>
+    <string name="resume_reading">Resume Reading</string>
     <string name="stop_reading">Stop Reading</string>
     <string name="edit_and_resend">Edit &amp; Resend</string>
     <string name="rollback_to_here">Rollback to Here</string>
@@ -759,6 +763,13 @@
     <string name="selected_count">%d selected</string>
     <string name="generating_image">Generating image...</string>
     <string name="share_failed">Share failed</string>
+    <string name="share_preview_title">Share Preview</string>
+    <string name="share_preview_image_content_description">Shared image preview</string>
+    <string name="share_preview_generating">Generating preview...</string>
+    <string name="share_preview_expand_thinking">Expand thinking</string>
+    <string name="share_preview_expand_tools_groups">Expand tools and thinking groups</string>
+    <string name="share_preview_include_background">Include background</string>
+    <string name="share_preview_border_width">Border: %1$.1f dp</string>
     <string name="image_generated">Image generated</string>
     <string name="image_preview">Image Preview</string>
     <string name="load_more_history">Tap to load older chat history</string>
@@ -838,7 +849,7 @@
     <string name="tools_failed">Tool execution failed: %1$s</string>
     <string name="tool_result">Tool Execution Result</string>
     <string name="disable_tools">Disable Tools</string>
-    <string name="disable_tools_desc">When disabled, AI cannot use regular tools like file system or HTTP. However, if \"Memory Attachment\" is enabled, AI can still access memory for knowledge queries and management</string>
+    <string name="disable_tools_desc">When disabled, AI cannot use built-in tools, including file system, HTTP, and memory query tools.</string>
     <string name="tools_disabled">Tools Disabled</string>
     <string name="processing_input">Processing input...</string>
     <string name="references">References:</string>
@@ -872,7 +883,7 @@
     <string name="settings_global_display">Display &amp; Behavior</string>
     <string name="settings_global_display_subtitle">Manage global options for display style, automation behavior, and screenshots</string>
     <string name="settings_data_backup">Data Backup and Recovery</string>
-    <string name="settings_data_backup_desc">Import, export, or delete chat history and problem library data for easy backup and recovery of important information</string>
+    <string name="settings_data_backup_desc">Import, export, or delete chat history and memory library data for easy backup and recovery of important information</string>
     <string name="settings_chat_history_management">Chat History Management</string>
     <string name="settings_chat_history_management_subtitle">View stats and batch organize your conversations</string>
     <string name="settings_manage_backup">Manage Backup</string>
@@ -886,7 +897,7 @@
     <string name="settings_model_parameters_desc">Configure API settings, model names and parameters, with support for multiple configuration management</string>
     <string name="settings_configure_model">Configure Model</string>
     <string name="settings_functional_model">Functional Model Configuration</string>
-    <string name="settings_functional_model_desc">Configure specialized models and API settings for different functions (such as chat, summarization, problem library, etc.)</string>
+    <string name="settings_functional_model_desc">Configure specialized models and API settings for different functions (such as chat, summarization, memory, etc.)</string>
     <string name="settings_configure_function">Configure Function</string>
     
     <string name="settings_section_context_summary">Context and Summary</string>
@@ -916,6 +927,7 @@
     <string name="settings_configure_permissions">Configure Permissions</string>
     
     <string name="settings_section_usage">Usage Statistics</string>
+    <string name="settings_section_external_calls">External Calls</string>
     <string name="settings_token_statistics">Token Statistics</string>
     <string name="settings_total_tokens_breakdown">Input: %1$d (Cached: %2$d) / Output: %3$d</string>
     <string name="settings_cached_tokens">(Cached: %1$d)</string>
@@ -991,6 +1003,9 @@
     <string name="preferences_guide_title">To better serve you, please complete the following settings</string>
     <string name="preference_lock">Lock User Preferences</string>
     <string name="preference_lock_desc">Once locked, user preference information cannot be modified</string>
+    <string name="tag_count_lock">Lock Count</string>
+    <string name="tag_count_limit">Max selectable</string>
+    <string name="tag_count_locked_status">Selected %1$d / Limit %2$d</string>
     
     <!-- Package Manager Screen -->
     <string name="packages">Packages</string>
@@ -1052,17 +1067,6 @@
     <string name="script_execution_error">Script execution error: %1$s</string>
     <string name="missing_parameters">Missing required parameters: %1$s</string>
     
-    <!-- Problem Library Screen -->
-    <string name="problem_library">Problem Library</string>
-    <string name="search_problems">Search Problems</string>
-    <string name="problem_details">Problem Details</string>
-    <string name="edit_problem">Edit Problem</string>
-    <string name="delete_problem">Delete Problem</string>
-    <string name="empty_problem_library">Problem library is empty</string>
-    <string name="problem_summary">Problem Summary</string>
-    <string name="problem_solution">Solution</string>
-    <string name="problem_tools">Tools Used</string>
-    <string name="problem_time">Creation Time</string>
     <string name="save_changes">Save Changes</string>
     <string name="back_to_list">Back to List</string>
     
@@ -1682,6 +1686,8 @@
     <string name="workspace_project_type_go_description">For Go development, includes go mod and build commands</string>
     <string name="workspace_project_type_android_title">Android Project</string>
     <string name="workspace_project_type_android_description">For Android development with quick Gradle task shortcuts</string>
+    <string name="workspace_project_type_flutter_title">Flutter Project</string>
+    <string name="workspace_project_type_flutter_description">For Flutter cross-platform development, includes the current stable app template and common command shortcuts</string>
     <string name="please_select_or_create_conversation">Please select or create a conversation first</string>
     <string name="latest">Latest</string>
     <string name="main_highlights">✨ Main Highlights</string>
@@ -1739,7 +1745,7 @@
     <string name="settings_external_http_chat">External HTTP Calls</string>
     <string name="settings_external_http_chat_subtitle">HTTP chat API listening on 0.0.0.0, port, and Bearer token</string>
     <string name="external_http_chat_enable">Enable External HTTP Service</string>
-    <string name="external_http_chat_enable_desc">Starts the external HTTP chat API and binds it to 0.0.0.0 so any reachable network interface can receive requests</string>
+    <string name="external_http_chat_enable_desc">Starts the external HTTP service and binds it to 0.0.0.0. The same port serves both the HTTP API and the browser-accessible web chat UI</string>
     <string name="external_http_chat_port">Listen Port</string>
     <string name="external_http_chat_port_desc">Default is 8094. The service listens on 0.0.0.0:PORT. Saving restarts the service when it is enabled</string>
     <string name="external_http_chat_save_port">Save Port</string>
@@ -1756,6 +1762,11 @@
     <string name="external_http_chat_status_running">Running and listening on 0.0.0.0:%1$d</string>
     <string name="external_http_chat_status_stopped">Service is not running</string>
     <string name="external_http_chat_status_error">Service error: %1$s</string>
+    <string name="external_http_chat_web_title">Web Chat Entry</string>
+    <string name="external_http_chat_web_desc">The same port serves both the web chat UI and the HTTP API. Open the address below in a browser, then enter the Bearer Token above on first access.</string>
+    <string name="external_http_chat_web_note">The web UI uses the root path /. The HTTP API still lives under %1$s</string>
+    <string name="external_http_chat_copy_web_url">Copy Web URL</string>
+    <string name="external_http_chat_web_url_copied">Web URL copied</string>
     <string name="external_http_chat_access_urls">Detected LAN Addresses</string>
     <string name="external_http_chat_bind_hint">The service listens on 0.0.0.0:%1$d, which means it accepts requests on all network interfaces. The addresses below are only the detected LAN IPv4 addresses for copying.</string>
     <string name="external_http_chat_no_lan_ip">No usable LAN IPv4 address was detected. The service still listens on 0.0.0.0, so confirm connectivity or use another reachable address</string>
@@ -1866,7 +1877,7 @@
     <string name="screen_title_context_summary_settings">Context and Summary Settings</string>
     <string name="settings_context_title">Context Settings</string>
     <string name="settings_summary_title">Summary Settings</string>
-    <string name="settings_context_summary_subtitle">Manage context length, summary and truncation settings</string>
+    <string name="settings_context_summary_subtitle">Manage context, summary, and history media retention settings</string>
     
     <!-- Details -->
     <string name="details">Details</string>
@@ -1983,6 +1994,7 @@
     <string name="tool_log_viewer_desc">Real-time capture and view system and application logs with filtering and search support</string>
     <string name="tool_sql_viewer">SQL Viewer</string>
     <string name="tool_sql_viewer_desc">Browse built-in tables and run SQL commands</string>
+    <string name="tool_token_config_desc">Open the API key acquisition and configuration page for quick model setup</string>
     <string name="screen_title_sql_viewer">SQL Viewer</string>
     <string name="sql_viewer_title">SQL Viewer</string>
     <string name="sql_viewer_input_label">SQL Input</string>
@@ -2148,7 +2160,7 @@
     <string name="theme_chat_input_liquid_glass">Frosted Glass Input Box</string>
     <string name="theme_chat_input_liquid_glass_desc">When enabled, the transparent input box will use an iOS-style frosted glass effect</string>
     <string name="theme_chat_input_water_glass">Water Glass Input Box</string>
-    <string name="theme_chat_input_water_glass_desc">When enabled, the transparent input box will use a water glass effect and disable frosted glass</string>
+    <string name="theme_chat_input_water_glass_desc">When enabled, the transparent input box will use a water glass effect</string>
     <string name="theme_toolbar_transparent">Toolbar Settings</string>
     <string name="theme_toolbar_transparent_desc">Transparent Toolbar</string>
     <string name="theme_toolbar_transparent_desc_desc">When enabled, the toolbar will become transparent</string>
@@ -2500,6 +2512,15 @@
     
     <!-- TTS Service Types -->
     <string name="speech_services_tts_type_simple">System TTS (Simple)</string>
+    <string name="speech_services_simple_tts_settings">System TTS Settings</string>
+    <string name="speech_services_simple_tts_desc">Choose a specific language and voice for system TTS to avoid devices failing on the default locale.</string>
+    <string name="speech_services_simple_tts_locale">Language</string>
+    <string name="speech_services_simple_tts_locale_follow_system">Follow system language</string>
+    <string name="speech_services_simple_tts_voice">System voice</string>
+    <string name="speech_services_simple_tts_voice_default">Use system default voice</string>
+    <string name="speech_services_simple_tts_voice_select">Select system voice</string>
+    <string name="speech_services_simple_tts_voice_clear">Clear system voice</string>
+    <string name="speech_services_simple_tts_loading">Loading system TTS voices…</string>
     <string name="speech_services_tts_type_http">HTTP API (Remote)</string>
     <string name="speech_services_tts_type_siliconflow">SiliconFlow TTS</string>
     <string name="speech_services_tts_type_minimax">MiniMax TTS</string>
@@ -2739,7 +2760,7 @@
     <!-- Function Types -->
     <string name="function_type_chat">Chat Function</string>
     <string name="function_type_summary">Conversation Summary</string>
-    <string name="function_type_problem_library">Problem Library Management</string>
+    <string name="function_type_memory">Memory Management</string>
     <string name="function_type_file_binding">File Binding Processing</string>
     <string name="function_type_ui_controller">UI Controller</string>
     <string name="function_type_grep">Grep Retrieval</string>
@@ -2747,8 +2768,8 @@
 
     <!-- Function Descriptions -->
     <string name="function_desc_chat">Main chat function for daily conversation interaction with users</string>
-    <string name="function_desc_summary">Generate conversation summaries for tracking important information</string>
-    <string name="function_desc_problem_library">Used for problem library analysis and management</string>
+    <string name="function_desc_summary">Compress context and generate chat summaries</string>
+    <string name="function_desc_memory">Process memories and store them in the memory library</string>
     <string name="function_desc_file_binding">Process intelligent binding and mixing of file content, providing more precise code processing capabilities. Recommend using fast, inexpensive models like Gemini Flash, not recommended to use DeepSeek R1</string>
     <string name="function_desc_ui_controller">Used for automatic traversal and operation of UI interfaces. The corresponding UI controller model is only activated when the user explicitly requests to use an "agent" for control, for example by choosing dedicated models such as autoglm-phone-9b.</string>
     <string name="function_desc_grep">Used for grep_context planning and result filtering (multi-round grep_code)</string>
@@ -2793,7 +2814,6 @@
     <string name="manage_cookies_test">Manage Cookies</string>
     <string name="visit_web_test">Visit Web</string>
     <string name="use_package_test">Use Package</string>
-    <string name="query_knowledge_test">Query Knowledge</string>
     <string name="list_files_test">List Files</string>
     <string name="file_exists_test">File Exists</string>
     <string name="ocr_read_test">OCR Read</string>
@@ -2830,7 +2850,6 @@
     <string name="manage_cookies_test_desc">Get google.com cookies</string>
     <string name="visit_web_test_desc">Visit Baidu and extract content</string>
     <string name="use_package_test_desc">Test activating a non-existent package</string>
-    <string name="query_knowledge_test_desc">Test querying memory library</string>
     <string name="list_files_test_desc">List files in test directory</string>
     <string name="file_exists_test_desc">Check if test file exists</string>
     <string name="ocr_read_test_desc">Read test image content</string>
@@ -2975,7 +2994,7 @@
     <string name="functional_config_test_grep_display_path">&lt;test&gt;</string>
     <string name="functional_config_test_grep_candidates_digest">#1 [file: example.txt]\nHello world\n#2 [file: main.kt]\nfun main() {}</string>
     <string name="functional_config_test_ui_controller_prompt">Current UI State: [Button(label="OK", bounds="[0,0][100,50]")]\nTask Goal: Tap OK.\nExecution History: []</string>
-    <string name="functional_config_test_problem_library_prompt">Conversation:\nUser: Connection test question.\nAssistant: Connection test answer.</string>
+    <string name="functional_config_test_memory_prompt">Conversation:\nUser: Connection test question.\nAssistant: Connection test answer.</string>
     <string name="tool_permission_instruction_title">Instructions</string>
     <string name="tool_permission_instruction_content">1. The \"Global Default Permission\" above controls the default behavior of all tools.\n2. Tools added to each group below set \"exception rules\" for that tool, which override the global default.\n3. Click the same tool in a group again, or uncheck it in the selection dialog to remove the tool\'s exception configuration and make it follow the global default again.</string>
     <string name="token_price_description">Set the RMB price per API request</string>
@@ -3060,18 +3079,16 @@
     <string name="filelist_go_back">Go back to parent directory</string>
 
     <!-- Chat Components -->
-    <string name="memory_attachment_active">Memory attachment activated</string>
+    <string name="memory_auto_update_active">Memory auto update activated</string>
     <string name="thinking_mode_active">Thinking mode activated</string>
-    <string name="thinking_guidance_active">Thinking guidance activated</string>
     <string name="ai_planning_active">AI planning mode activated</string>
     <string name="auto_approve_active">Auto approve activated</string>
     <string name="settings_options">Settings options</string>
     <string name="thinking_settings">Thinking</string>
-    <string name="thinking_settings_desc">Manage thinking mode and thinking guidance</string>
+    <string name="thinking_settings_desc">Manage thinking mode</string>
     <string name="thinking_settings_active_count">%1$d enabled</string>
     <string name="thinking_type_off">off</string>
     <string name="thinking_type_mode">mode</string>
-    <string name="thinking_type_guidance">guidance</string>
     <string name="thinking_quality">Thinking intensity</string>
     <string name="thinking_quality_desc">Only effective in thinking mode. Four levels are available; higher means deeper reasoning, and level 1 uses auto.</string>
     <string name="model_config">Model Configuration</string>
@@ -3080,8 +3097,8 @@
     <string name="prompt_desc">Select a configured prompt here, or click Manage Configuration below to create or modify prompts</string>
     <string name="memory">Memory</string>
     <string name="memory_desc">Memory selection includes user preferences and memory base under that preference. To create a new memory base, go to settings to create a new user preference and select it here</string>
-    <string name="memory_attachment">Memory Attachment</string>
-    <string name="memory_attachment_desc">When enabled, relevant content will be automatically retrieved from the memory base and attached when sending messages, but this may affect AI response focus.</string>
+    <string name="memory_auto_update">Memory Auto Update</string>
+    <string name="memory_auto_update_desc">When enabled, valuable content from the current conversation is automatically saved to the memory library after AI marks the task as complete.</string>
     <string name="chat_summarizing_memory">Summarizing memory...</string>
     <string name="chat_input_processing_collect_failed">Failed to collect input processing state: %1$s</string>
     <string name="chat_input_hint">Type a message...</string>
@@ -3104,6 +3121,16 @@
     <string name="chat_message_updated">Message updated</string>
     <string name="chat_update_message_failed">Failed to update message: %1$s</string>
     <string name="chat_only_user_message_allowed">This action can only be performed on user messages</string>
+    <string name="chat_only_ai_message_allowed">This action can only be performed on AI messages</string>
+    <string name="chat_regenerate_single">Regenerate This Reply</string>
+    <string name="chat_regenerating_single">Regenerating this reply...</string>
+    <string name="chat_regenerate_single_failed">Failed to regenerate reply: %1$s</string>
+    <string name="chat_regenerate_busy">Another message is still being processed. Please try again later</string>
+    <string name="chat_regenerate_single_tool_unsupported">Replies containing tool calls cannot be regenerated individually yet</string>
+    <string name="chat_switch_variant_failed">Failed to switch reply: %1$s</string>
+    <string name="chat_message_variant_counter">%1$d/%2$d</string>
+    <string name="chat_previous_variant">Previous reply</string>
+    <string name="chat_next_variant">Next reply</string>
     <string name="chat_rewind_failed">Failed to rewind: %1$s</string>
     <string name="chat_preparing_resend">Preparing to resend message</string>
     <string name="chat_rolled_back_message_in_input">Rolled back. Message content has been placed into the input box.</string>
@@ -3184,6 +3211,8 @@
     <string name="workspace_project_office_description">For document editing, file processing, and general office tasks</string>
     <string name="workspace_project_android_title">Android Project</string>
     <string name="workspace_project_android_description">For Android development with quick Gradle task shortcuts</string>
+    <string name="workspace_project_flutter_title">Flutter Project</string>
+    <string name="workspace_project_flutter_description">Flutter cross-platform app template with base structure for Android, iOS, Web, and desktop</string>
 
     <!-- Workspace UI -->
     <string name="workspace_preview">Preview</string>
@@ -3196,6 +3225,17 @@
     <string name="workspace_click_buttons_below">Click buttons below to execute commands</string>
     <string name="workspace_no_commands_configured">No commands configured\n\nYou can add command button configurations in .operit/config.json</string>
     <string name="workspace_path_label">Workspace Path</string>
+    <string name="workspace_rename_action">Rename Workspace</string>
+    <string name="workspace_rename_title">Rename Workspace</string>
+    <string name="workspace_rename_hint">This will update both the current chat title and the workspace folder name. The new name must be unique within the app-managed workspaces.</string>
+    <string name="workspace_rename_name_empty">Name cannot be empty</string>
+    <string name="workspace_rename_name_invalid">Name cannot contain / or \\ and cannot be . or ..</string>
+    <string name="workspace_rename_name_exists">A workspace with this name already exists. Please choose another one</string>
+    <string name="workspace_rename_only_managed_supported">Only app-managed internal workspaces can be renamed right now</string>
+    <string name="workspace_rename_chat_missing">The current chat no longer exists, so the workspace cannot be renamed</string>
+    <string name="workspace_rename_failed">Failed to rename workspace</string>
+    <string name="workspace_rename_success">Workspace renamed to %1$s</string>
+    <string name="workspace_rename_save_first">Please save all modified files before renaming the workspace</string>
 
     <!-- Workspace Commands (Command labels) -->
     <string name="workspace_preview_button_label_browser">Browser Preview</string>
@@ -3219,6 +3259,14 @@
     <string name="workspace_cmd_android_share_release_apk">Share Release APK</string>
     <string name="workspace_cmd_android_lint">Run Lint</string>
     <string name="workspace_cmd_android_test">Run Tests</string>
+    <string name="workspace_cmd_flutter_setup_env">Initialize Environment</string>
+    <string name="workspace_cmd_flutter_doctor">Check Flutter Environment</string>
+    <string name="workspace_cmd_flutter_pub_get">Get Dependencies</string>
+    <string name="workspace_cmd_flutter_run_web">Start Web Preview</string>
+    <string name="workspace_cmd_flutter_analyze">Static Analysis</string>
+    <string name="workspace_cmd_flutter_test">Run Tests</string>
+    <string name="workspace_cmd_flutter_build_apk">Build APK</string>
+    <string name="workspace_cmd_flutter_build_web">Build Web</string>
 
     <string name="chat_added_files_count">Added %1$d file(s)</string>
     <string name="chat_process_shared_files_failed">Failed to process shared files: %1$s</string>
@@ -3276,8 +3324,6 @@
     <string name="ai_planning_desc">Will perform task decomposition and trigger multiple sub-agents to collect information, then summarize. Sub-agents have the same tool-calling capabilities as the chat agent. This can be very time-consuming, only recommended when collecting information.</string>
     <string name="thinking_mode">Thinking Mode</string>
     <string name="thinking_mode_desc">Currently supports Gemini, Qwen3, Claude, Doubao, NVIDIA, SiliconFlow and MNN local models, enabling built-in thinking.</string>
-    <string name="thinking_guidance">Thinking Guidance</string>
-    <string name="thinking_guidance_desc">Can force models that can\'t think to perform thinking. This option is not recommended for thinking models.</string>
     <string name="model_selection">Model Selection</string>
     <string name="prompt_selection">Prompt Selection</string>
     <string name="memory_selection">Memory Selection</string>
@@ -3290,6 +3336,9 @@
     <string name="expand_verb">Expand</string>
     <string name="hide_history">Hide history</string>
     <string name="show_history">Show history</string>
+    <string name="history_fast_scroll">Fast History Scroll</string>
+    <string name="history_scroll_to_top">Scroll to Top</string>
+    <string name="history_scroll_to_bottom">Scroll to Bottom</string>
     <string name="open_floating_window">Open floating window</string>
     <string name="ungrouped">Ungrouped</string>
     <string name="manage_group">Manage Group</string>
@@ -3343,20 +3392,12 @@
     <string name="settings_summary_threshold">Summary Token Threshold</string>
     <string name="settings_summary_threshold_subtitle">Threshold for triggering chat summary (0.1-0.95)</string>
     
-    <!-- Truncation Settings -->
-    <string name="settings_truncation_title">File and Response Truncation Settings</string>
-    <string name="settings_max_file_size">Max File Read Bytes</string>
-    <string name="settings_max_file_size_subtitle">Maximum byte limit for single file read operations</string>
-    <string name="settings_part_size">Partial Read Line Count</string>
-    <string name="settings_part_size_subtitle">Number of lines per section when reading files partially</string>
-    <string name="settings_max_text_result">Max Text Result Length</string>
-    <string name="settings_max_text_result_subtitle">Maximum character limit for generic text results</string>
+    <!-- History Media Retention Settings -->
+    <string name="settings_history_retention_title">History Media Retention</string>
     <string name="settings_max_image_history_user_turns">Keep Image History Turns</string>
     <string name="settings_max_image_history_user_turns_subtitle">Only keep images from the last N user turns to avoid resending old images</string>
     <string name="settings_max_media_history_user_turns">Keep Media History Turns</string>
     <string name="settings_max_media_history_user_turns_subtitle">Only keep audio/video from the last N user turns to avoid resending old media</string>
-    <string name="settings_reset_truncation">Reset Truncation Settings</string>
-    <string name="settings_reset_truncation_desc">Reset all truncation settings to default values</string>
     
     <!-- Layout Adjustment Settings -->
     <string name="layout_adjustment_settings_title">Layout Adjustment Settings</string>
@@ -3372,10 +3413,12 @@
     <string name="global_text_line_height_multiplier_desc">Adjust the line-height multiplier for AI reply Markdown content</string>
     <string name="global_text_letter_spacing">AI Markdown Letter Spacing</string>
     <string name="global_text_letter_spacing_desc">Adjust the letter spacing for AI reply Markdown content</string>
+    <string name="global_text_paragraph_spacing">AI Markdown Paragraph Spacing</string>
+    <string name="global_text_paragraph_spacing_desc">Adjust the extra spacing added between AI reply Markdown paragraphs</string>
     <string name="layout_adjustment_preview_title">AI Markdown Preview</string>
-    <string name="layout_adjustment_preview_desc">The example below reflects the currently saved AI Markdown line spacing and letter spacing.</string>
+    <string name="layout_adjustment_preview_desc">The example below reflects the currently saved AI Markdown line spacing, letter spacing, and paragraph spacing. The gaps between the first three paragraphs directly show paragraph spacing changes.</string>
     <string name="layout_adjustment_preview_plain_text">This is a plain text preview. You can observe the spacing between letters and the density between lines.</string>
-    <string name="layout_adjustment_preview_markdown">This is the first AI reply Markdown paragraph preview, used to observe the current line spacing and letter spacing.\n\nThis is the second AI reply Markdown paragraph preview, used to continue observing the overall layout of multiple paragraphs and lists.\n\n- AI Markdown list item one\n- AI Markdown list item two</string>
+    <string name="layout_adjustment_preview_markdown">Paragraph one: use this to observe body line spacing and letter spacing.\n\nParagraph two: this paragraph is here specifically so you can judge paragraph spacing.\n\nParagraph three: when you adjust paragraph spacing, the gap above this line should change immediately.\n\n- AI Markdown list item one\n- AI Markdown list item two</string>
     <string name="current_value">Current Value</string>
     <string name="closer_to_edge">Closer to Edge</string>
     <string name="farther_from_edge">Farther from Edge</string>
@@ -3616,9 +3659,13 @@
     <string name="chat_style_cursor_user_bubble_liquid_glass">Command-style user bubble frosted glass</string>
     <string name="chat_style_cursor_user_bubble_liquid_glass_desc">When enabled, the command-style user bubble background will use an iOS-style frosted glass effect</string>
     <string name="chat_style_cursor_user_bubble_water_glass">Command-style user bubble water glass</string>
-    <string name="chat_style_cursor_user_bubble_water_glass_desc">When enabled, the command-style user bubble background will use a water glass effect and disable frosted glass</string>
+    <string name="chat_style_cursor_user_bubble_water_glass_desc">When enabled, the command-style user bubble background will use a water glass effect</string>
     <string name="chat_style_cursor_user_bubble_color">Command-style user bubble</string>
     <string name="chat_style_bubble_color_title">Dialog-style bubble colors</string>
+    <string name="chat_style_bubble_user_bubble_liquid_glass">Dialog-style user bubble frosted glass</string>
+    <string name="chat_style_bubble_user_bubble_liquid_glass_desc">When enabled, the dialog-style user bubble background will use an iOS-style frosted glass effect</string>
+    <string name="chat_style_bubble_user_bubble_water_glass">Dialog-style user bubble water glass</string>
+    <string name="chat_style_bubble_user_bubble_water_glass_desc">When enabled, the dialog-style user bubble background will use a water glass effect</string>
     <string name="chat_style_bubble_user_color">User bubble</string>
     <string name="chat_style_bubble_ai_color">AI bubble</string>
     <string name="chat_style_bubble_user_image_title">User bubble image</string>
@@ -3712,7 +3759,7 @@
     <string name="api_provider">API Provider</string>
     <string name="select_api_provider">Click to select API provider</string>
     <string name="select">Select</string>
-    <string name="default_config_model_restriction">When using default configuration, only deepseek-chat model can be used</string>
+    <string name="default_config_model_restriction">When using default configuration, only deepseek-v4-flash model can be used</string>
     <string name="enable_direct_image_processing">Model supports vision</string>
     <string name="enable_direct_image_processing_desc">When enabled, images will be sent directly to the AI for processing instead of using OCR tools to read them</string>
     <string name="enable_direct_audio_processing">Model supports audio</string>
@@ -3758,6 +3805,7 @@
     <string name="provider_siliconflow">SiliconFlow</string>
     <string name="provider_iflow">iFlow</string>
     <string name="provider_openrouter">OpenRouter (Multi-model Hub)</string>
+    <string name="provider_nous_portal">Nous Portal</string>
     <string name="provider_infiniai">InfiniAI</string>
     <string name="provider_alipay_bailing">Alipay Bailing Model</string>
     <string name="provider_lmstudio">LM Studio</string>
@@ -3999,9 +4047,10 @@
     <string name="current_delay_format">Current: %dms/character</string>
     <string name="remove_punctuation">Remove End Punctuation</string>
     <string name="remove_punctuation_desc">Remove periods, question marks, and exclamation marks at the end of sentences</string>
-    <string name="disable_action_emoticons">Disable Action Emoticons</string>
-    <string name="disable_action_emoticons_desc">Prevent AI from using (action emoticon) format</string>
-    <string name="action_emoticons_notice">Note: This setting is only controlled by additional prompts, which can only reduce frequency and cannot guarantee 100% prevention. It is recommended to provide targeted instructions in prompt configuration</string>
+    <string name="waifu_custom_prompt">Waifu Prompt</string>
+    <string name="waifu_custom_prompt_desc">Customize extra prompts for Waifu mode.</string>
+    <string name="waifu_custom_prompt_placeholder">For example: Keep replies short and natural, no cutesy tone, no filler words, no action descriptions.</string>
+    <string name="waifu_custom_prompt_tip">This content is appended to the system prompt as an extra Waifu-mode rule.</string>
     <string name="enable_emoticons">Enable Emoticons</string>
     <string name="emoticons_desc">Insert emotional state tags in conversations to enhance expression</string>
     <string name="available_emoticons">Available emoticons: crying, like_you, happy, surprised, miss_you, speechless, angry, confused, sad</string>
@@ -4013,7 +4062,7 @@
     <string name="appearance_prompt_placeholder">e.g.: long hair, purple eyes, sweater vest...</string>
     <string name="appearance_prompt_tip">Tip: Use English keywords to describe appearance features, separate multiple keywords with commas</string>
     <string name="feature_explanation">Feature Explanation</string>
-    <string name="waifu_mode_explanation">• Normal Mode: AI responses sent all at once\n• Waifu Mode: AI responses split by sentences, each in separate bubbles\n• Smart Delay: Calculate delay time based on sentence length\n• Auto Cleanup: Remove status tags, show only plain text\n• Optional Features: Remove end punctuation, disable action emoticons, enable emoticons\n• Use Case: Simulate more natural conversation rhythm\n• Note: This mode may not adapt well to tool calls</string>
+    <string name="waifu_mode_explanation">• Normal Mode: AI responses sent all at once\n• Waifu Mode: AI responses split by sentences, each in separate bubbles\n• Smart Delay: Calculate delay time based on sentence length\n• Auto Cleanup: Remove status tags, show only plain text\n• Optional Features: Remove end punctuation, edit Waifu prompt, enable emoticons\n• Use Case: Simulate more natural conversation rhythm\n• Note: This mode may not adapt well to tool calls</string>
     <string name="settings_saved_message">Settings saved</string>
 
     <string name="settings_section_account">Account</string>
@@ -4237,6 +4286,8 @@
     <string name="confirm_delete_action">Confirm Delete</string>
     <string name="published">Published</string>
     <string name="removed">Removed</string>
+    <string name="market_review_approved">Approved</string>
+    <string name="market_review_pending">Pending Review</string>
     <string name="remove">Remove</string>
     <string name="republish">Republish</string>
     
@@ -4357,11 +4408,13 @@
     <string name="mcp_publish_body_table_row_platform">| Platform | Operit MCP Market |</string>
     <string name="mcp_publish_body_table_row_parser_version">| Parser Version | 1.0 |</string>
     <string name="mcp_publish_body_table_row_publish_time">| Published at | %1$s |</string>
-    <string name="mcp_publish_body_table_row_status_pending">| Status | ⏳ Pending Review |</string>
-    <string name="mcp_publish_body_footer_note">*🤖 This Issue was generated automatically by Operit and is awaiting admin approval*</string>
     
     <!-- MCP Plugin Detail Screen -->
     <string name="mcp_plugin_detail_title">Plugin Details</string>
+    <string name="market_detail_published_label">Published</string>
+    <string name="market_detail_author_role">Author</string>
+    <string name="market_detail_publisher_role">Publisher</string>
+    <string name="market_detail_sharer_role">Sharer</string>
     <string name="mcp_plugin_author">Author: %1$s</string>
     <string name="mcp_plugin_shared_by">Shared by: %1$s</string>
     <string name="mcp_plugin_repository">View Repository</string>
@@ -4599,43 +4652,6 @@
     <string name="dialog_button_confirm">Reload</string>
     <string name="dialog_button_dismiss">Cancel</string>
 
-    <string name="migration_import_failed">Import failed</string>
-    <string name="migration_import_error">Import error: %1$s</string>
-    <string name="migration_open_file_failed">Cannot open file: %1$s</string>
-    <string name="migration_info_cd">Migration info</string>
-    <string name="migration_found_old_chat_title">Old chat history found</string>
-    <string name="migration_found_old_chat_desc">We found chat history data from a previous version. You can import it into this version.</string>
-    <string name="migration_error_during_migration">An error occurred during migration</string>
-    <string name="migration_start">Start migration</string>
-    <string name="migration_skip">Skip</string>
-    <string name="migration_advanced_options">Advanced options</string>
-    <string name="migration_manual_backup_desc">You can also back up or import chat history manually:</string>
-    <string name="migration_export_cd">Export</string>
-    <string name="migration_export_backup">Export backup</string>
-    <string name="migration_import_cd">Import</string>
-    <string name="migration_import_backup">Import backup</string>
-    <string name="migration_in_progress_title">Migrating data...</string>
-    <string name="migration_in_progress_desc">Please wait. Do not close the app during migration.</string>
-    <string name="migration_completed_cd">Migration completed</string>
-    <string name="migration_completed_title">Migration completed</string>
-    <string name="migration_completed_desc">Successfully migrated %1$d chat records</string>
-    <string name="migration_continue">Continue</string>
-    <string name="migration_failed_cd">Migration failed</string>
-    <string name="migration_failed_title">Migration failed</string>
-    <string name="migration_retry">Retry</string>
-    <string name="migration_exporting_title">Exporting backup...</string>
-    <string name="migration_export_failed">Export failed</string>
-    <string name="migration_exported_cd">Export completed</string>
-    <string name="migration_exported_title">Export completed</string>
-    <string name="migration_exported_desc">Backup file saved to:\n%1$s</string>
-    <string name="migration_back">Back</string>
-    <string name="migration_importing_title">Importing backup...</string>
-    <string name="migration_imported_cd">Import completed</string>
-    <string name="migration_imported_title">Import completed</string>
-    <string name="migration_imported_desc">Successfully imported %1$d chat records</string>
-    <string name="migration_back_to_screen">Back to migration screen</string>
-
-
     <string name="settings_context_card_title">Setup Instructions:</string>
     <string name="settings_context_card_content">· Context Length: Recommended to set to your daily maximum usage value.\n· Max Context Length: Recommended to set to the maximum value supported by the model API.\nThe software will automatically compress the context when the threshold is reached to prevent exceeding the limit. Note that a larger context is not always better; user cooperation with the software is required.</string>
 
@@ -4724,6 +4740,10 @@
     <string name="chat_message_locator_title">Jump to Message</string>
     <string name="chat_message_locator_current">Current position: %1$d / %2$d</string>
     <string name="chat_message_locator_hint">Tap any message to jump there quickly</string>
+    <string name="chat_message_locator_search_label">Search Messages</string>
+    <string name="chat_message_locator_search_placeholder">Enter a keyword from the message</string>
+    <string name="chat_message_locator_search_results">Found %1$d results. Tap one to jump.</string>
+    <string name="chat_message_locator_search_empty">No matching messages found</string>
     <string name="chat_sender_user">User</string>
     <string name="chat_sender_ai">AI</string>
     <string name="chat_sender_summary">Summary</string>
@@ -4747,6 +4767,8 @@
     <string name="history_filter_current_card_desc">Only show folders and conversations under the current character card</string>
     <string name="history_auto_switch_character">Auto Switch Character Card</string>
     <string name="history_auto_switch_character_desc">Automatically match bound character card when switching conversations</string>
+    <string name="history_auto_switch_chat">Auto Switch Chat</string>
+    <string name="history_auto_switch_chat_desc">Switch to the latest conversation for the selected character card or group, or create one if none exists</string>
     <string name="voice_input">Voice Input</string>
     <string name="insert_attachment">Insert Attachment</string>
     <string name="remove_attachment">Remove Attachment</string>
@@ -4854,6 +4876,12 @@
     <string name="show_role_name_description">Display current character card name in AI messages</string>
     <string name="show_user_name">Show User Name</string>
     <string name="show_user_name_description">Display user name in user messages</string>
+    <string name="show_message_token_stats">Show Message Token Summary</string>
+    <string name="show_message_token_stats_description">Show compact token upload, output, and cache info below AI messages</string>
+    <string name="show_message_timing_stats">Show Message Timing Summary</string>
+    <string name="show_message_timing_stats_description">Show first-token and generation timing below AI messages</string>
+    <string name="chat_message_token_stats_compact">token: %1$d ↑ %3$d (cache: %2$d) ↓ %4$d</string>
+    <string name="chat_message_timing_stats_compact">time: %1$s (first %2$s out %3$s)</string>
     <string name="global_user_name">Global User Name</string>
     <string name="system_display_settings">System Display Settings</string>
     <string name="show_fps_counter_description">Display frame rate performance metrics on screen</string>
@@ -4863,8 +4891,16 @@
     <string name="enable_reply_notification_sound_description">Play a sound when a reply notification is triggered</string>
     <string name="enable_reply_notification_vibration">Reply Notification Vibration</string>
     <string name="enable_reply_notification_vibration_description">Vibrate when a reply notification is triggered</string>
+    <string name="enable_background_keep_alive">Background keep-alive</string>
+    <string name="enable_background_keep_alive_description">Keep the foreground notification active after enabling it, and do not automatically stop the foreground service when AI becomes idle.</string>
     <string name="keep_screen_on">Keep Screen On</string>
     <string name="keep_screen_on_description">Keep screen awake to prevent auto-lock during conversations</string>
+    <string name="enable_navigation_animation">New Navigation Animation</string>
+    <string name="enable_navigation_animation_description">Turns on the enhanced animation set for both the phone sidebar and page transitions. Turn it off to use simpler navigation motion.</string>
+    <string name="software_identity_title">Software Identity</string>
+    <string name="software_identity_description">Change the software identity shown at the top of the sidebar.</string>
+    <string name="software_identity_option_operit">Operit AI</string>
+    <string name="software_identity_option_lingshu">Lingshu AI</string>
     <string name="app_icon_switch_title">App Icon</string>
     <string name="app_icon_switch_description">Switch the launcher icon shown on your home screen (some launchers refresh with delay).</string>
     <string name="app_icon_option_default">Default Icon</string>
@@ -4966,7 +5002,7 @@
     <string name="backup_room_db_backup_type_manual">Manual</string>
     <string name="backup_room_db_max_backup_count">Max backups to keep</string>
     <string name="backup_room_db_max_backup_count_desc">When exceeded, older backups will be deleted automatically (range 1-100)</string>
-    <string name="backup_room_db_low_level_desc">This is a low-level full database backup (Room/SQLite), typically including chat history, messages, and the problem library. Restoring will overwrite the current database; it is recommended to back up first.</string>
+    <string name="backup_room_db_low_level_desc">This is a low-level full database backup (Room/SQLite), typically including chat history and messages. Restoring will overwrite the current database; it is recommended to back up first.</string>
     <string name="backup_room_db_restore_confirm_title">Confirm database restore</string>
     <string name="backup_room_db_restore_confirm_message">This will overwrite the current database with the following backup:\n%1$s\n\nThis action cannot be undone. It is recommended to perform a backup before restoring.</string>
     <string name="backup_room_db_restore_confirm_action">Confirm restore</string>
@@ -5045,7 +5081,7 @@
     <string name="backup_select_export_format">Select Export Format</string>
     <string name="backup_select_format_hint">Please select the chat history format to export:</string>
     <string name="backup_format_json">JSON (Recommended)</string>
-    <string name="backup_format_json_desc">Operit native format, preserves all data completely</string>
+    <string name="backup_format_json_desc">Operit native format, preserves variants and all other data</string>
     <string name="backup_format_markdown">Markdown</string>
     <string name="backup_format_markdown_desc">Lightweight markup format, easy to read and edit</string>
     <string name="backup_format_html">HTML</string>
@@ -5057,7 +5093,7 @@
     <string name="backup_select_import_format">Select Import Format</string>
     <string name="backup_import_format_hint">Please select the chat history format to import:</string>
     <string name="backup_format_operit">Operit JSON (Recommended)</string>
-    <string name="backup_format_operit_desc">Native format of this app, preserves all data completely</string>
+    <string name="backup_format_operit_desc">Native format of this app, preserves variants and all other data</string>
     <string name="backup_format_chatgpt">ChatGPT</string>
     <string name="backup_format_chatgpt_desc">OpenAI ChatGPT conversations.json export format</string>
     <string name="backup_format_chatbox">ChatBox</string>
@@ -5409,7 +5445,7 @@
     <string name="manage_my_skills">Manage My Skills</string>
     <string name="need_login_github_manage_skills">Need to login to GitHub to manage your published Skills</string>
     <string name="no_matching_skills_found">No matching Skills found</string>
-    <string name="skill_market_search_placeholder">Search Skill name, description, author...</string>
+    <string name="skill_market_search_placeholder">Search Skill or author</string>
     <string name="skill_repo_url_not_found">Repository URL not found</string>
     <string name="skill_repo_url_not_found_cannot_install">Repository URL not found, unable to install</string>
     <string name="no_published_skills_yet">No Skills published yet</string>
@@ -5549,6 +5585,7 @@
     <string name="memory_search_mode_keyword_first">Keyword First</string>
     <string name="memory_search_mode_semantic_first">Semantic First</string>
     <string name="memory_search_keyword_weight">Keyword Weight</string>
+    <string name="memory_search_tag_weight">Tag Weight</string>
     <string name="memory_search_vector_weight">Vector Weight</string>
     <string name="memory_search_edge_weight">Edge Propagation Weight</string>
     <string name="memory_search_reset_default">Reset Default</string>
@@ -5559,15 +5596,15 @@
     <string name="memory_search_simulation_run">Run Simulation</string>
     <string name="memory_search_simulation_summary">Search Summary</string>
     <string name="memory_search_simulation_scope_count">Memories in scope: %1$d</string>
-    <string name="memory_search_simulation_match_count">Matches keyword:%1$d reverse:%2$d semantic:%3$d</string>
+    <string name="memory_search_simulation_match_count">Matches keyword:%1$d tag:%2$d reverse:%3$d semantic:%4$d</string>
     <string name="memory_search_simulation_result_count">Scored:%1$d passed:%2$d threshold:%3$.4f</string>
-    <string name="memory_search_simulation_weight_line">Weights keyword:%1$.2f semantic:%2$.2f edge:%3$.2f norm:%4$.4f</string>
+    <string name="memory_search_simulation_weight_line">Weights keyword:%1$.2f tag:%2$.2f semantic:%3$.2f edge:%4$.2f norm:%5$.4f</string>
     <string name="memory_search_simulation_fragments">Keyword Fragments</string>
     <string name="memory_search_simulation_raw_keywords">Raw (%1$d): %2$s</string>
     <string name="memory_search_simulation_lexical_tokens">Lexical (%1$d): %2$s</string>
     <string name="memory_search_simulation_top_candidates">Candidates (showing top %1$d / %2$d)</string>
     <string name="memory_search_simulation_candidate_title">%1$d. [%2$s] %3$s</string>
-    <string name="memory_search_simulation_candidate_scores">k:%1$.4f r:%2$.4f s:%3$.4f e:%4$.4f total:%5$.4f token:%6$d</string>
+    <string name="memory_search_simulation_candidate_scores">k:%1$.4f t:%2$.4f r:%3$.4f s:%4$.4f e:%5$.4f total:%6$.4f token:%7$d</string>
     <string name="memory_embedding_cloud_title">Cloud Embedding Model</string>
     <string name="memory_embedding_cloud_enable">Enable cloud embedding model</string>
     <string name="memory_embedding_cloud_endpoint">Embedding API endpoint</string>
@@ -5725,7 +5762,7 @@
     <string name="pkg_no_tools">No tools available</string>
 
     <!-- MCP Market Screen -->
-    <string name="mcp_market_search_hint">Search plugin name, description, author...</string>
+    <string name="mcp_market_search_hint">Search plugin or author</string>
     <string name="mcp_market_search">Search</string>
     <string name="mcp_market_clear_search">Clear search</string>
     <string name="mcp_market_refresh">Refresh</string>
@@ -5744,7 +5781,6 @@
     <string name="skill_publish_body_table_row_platform">| Platform | Operit Skill Market |</string>
     <string name="skill_publish_body_table_row_parser_version">| Parser version | 1.0 |</string>
     <string name="skill_publish_body_table_row_publish_time">| Publish time | %1$s |</string>
-    <string name="skill_publish_body_table_row_status_pending">| Status | ⏳ Pending Review |</string>
 
     <string name="model_param_max_tokens">Max tokens</string>
     <string name="model_param_max_tokens_desc">Controls the maximum number of tokens the AI can generate per response</string>
@@ -6356,13 +6392,12 @@
     <string name="skill_error_import_failed">Import failed: %1$s</string>
 
     <!-- Context Summary Settings -->
-    <string name="context_summary_note">Context window and conversation summary are now managed in model configuration. This page only adjusts system parameters related to file reading and result truncation.</string>
+    <string name="context_summary_note">File read limits and text result truncation are now fixed system constants. This page directly adjusts the context and summary settings of the bound model config, along with image and audio/video history retention turns.</string>
+    <string name="context_summary_current_model_config">Current bound model config: %1$s</string>
+    <string name="context_summary_bound_config_description">The context and summary settings on this page are written directly back to the model config bound to the current chat.</string>
     <string name="context_validation_error_positive_number">%1$s must be a valid number greater than 0</string>
     <string name="context_validation_error_positive_integer">%1$s must be a valid integer greater than 0</string>
     <string name="context_validation_error_non_negative_integer">%1$s must be a valid integer greater than or equal to 0</string>
-    <string name="context_field_max_file_size">Max File Size</string>
-    <string name="context_field_part_size">Part Size</string>
-    <string name="context_field_max_text_result_length">Max Text Result Length</string>
     <string name="context_field_max_image_history_turns">Image History Turns</string>
     <string name="context_field_max_media_history_turns">Media History Turns</string>
     <string name="context_unit_lines">lines</string>
@@ -6464,9 +6499,11 @@
     <string name="plan_complexity_implementation_plan">Implementation plan</string>
 
     <!-- Problem Library -->
-    <string name="problem_library_solution">Solution:</string>
-    <string name="problem_library_history">History:</string>
-    <string name="problem_library_tool_result_pruned">&lt;tool_result %1$s&gt;[...Tool result omitted...]&lt;/tool_result&gt;</string>
+    <string name="memory_analysis_solution">Solution:</string>
+    <string name="memory_analysis_history">History:</string>
+    <string name="memory_tool_result_pruned">&lt;tool_result %1$s&gt;[...Tool result omitted...]&lt;/tool_result&gt;</string>
+    <string name="query_memory_test">Query Memory</string>
+    <string name="query_memory_test_desc">Test querying the memory library</string>
 
     <!-- User Profile Preferences -->
     <string name="profile_birth_year">Birth year</string>
@@ -6482,13 +6519,13 @@
     <string name="profile_identity_value">Identity: %1$s</string>
     <string name="profile_occupation_value">Occupation: %1$s</string>
     <string name="profile_ai_style_value">Expected AI Style: %1$s</string>
-    <string name="profile_regex_birth_date">(Birth Date|Date of Birth)[:：\s]+([\d-]+)</string>
-    <string name="profile_regex_birth_year">(Birth year|Age)[:：\s]+(\d+)</string>
-    <string name="profile_regex_gender">Gender[:：\s]+([^;]+)</string>
-    <string name="profile_regex_personality">Personality( traits)?[:：\s]+([^;]+)</string>
-    <string name="profile_regex_identity">Identity( recognition)?[:：\s]+([^;]+)</string>
-    <string name="profile_regex_occupation">Occupation[:：\s]+([^;]+)</string>
-    <string name="profile_regex_ai_style">(AI Style|Expected AI Style|Preferred AI Style)[:：\s]+([^;]+)</string>
+    <string name="profile_regex_birth_date">(Birth Date|Date of Birth)[:：\\s]+([\\d-]+)</string>
+    <string name="profile_regex_birth_year">(Birth year|Age)[:：\\s]+(\\d+)</string>
+    <string name="profile_regex_gender">Gender[:：\\s]+([^;]+)</string>
+    <string name="profile_regex_personality">Personality( traits)?[:：\\s]+([^;]+)</string>
+    <string name="profile_regex_identity">Identity( recognition)?[:：\\s]+([^;]+)</string>
+    <string name="profile_regex_occupation">Occupation[:：\\s]+([^;]+)</string>
+    <string name="profile_regex_ai_style">(AI Style|Expected AI Style|Preferred AI Style)[:：\\s]+([^;]+)</string>
 
     <!-- AI Message Manager -->
     <string name="ai_message_user">User</string>
@@ -6614,6 +6651,7 @@
     <string name="chat_history_empty_no_update">Chat history is empty, no need to update memory</string>
     <string name="chat_memory_manually_updated">Memory has been manually updated</string>
     <string name="chat_manual_update_memory_failed">Manual memory update failed: %1$s</string>
+    <string name="chat_auto_update_memory_failed">Automatic memory update failed: %1$s</string>
     <string name="chat_summarizing_please_wait">Summarizing, please wait</string>
     <string name="chat_conversation_summary_generated">Conversation summary generated</string>
     <string name="chat_compressing_history">Compressing history records...</string>
@@ -6639,15 +6677,6 @@
     <string name="service_turn_on_wake">Turn on wake</string>
     <string name="service_exit">Exit</string>
     <string name="service_stop">Stop</string>
-
-    <!-- ProblemLibraryTool (新增) -->
-    <string name="problem_library_no_legacy_found">No related Legacy records found</string>
-    <string name="problem_library_query_error">Error querying Legacy problem library: %1$s</string>
-    <string name="problem_library_found_records">Found %1$d related Legacy records:</string>
-    <string name="problem_library_summary">Summary: %1$s</string>
-    <string name="problem_library_query">Question: %1$s</string>
-    <string name="problem_library_using_tool">Using tool: %1$s</string>
-    <string name="problem_library_time">Time: %1$s</string>
 
     <!-- TextExporter (新增) -->
     <string name="export_created_time">Created time: %1$s</string>
@@ -6931,11 +6960,6 @@
     <string name="pathfinder_found_path">Found path using %1$s algorithm</string>
     <string name="pathfinder_cannot_find_path">Cannot find valid state path from \'%1$s\' to \'%2$s\'</string>
 
-    <!-- ProblemLibraryTool -->
-    <string name="problem_library_question_format">Question: %1$s\n\nSolution: %2$s</string>
-    <string name="problem_library_question_label">Question:</string>
-    <string name="problem_library_solution_label">Solution:</string>
-
     <!-- ShizukuAuthorizer -->
     <string name="shizuku_start_service_intro">To start Shizuku service:\n</string>
     <string name="shizuku_step1_ensure_installed">1. Ensure Shizuku app is installed\n</string>
@@ -7135,6 +7159,8 @@
     <string name="web_session_accessibility_minimize_panel">Minimize web sessions panel</string>
     <string name="web_session_accessibility_close_current_session">Close current web session</string>
     <string name="web_session_accessibility_minimized_indicator">Web sessions panel minimized, double tap to expand</string>
+    <string name="web_session_render_process_crashed">The current web page render process crashed. This tab has been closed.</string>
+    <string name="web_session_render_process_gone">The current web page render process was reclaimed by the system. This tab has been closed.</string>
     <string name="web_session_back">Back</string>
     <string name="web_session_forward">Forward</string>
     <string name="web_session_refresh">Refresh</string>
@@ -7253,7 +7279,6 @@
     <string name="web_session_userscript_notification_channel">Userscript Notifications</string>
     <string name="web_session_userscript_notification_denied">Notification permission is not granted, so userscript notifications cannot be shown</string>
     <string name="web_session_userscript_download_failed">Userscript download failed</string>
-
     <string name="tool_windows_control_one_click">Windows One-Click Setup</string>
     <string name="tool_windows_control_one_click_desc">Export the PC agent package, configure HTTP agent environment variables, and enable windows_control in one flow</string>
     <string name="screen_title_windows_control_one_click">Windows One-Click Setup</string>
@@ -7270,6 +7295,9 @@
     <string name="workflow_already_running">Workflow "%1$s" is already running</string>
     <string name="workflow_log_node_cancelled">Node "%1$s" execution cancelled</string>
     <string name="workflow_log_execution_cancelled">Workflow "%1$s" execution cancelled</string>
+    <string name="package_conflict_delete_source">Delete Source File</string>
+    <string name="package_conflict_delete_success">Conflicting package source deleted</string>
+    <string name="package_conflict_delete_failed">Failed to delete conflicting package source</string>
 
     <!-- Character group strings synced from values/strings.xml -->
     <string name="action_assign_to_group">Assign to Character Group</string>
@@ -7301,4 +7329,188 @@
     <string name="target_character_group_optional">Target Character Group (Optional)</string>
     <string name="unbound_character_group">Unbound Character Group</string>
     <string name="unbound_chats_select_group">%1$d chat(s) need to be rebound to a character group. Please select the target character group:</string>
+
+    <string name="description_label">Description</string>
+    <string name="version_label">Version</string>
+    <string name="version_colon">Version: %1$s</string>
+    <string name="artifact_type_colon">Type: %1$s</string>
+    <string name="supported_app_versions_colon">Min version: %1$s, Max version: %2$s</string>
+    <string name="min_supported_app_version">Minimum supported app version</string>
+    <string name="max_supported_app_version">Maximum supported app version</string>
+    <string name="supported_version_input_hint">Enter a version number like `1.10.0`, can be left blank</string>
+    <string name="publish_failed_title">Publish failed</string>
+    <string name="retry_market_registration">Retry market registration</string>
+    <string name="update_to_market">Update to market</string>
+    <string name="create_operit_forge_title">Create OperitForge?</string>
+    <string name="create_operit_forge_message">This is your first direct publish. Operit needs to create a public repository `OperitForge` under your GitHub account.</string>
+    <string name="confirm_create_public_forge_title">Confirm create public repository</string>
+    <string name="confirm_create_public_forge_message">Please confirm again: create the public repository `OperitForge` now. Future publishes will reuse this repository.</string>
+    <string name="create_and_publish">Create and publish</string>
+    <string name="artifact_type_script">Script</string>
+    <string name="artifact_type_package">Package</string>
+    <string name="supported_app_versions">Supported app versions</string>
+    <string name="supported_app_versions_short">Compatible with %1$s</string>
+    <string name="unsupported_artifact_version_title">Current app version may be incompatible</string>
+    <string name="unsupported_artifact_version_message">「%1$s」declares supported app version as %3$s, current app version is %2$s. Continuing to download may still fail or be unusable.</string>
+    <string name="continue_download_anyway">Continue download anyway</string>
+    <string name="publisher_colon">Publisher: %1$s</string>
+    <string name="market_registrar_colon">Registrar %1$s</string>
+    <string name="downloaded_already">Downloaded</string>
+    <string name="downloading">Downloading</string>
+    <string name="download_script">Download script</string>
+    <string name="download_package">Download package</string>
+    <string name="market_sort_updated">Recently updated</string>
+    <string name="market_sort_downloads">Downloads</string>
+    <string name="market_sort_likes">Likes</string>
+    <string name="market_stat_downloads_short">Download %1$d</string>
+    <string name="open_asset">Open asset</string>
+    <string name="metadata_title">Metadata</string>
+    <string name="type_label">Type</string>
+    <string name="current_app_version_label">Current app version</string>
+    <string name="asset_file_label">Asset file</string>
+    <string name="forge_repo_label">Forge repository</string>
+    <string name="release_tag_label">Release Tag</string>
+    <string name="sha256_label">SHA-256</string>
+    <string name="updated_at_label">Updated at</string>
+    <string name="source_file_label">Source file</string>
+    <string name="reactions_title">Reactions</string>
+    <string name="comments_with_count">Comments (%1$d)</string>
+    <string name="no_comments_yet">No comments yet</string>
+    <string name="be_first_comment_here">Be the first to leave feedback.</string>
+    <string name="market_detail_about_title">About</string>
+    <string name="market_detail_status_available">Available</string>
+    <string name="market_detail_status_closed">Closed</string>
+    <string name="market_detail_open_page">Open page</string>
+    <string name="market_detail_post_comment">Post comment</string>
+    <string name="market_detail_like_action">Like</string>
+    <string name="market_detail_favorite_action">Favorite</string>
+    <string name="market_detail_category_label">Category</string>
+    <string name="market_detail_created_label">Created at</string>
+    <string name="comment_label">Comment</string>
+    <string name="publish_action">Publish</string>
+    <string name="invalid_artifact_metadata">The metadata for this market item is invalid and cannot display details.</string>
+    <string name="confirm_remove_script_from_market">Are you sure you want to remove the script「%1$s」from the market? This will close the corresponding Issue but will not delete your publish repository.</string>
+    <string name="confirm_remove_package_from_market">Are you sure you want to remove the package「%1$s」from the market? This will close the corresponding Issue but will not delete your publish repository.</string>
+    <string name="script_publish_info_description">The script will first be uploaded to your own OperitForge publish repository, then the metadata will be registered to OperitScriptMarket. Please ensure the script content, version, and description are accurate.</string>
+    <string name="script_edit_info_description">You are editing the information of a published script. After updating, the metadata of the corresponding Issue in the market repository will be overwritten.</string>
+    <string name="package_publish_info_description">The package will first be uploaded to your own OperitForge publish repository, then the metadata will be registered to OperitPackageMarket. Please ensure the package content, version, and description are accurate.</string>
+    <string name="package_edit_info_description">You are editing the information of a published package. After updating, the metadata of the corresponding Issue in the market repository will be overwritten.</string>
+    <string name="script_publish_success_message">Your script has been successfully published to the market.</string>
+    <string name="script_update_success_message">Your script information has been successfully updated.</string>
+    <string name="package_publish_success_message">Your package has been successfully published to the market.</string>
+    <string name="package_update_success_message">Your package information has been successfully updated.</string>
+    <string name="screen_title_script_market">Script Market</string>
+    <string name="screen_title_script_manage">Manage Scripts</string>
+    <string name="screen_title_script_publish">Publish Script</string>
+    <string name="screen_title_package_market">Package Market</string>
+    <string name="screen_title_package_manage">Manage Packages</string>
+    <string name="screen_title_package_publish">Publish Package</string>
+
+    <string name="sidebar_permission_short">Permissions</string>
+    <string name="sidebar_status_normal">Normal</string>
+    <string name="colorpicker_select_navigation_drawer_background">Select Navigation Drawer Background Color</string>
+    <string name="colorpicker_select_navigation_drawer_accent">Select Navigation Drawer Accent Color</string>
+    <string name="theme_navigation_drawer_title">Navigation Drawer Settings</string>
+    <string name="theme_navigation_drawer_water_glass">Water Glass Navigation Drawer</string>
+    <string name="theme_navigation_drawer_water_glass_desc">When enabled, the left navigation drawer will display a water glass effect</string>
+    <string name="theme_navigation_drawer_button_liquid_glass">Sidebar Button Frosted Glass Background</string>
+    <string name="theme_navigation_drawer_button_liquid_glass_desc">When enabled, each sidebar button will display a frosted glass background</string>
+    <string name="theme_navigation_drawer_background_color">Navigation Drawer Background Color</string>
+    <string name="theme_navigation_drawer_accent_color">Navigation Drawer Accent Color</string>
+    <string name="theme_use_custom_navigation_drawer_background_color">Custom Navigation Drawer Background Color</string>
+    <string name="theme_use_custom_navigation_drawer_background_color_desc">When enabled, you can customize the background color of the left navigation drawer</string>
+    <string name="theme_use_custom_navigation_drawer_accent_color">Custom Navigation Drawer Accent Color</string>
+    <string name="theme_use_custom_navigation_drawer_accent_color_desc">When enabled, you can uniformly customize the brand logo, subtitle, network status, and divider line colors</string>
+    <string name="chat_style_bubble_ai_bubble_liquid_glass">Bubble AI Message Frosted Glass Background</string>
+    <string name="chat_style_bubble_ai_bubble_liquid_glass_desc">When enabled, the bubble AI message background will display an iOS-style frosted glass effect</string>
+    <string name="chat_style_bubble_ai_bubble_water_glass">Bubble AI Message Water Glass Background</string>
+    <string name="chat_style_bubble_ai_bubble_water_glass_desc">When enabled, the bubble AI message background will display a water glass effect</string>
+    <string name="chat_style_bubble_user_image_disabled_by_glass">User bubble frosted glass or water glass background is currently enabled, user bubble images will not take effect</string>
+    <string name="chat_style_bubble_ai_image_disabled_by_glass">AI bubble frosted glass or water glass background is currently enabled, AI bubble images will not take effect</string>
+    <string name="login_github_to_manage_scripts">Log in to GitHub to publish and manage your scripts</string>
+    <string name="login_github_to_manage_packages">Log in to GitHub to publish and manage your packages</string>
+    <string name="market_tab_artifact">Sandbox Packages</string>
+    <string name="market_tab_mcp">MCP</string>
+    <string name="market_tab_skill">Skill</string>
+    <string name="market_tab_mine">Mine</string>
+    <string name="market_section_manage">Manage</string>
+    <string name="market_section_publish">Publish</string>
+    <string name="market_manage_artifact">Manage Packages</string>
+    <string name="market_manage_skill">Manage Skills</string>
+    <string name="market_manage_mcp">Manage MCP</string>
+    <string name="market_publish_artifact">Publish Package</string>
+    <string name="market_publish_skill">Publish Skill</string>
+    <string name="market_publish_mcp">Publish MCP</string>
+    <string name="market_login_required_hint">Log in to GitHub to manage and publish market content</string>
+    <string name="available_scripts_market">Available Scripts</string>
+    <string name="available_packages_market">Available Packages</string>
+    <string name="no_matching_scripts_found">No matching scripts found</string>
+    <string name="no_matching_packages_found">No matching packages found</string>
+    <string name="script_market_search_placeholder">Search script name, description, author...</string>
+    <string name="package_market_search_placeholder">Search package name, description, author...</string>
+    <string name="no_scripts_available">No scripts available</string>
+    <string name="no_market_packages_available">No packages available</string>
+    <string name="publish_new_script">Publish New Script</string>
+    <string name="publish_new_package">Publish New Package</string>
+    <string name="manage_my_scripts">Manage My Scripts</string>
+    <string name="manage_my_packages">Manage My Packages</string>
+    <string name="need_login_github_manage_scripts">You need to log in to GitHub to manage your published scripts</string>
+    <string name="need_login_github_manage_packages">You need to log in to GitHub to manage your published packages</string>
+    <string name="no_published_scripts_yet">No scripts published yet</string>
+    <string name="click_button_publish_first_script">Click the button above to publish your first script</string>
+    <string name="no_published_packages_yet">No packages published yet</string>
+    <string name="click_button_publish_first_package">Click the button above to publish your first package</string>
+    <string name="after_logging_in_you_can_view_and_manage_your_scripts">After logging in, you can view and manage your published scripts</string>
+    <string name="after_logging_in_you_can_view_and_manage_your_packages">After logging in, you can view and manage your published packages</string>
+    <string name="after_logging_in_you_can_view_and_manage_your_artifacts">After logging in, you can view and manage your published scripts and packages</string>
+    <string name="login_github_to_manage_artifacts">Log in to GitHub to manage and publish scripts/packages</string>
+    <string name="need_login_github_manage_artifacts">You need to log in to GitHub to manage your published scripts and packages</string>
+    <string name="available_artifacts_market">Available Scripts and Packages</string>
+    <string name="artifact_market_search_placeholder">Search name or author</string>
+    <string name="no_matching_artifacts_found">No matching entries found</string>
+    <string name="no_artifacts_available">No scripts or packages available</string>
+    <string name="publish_new_artifact">Publish New Entry</string>
+    <string name="manage_my_artifacts">Manage My Entries</string>
+    <string name="loading_your_artifacts">Loading your published content...</string>
+    <string name="no_published_artifacts_yet">No scripts or packages published yet</string>
+    <string name="click_button_publish_first_artifact">Click the button above to publish your first script or package</string>
+    <string name="confirm_remove_artifact_from_market">Are you sure you want to remove the entry "%1$s" from the market? This will close the corresponding Issue but will not delete your publishing repository.</string>
+    <string name="screen_title_artifact_market">Script &amp; Package Market</string>
+    <string name="screen_title_market">Market</string>
+    <string name="screen_title_artifact_manage">Manage Scripts &amp; Packages</string>
+    <string name="screen_title_artifact_publish">Publish Script or Package</string>
+    <string name="artifact_publish_info_description">The entry will first be uploaded to your own OperitForge publishing repository, then automatically registered in the script market or package market based on its type. Please ensure the content, version, and compatibility range are accurate.</string>
+    <string name="artifact_edit_info_description">You are editing the information of a published entry. After updating, the metadata of the corresponding Issue in the market repository will be overwritten.</string>
+    <string name="need_login_before_publish_artifact">You need to log in to GitHub before publishing.</string>
+    <string name="local_artifact_entry">Local Entry</string>
+    <string name="publish_target_script_market">Will be automatically published to the script market</string>
+    <string name="publish_target_package_market">Will be automatically published to the package market</string>
+    <string name="display_name_label">Display Name</string>
+
+    <string name="nav_group_plugins">Plugins</string>
+    <string name="chat_delete_single_variant">Delete Single Message</string>
+    <string name="chat_delete_single_variant_unavailable">No single message candidates available for deletion</string>
+    <string name="chat_delete_single_variant_failed">Failed to delete single message: %1$s</string>
+
+    <string name="quick_plugin_creator_title">Quickly Create Your Plugin</string>
+    <string name="quick_plugin_creator_desc">Cannot find the plugin you want in the built-in list or marketplace? Create your own.</string>
+    <string name="quick_plugin_creator_step1_title">1. Update or download the package creation Skill</string>
+    <string name="quick_plugin_creator_step1_desc">Click the button to automatically download install_or_update.js and run the operit_editor debug_run_sandbox_script for installation or update.</string>
+    <string name="quick_plugin_creator_run_setup">Auto download and execute</string>
+    <string name="quick_plugin_creator_setup_success">Package creation Skill installation or update completed</string>
+    <string name="quick_plugin_creator_step2_title">2. Enter requirements to start creating</string>
+    <string name="quick_plugin_creator_requirement_hint">For example: create a tool to batch organize images in the download directory and generate an index</string>
+    <string name="quick_plugin_creator_requirement_empty">Please enter the plugin requirements first</string>
+    <string name="mcp_plugin_comment_view_thread">View thread</string>
+    <string name="mcp_plugin_user_comments">User comments</string>
+
+    <string name="quick_plugin_creator_setup_failed">Failed to install or update the Skill for package creation</string>
+    <string name="pkg_toolpkg_workflow_templates">Workflow templates: %1$d</string>
+    <string name="pkg_toolpkg_workspace_templates">Workspace templates: %1$d</string>
+    <string name="pkg_toolpkg_registered_workflow_templates">Workflow templates</string>
+    <string name="pkg_toolpkg_registered_workspace_templates">Workspace templates</string>
+    <string name="workspace_template_importing">Importing plugin template...</string>
+    <string name="workspace_project_type_toolpkg_section">Plugin workspace templates</string>
+    <string name="workspace_template_import_failed">Failed to import plugin workspace template</string>
+    <string name="workflow_template_toolpkg_section">Plugin templates</string>
 </resources>

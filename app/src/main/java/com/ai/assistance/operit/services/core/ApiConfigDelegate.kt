@@ -50,17 +50,13 @@ class ApiConfigDelegate(
     private val _enableThinkingMode = MutableStateFlow(ApiPreferences.DEFAULT_ENABLE_THINKING_MODE)
     val enableThinkingMode: StateFlow<Boolean> = _enableThinkingMode.asStateFlow()
 
-    private val _enableThinkingGuidance =
-            MutableStateFlow(ApiPreferences.DEFAULT_ENABLE_THINKING_GUIDANCE)
-    val enableThinkingGuidance: StateFlow<Boolean> = _enableThinkingGuidance.asStateFlow()
-
     private val _thinkingQualityLevel =
             MutableStateFlow(ApiPreferences.DEFAULT_THINKING_QUALITY_LEVEL)
     val thinkingQualityLevel: StateFlow<Int> = _thinkingQualityLevel.asStateFlow()
 
-    private val _enableMemoryQuery =
-            MutableStateFlow(ApiPreferences.DEFAULT_ENABLE_MEMORY_QUERY)
-    val enableMemoryQuery: StateFlow<Boolean> = _enableMemoryQuery.asStateFlow()
+    private val _enableMemoryAutoUpdate =
+            MutableStateFlow(ApiPreferences.DEFAULT_ENABLE_MEMORY_AUTO_UPDATE)
+    val enableMemoryAutoUpdate: StateFlow<Boolean> = _enableMemoryAutoUpdate.asStateFlow()
 
     private val _enableAutoRead =
             MutableStateFlow(ApiPreferences.DEFAULT_ENABLE_AUTO_READ)
@@ -115,10 +111,6 @@ class ApiConfigDelegate(
             MutableStateFlow(ApiPreferences.DEFAULT_DISABLE_USER_PREFERENCE_DESCRIPTION)
     val disableUserPreferenceDescription: StateFlow<Boolean> =
             _disableUserPreferenceDescription.asStateFlow()
-
-    private val _disableLatexDescription =
-            MutableStateFlow(ApiPreferences.DEFAULT_DISABLE_LATEX_DESCRIPTION)
-    val disableLatexDescription: StateFlow<Boolean> = _disableLatexDescription.asStateFlow()
 
     private val _disableStatusTags = MutableStateFlow(ApiPreferences.DEFAULT_DISABLE_STATUS_TAGS)
     val disableStatusTags: StateFlow<Boolean> = _disableStatusTags.asStateFlow()
@@ -226,23 +218,16 @@ class ApiConfigDelegate(
             }
         }
 
-        // Collect thinking guidance setting
-        coroutineScope.launch {
-            apiPreferences.enableThinkingGuidanceFlow.collect { enabled ->
-                _enableThinkingGuidance.value = enabled
-            }
-        }
-
         coroutineScope.launch {
             apiPreferences.thinkingQualityLevelFlow.collect { level ->
                 _thinkingQualityLevel.value = level
             }
         }
 
-        // Collect memory attachment setting
+        // Collect memory auto update setting
         coroutineScope.launch {
-            apiPreferences.enableMemoryQueryFlow.collect { enabled ->
-                _enableMemoryQuery.value = enabled
+            apiPreferences.enableMemoryAutoUpdateFlow.collect { enabled ->
+                _enableMemoryAutoUpdate.value = enabled
             }
         }
 
@@ -285,13 +270,6 @@ class ApiConfigDelegate(
         coroutineScope.launch {
             apiPreferences.disableUserPreferenceDescriptionFlow.collect { disabled ->
                 _disableUserPreferenceDescription.value = disabled
-            }
-        }
-
-        // Collect disable LaTeX description setting
-        coroutineScope.launch {
-            apiPreferences.disableLatexDescriptionFlow.collect { disabled ->
-                _disableLatexDescription.value = disabled
             }
         }
 
@@ -391,21 +369,7 @@ class ApiConfigDelegate(
     fun toggleThinkingMode() {
         coroutineScope.launch {
             val newValue = !_enableThinkingMode.value
-            apiPreferences.updateThinkingSettings(
-                enableThinkingMode = newValue,
-                enableThinkingGuidance = if (newValue) false else null
-            )
-        }
-    }
-
-    /** 切换思考引导 */
-    fun toggleThinkingGuidance() {
-        coroutineScope.launch {
-            val newValue = !_enableThinkingGuidance.value
-            apiPreferences.updateThinkingSettings(
-                enableThinkingGuidance = newValue,
-                enableThinkingMode = if (newValue) false else null
-            )
+            apiPreferences.updateThinkingSettings(enableThinkingMode = newValue)
         }
     }
 
@@ -417,12 +381,12 @@ class ApiConfigDelegate(
         }
     }
 
-    /** 切换记忆附着 */
-    fun toggleMemoryQuery() {
+    /** 切换记忆自动更新 */
+    fun toggleMemoryAutoUpdate() {
         coroutineScope.launch {
-            val newValue = !_enableMemoryQuery.value
-            apiPreferences.saveEnableMemoryQuery(newValue)
-            _enableMemoryQuery.value = newValue
+            val newValue = !_enableMemoryAutoUpdate.value
+            apiPreferences.saveEnableMemoryAutoUpdate(newValue)
+            _enableMemoryAutoUpdate.value = newValue
         }
     }
 
@@ -450,15 +414,6 @@ class ApiConfigDelegate(
             val newValue = !_disableUserPreferenceDescription.value
             apiPreferences.saveDisableUserPreferenceDescription(newValue)
             _disableUserPreferenceDescription.value = newValue
-        }
-    }
-
-    /** 切换禁用 LaTeX 描述 */
-    fun toggleDisableLatexDescription() {
-        coroutineScope.launch {
-            val newValue = !_disableLatexDescription.value
-            apiPreferences.saveDisableLatexDescription(newValue)
-            _disableLatexDescription.value = newValue
         }
     }
 

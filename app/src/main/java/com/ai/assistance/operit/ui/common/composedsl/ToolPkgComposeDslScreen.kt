@@ -1,6 +1,21 @@
 package com.ai.assistance.operit.ui.common.composedsl
 
 import android.graphics.Color as AndroidColor
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.webkit.ConsoleMessage
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -22,9 +37,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
@@ -41,12 +54,18 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -64,12 +83,18 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.rememberNestedScrollInteropConnection
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -77,6 +102,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
 import androidx.navigation.NavController
 import com.ai.assistance.operit.core.tools.AIToolHandler
@@ -85,22 +112,41 @@ import com.ai.assistance.operit.core.tools.packTool.ToolPkgComposeDslNode
 import com.ai.assistance.operit.core.tools.packTool.ToolPkgComposeDslParser
 import com.ai.assistance.operit.core.tools.packTool.ToolPkgComposeDslRenderResult
 import com.ai.assistance.operit.ui.components.CustomScaffold
+import com.ai.assistance.operit.ui.main.LocalTopBarTitleContent
+import com.ai.assistance.operit.ui.main.TopBarTitleContent
+import com.ai.assistance.operit.ui.main.components.LocalIsCurrentScreen
+import com.ai.assistance.operit.ui.main.components.LocalSetScreenSoftInputMode
+import com.ai.assistance.operit.ui.main.components.LocalSetUseScreenImePadding
+import com.ai.assistance.operit.ui.features.token.webview.WebViewConfig
 import com.ai.assistance.operit.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import android.os.Build
+import java.io.File
 import java.util.Locale
 
 private const val TAG = "ToolPkgComposeDslScreen"
 
+private fun ToolPkgComposeDslNode.containsNodeType(typeToken: String): Boolean {
+    if (normalizeToken(type) == typeToken) {
+        return true
+    }
+    if (children.any { child -> child.containsNodeType(typeToken) }) {
+        return true
+    }
+    return slots.values.any { slotChildren ->
+        slotChildren.any { child -> child.containsNodeType(typeToken) }
+    }
+}
+
 private fun buildComposeDslExecutionContextKey(
     containerPackageName: String,
-    uiModuleId: String
+    uiModuleId: String,
+    routeInstanceId: String
 ): String =
-    "toolpkg_compose_dsl:${containerPackageName.trim().ifBlank { "default" }}:${uiModuleId.trim().ifBlank { "default" }}"
+    "toolpkg_compose_dsl:${containerPackageName.trim().ifBlank { "default" }}:${uiModuleId.trim().ifBlank { "default" }}:${routeInstanceId.trim().ifBlank { "default" }}"
 
 internal fun normalizeToken(raw: String): String =
     raw.lowercase(Locale.ROOT)
@@ -170,11 +216,16 @@ private val colorSchemeFieldByToken: Map<String, java.lang.reflect.Field> by laz
 @Composable
 fun ToolPkgComposeDslToolScreen(
     navController: NavController,
+    routeInstanceId: String,
     containerPackageName: String,
     uiModuleId: String,
     fallbackTitle: String
 ) {
     val context = LocalContext.current
+    val isCurrentScreen = LocalIsCurrentScreen.current
+    val setTopBarTitleContent = LocalTopBarTitleContent.current
+    val setScreenSoftInputMode = LocalSetScreenSoftInputMode.current
+    val setUseScreenImePadding = LocalSetUseScreenImePadding.current
     val scope = rememberCoroutineScope()
     val renderMutex = remember { Mutex() }
     val currentLanguage =
@@ -193,8 +244,12 @@ fun ToolPkgComposeDslToolScreen(
     val packageManager = remember {
         PackageManager.getInstance(context, AIToolHandler.getInstance(context))
     }
-    val executionContextKey = remember(containerPackageName, uiModuleId) {
-        buildComposeDslExecutionContextKey(containerPackageName, uiModuleId)
+    val executionContextKey = remember(routeInstanceId, containerPackageName, uiModuleId) {
+        buildComposeDslExecutionContextKey(
+            containerPackageName = containerPackageName,
+            uiModuleId = uiModuleId,
+            routeInstanceId = routeInstanceId
+        )
     }
     val jsEngine = remember(packageManager, executionContextKey) {
         packageManager.getToolPkgExecutionEngine(executionContextKey)
@@ -209,6 +264,20 @@ fun ToolPkgComposeDslToolScreen(
     var isLoading by remember(containerPackageName, uiModuleId) { mutableStateOf(true) }
     var isDispatching by remember(containerPackageName, uiModuleId) { mutableStateOf(false) }
     var dispatchingCount by remember(containerPackageName, uiModuleId) { mutableStateOf(0) }
+    var hasDispatchedInitialOnLoad by
+        rememberSaveable(routeInstanceId, containerPackageName, uiModuleId) {
+            mutableStateOf(false)
+        }
+    var nextDispatchTicket by remember(containerPackageName, uiModuleId) { mutableStateOf(1L) }
+    val settledDispatchTickets = remember(containerPackageName, uiModuleId) { mutableSetOf<Long>() }
+    val requiresWebViewImeResize =
+        remember(renderResult?.tree) {
+            renderResult?.tree?.containsNodeType("webview") == true
+        }
+    val topBarTitleNodes =
+        remember(renderResult?.tree) {
+            renderResult?.tree?.slots?.get("topBarTitle").orEmpty()
+        }
 
     fun buildModuleSpec(screenPath: String?): Map<String, Any?> =
         mapOf(
@@ -238,11 +307,42 @@ fun ToolPkgComposeDslToolScreen(
         return runtimeOptions
     }
 
+    fun updateDebugSnapshot(
+        phase: String,
+        rawRenderResult: Any? = null,
+        parsedRenderResult: ToolPkgComposeDslRenderResult? = renderResult,
+        error: String? = errorMessage
+    ) {
+        ToolPkgComposeDslDebugSnapshotStore.update(
+            ToolPkgComposeDslDebugSnapshot(
+                routeInstanceId = routeInstanceId,
+                containerPackageName = containerPackageName,
+                uiModuleId = uiModuleId,
+                fallbackTitle = fallbackTitle,
+                scriptScreenPath = scriptScreenPath,
+                scriptSource = script,
+                phase = phase,
+                rawRenderResultText = rawRenderResult?.toString(),
+                renderResult = parsedRenderResult,
+                errorMessage = error,
+                isLoading = isLoading,
+                isDispatching = isDispatching,
+                updatedAtMillis = System.currentTimeMillis()
+            )
+        )
+    }
+
     fun dispatchAction(actionId: String, payload: Any? = null) {
         val normalizedActionId = actionId.trim()
         if (normalizedActionId.isBlank()) {
             return
         }
+        AppLogger.d(
+            TAG,
+            "compose_dsl dispatchAction: routeInstanceId=$routeInstanceId, package=$containerPackageName, uiModuleId=$uiModuleId, actionId=$normalizedActionId, payload=$payload"
+        )
+        val dispatchTicket = nextDispatchTicket
+        nextDispatchTicket += 1
 
         dispatchingCount += 1
         isDispatching = dispatchingCount > 0
@@ -253,19 +353,60 @@ fun ToolPkgComposeDslToolScreen(
                 payload = payload,
                 runtimeOptions = buildActionRuntimeOptions(),
                 onIntermediateResult = { intermediateResult ->
+                    if (settledDispatchTickets.contains(dispatchTicket)) {
+                        return@dispatchComposeDslActionAsync
+                    }
                     val parsedIntermediate =
                         ToolPkgComposeDslParser.parseRenderResult(intermediateResult)
                     if (parsedIntermediate != null) {
                         renderResult = parsedIntermediate
                         errorMessage = null
+                        updateDebugSnapshot(
+                            phase = "dispatch_intermediate",
+                            rawRenderResult = intermediateResult,
+                            parsedRenderResult = parsedIntermediate,
+                            error = null
+                        )
+                    }
+                },
+                onFinalResult = { finalResult ->
+                    if (settledDispatchTickets.contains(dispatchTicket)) {
+                        return@dispatchComposeDslActionAsync
+                    }
+                    val parsedFinal =
+                        ToolPkgComposeDslParser.parseRenderResult(finalResult)
+                    if (parsedFinal != null) {
+                        renderResult = parsedFinal
+                        errorMessage = null
+                        updateDebugSnapshot(
+                            phase = "dispatch_final",
+                            rawRenderResult = finalResult,
+                            parsedRenderResult = parsedFinal,
+                            error = null
+                        )
                     }
                 },
                 onComplete = {
                     dispatchingCount = (dispatchingCount - 1).coerceAtLeast(0)
                     isDispatching = dispatchingCount > 0
+                    updateDebugSnapshot(
+                        phase = "dispatch_complete",
+                        parsedRenderResult = renderResult,
+                        error = errorMessage
+                    )
+                    settledDispatchTickets.add(dispatchTicket)
+                    if (settledDispatchTickets.size > 64) {
+                        val latestTickets = settledDispatchTickets.toList().sortedDescending().take(32).toSet()
+                        settledDispatchTickets.retainAll(latestTickets)
+                    }
                 },
                 onError = { error ->
                     errorMessage = "compose_dsl runtime error: $error"
+                    updateDebugSnapshot(
+                        phase = "dispatch_error",
+                        parsedRenderResult = renderResult,
+                        error = errorMessage
+                    )
                     AppLogger.e(
                         TAG,
                         "compose_dsl async action failed: actionId=$normalizedActionId, error=$error"
@@ -276,11 +417,55 @@ fun ToolPkgComposeDslToolScreen(
         if (!dispatched) {
             dispatchingCount = (dispatchingCount - 1).coerceAtLeast(0)
             isDispatching = dispatchingCount > 0
+            updateDebugSnapshot(
+                phase = "dispatch_not_started",
+                parsedRenderResult = renderResult,
+                error = errorMessage
+            )
+            settledDispatchTickets.add(dispatchTicket)
+        }
+    }
+
+    SideEffect {
+        if (!isCurrentScreen) {
+            setTopBarTitleContent(null)
+            return@SideEffect
+        }
+
+        if (topBarTitleNodes.isNotEmpty()) {
+            setTopBarTitleContent(
+                TopBarTitleContent {
+                    CompositionLocalProvider(
+                        LocalComposeDslActionHandler provides ::dispatchAction,
+                        LocalComposeDslRouteInstanceId provides routeInstanceId
+                    ) {
+                        renderComposeDslNodes(
+                            nodes = topBarTitleNodes,
+                            onAction = ::dispatchAction,
+                            nodePath = "0:topBarTitle"
+                        )
+                    }
+                }
+            )
+        } else {
+            setTopBarTitleContent(null)
+        }
+
+        if (requiresWebViewImeResize) {
+            setScreenSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            setUseScreenImePadding(true)
+        } else {
+            setScreenSoftInputMode(null)
+            setUseScreenImePadding(false)
         }
     }
 
     suspend fun render() {
         var followUpActionId: String? = null
+        var snapshotPhase = "render_start"
+        var snapshotRawResult: Any? = null
+        var snapshotParsedResult: ToolPkgComposeDslRenderResult? = null
+        var snapshotError: String? = null
         renderMutex.withLock {
             try {
                 isLoading = true
@@ -315,6 +500,9 @@ fun ToolPkgComposeDslToolScreen(
                     renderResult = null
                     errorMessage =
                         "compose_dsl script not found: package=$containerPackageName, module=$uiModuleId"
+                    snapshotPhase = "render_missing_script"
+                    snapshotParsedResult = null
+                    snapshotError = errorMessage
                     return
                 }
                 if (script == null) {
@@ -338,6 +526,7 @@ fun ToolPkgComposeDslToolScreen(
                                 )
                         )
                     }
+                snapshotRawResult = rawResult
 
                 val rawText = rawResult?.toString()?.trim().orEmpty()
                 val parsed = ToolPkgComposeDslParser.parseRenderResult(rawResult)
@@ -350,12 +539,18 @@ fun ToolPkgComposeDslToolScreen(
                         }
                     renderResult = null
                     errorMessage = normalizedError
+                    snapshotPhase = "render_invalid_result"
+                    snapshotParsedResult = null
+                    snapshotError = normalizedError
                     AppLogger.e(TAG, normalizedError)
                     return
                 }
 
                 renderResult = parsed
                 errorMessage = null
+                snapshotPhase = "render_success"
+                snapshotParsedResult = parsed
+                snapshotError = null
 
                 followUpActionId =
                     ToolPkgComposeDslParser.extractActionId(parsed.tree.props["onLoad"])
@@ -363,38 +558,48 @@ fun ToolPkgComposeDslToolScreen(
             } catch (e: Exception) {
                 renderResult = null
                 errorMessage = "compose_dsl runtime error: ${e.message}"
+                snapshotPhase = "render_exception"
+                snapshotParsedResult = null
+                snapshotError = errorMessage
                 AppLogger.e(TAG, "compose_dsl render failed", e)
             } finally {
                 isLoading = false
+                updateDebugSnapshot(
+                    phase = snapshotPhase,
+                    rawRenderResult = snapshotRawResult,
+                    parsedRenderResult = snapshotParsedResult,
+                    error = snapshotError
+                )
             }
         }
 
         val onLoadActionId = followUpActionId
-        if (!onLoadActionId.isNullOrBlank()) {
+        if (!onLoadActionId.isNullOrBlank() && !hasDispatchedInitialOnLoad) {
+            hasDispatchedInitialOnLoad = true
             dispatchAction(actionId = onLoadActionId, payload = null)
         }
     }
 
-    LaunchedEffect(containerPackageName, uiModuleId) {
+    LaunchedEffect(routeInstanceId, containerPackageName, uiModuleId) {
         scope.launch {
             render()
         }
     }
 
+    DisposableEffect(executionContextKey) {
+        onDispose {
+            setTopBarTitleContent(null)
+            ToolPkgComposeDslDebugSnapshotStore.clear(routeInstanceId)
+            packageManager.releaseToolPkgExecutionEngine(executionContextKey)
+        }
+    }
+
     CustomScaffold { paddingValues ->
         val rootNode = renderResult?.tree
-        val useOuterScroll = rootNode?.type?.equals("LazyColumn", ignoreCase = true) != true
         val contentModifier =
             Modifier
                 .padding(paddingValues)
                 .fillMaxSize()
-                .let { modifier ->
-                    if (useOuterScroll) {
-                        modifier.verticalScroll(rememberScrollState())
-                    } else {
-                        modifier
-                    }
-                }
 
         Box(modifier = Modifier.fillMaxSize()) {
             when {
@@ -416,6 +621,7 @@ fun ToolPkgComposeDslToolScreen(
                         Button(
                             onClick = {
                                 scope.launch {
+                                    hasDispatchedInitialOnLoad = false
                                     render()
                                 }
                             }
@@ -425,23 +631,24 @@ fun ToolPkgComposeDslToolScreen(
                     }
                 }
                 rootNode != null -> {
-                    Box(modifier = contentModifier) {
-                        renderComposeDslNode(
-                            node = rootNode,
-                            onAction = ::dispatchAction,
-                            nodePath = "0"
-                        )
+                    CompositionLocalProvider(
+                        LocalComposeDslActionHandler provides ::dispatchAction,
+                        LocalComposeDslRouteInstanceId provides routeInstanceId
+                    ) {
+                        // Let compose_dsl content own its own scrolling behavior.
+                        // Wrapping the whole screen in an outer verticalScroll changes
+                        // root measurement semantics and breaks full-screen layouts.
+                        Box(modifier = contentModifier) {
+                            renderComposeDslNode(
+                                node = rootNode,
+                                onAction = ::dispatchAction,
+                                nodePath = "0"
+                            )
+                        }
                     }
                 }
             }
 
-            if (isDispatching) {
-                LinearProgressIndicator(
-                    modifier =
-                        Modifier.align(Alignment.TopCenter)
-                            .fillMaxWidth()
-                )
-            }
         }
     }
 }
@@ -452,39 +659,109 @@ fun RenderToolPkgComposeDslNode(
     modifier: Modifier = Modifier,
     onAction: (String, Any?) -> Unit = { _, _ -> }
 ) {
-    Box(modifier = modifier) {
-        renderComposeDslNode(
-            node = node,
-            onAction = onAction,
-            nodePath = "0"
-        )
+    CompositionLocalProvider(
+        LocalComposeDslActionHandler provides onAction,
+        LocalComposeDslRouteInstanceId provides ""
+    ) {
+        Box(modifier = modifier) {
+            renderComposeDslNode(
+                node = node,
+                onAction = onAction,
+                nodePath = "0"
+            )
+        }
     }
 }
+
+internal val LocalComposeDslActionHandler = staticCompositionLocalOf<(String, Any?) -> Unit> {
+    { _, _ -> }
+}
+internal val LocalComposeDslRouteInstanceId = staticCompositionLocalOf { "" }
+
+private data class ComposeDslDebugNodeInfo(
+    val routeInstanceId: String,
+    val nodePath: String,
+    val nodeType: String,
+    val nodeKey: String?
+)
+
+private val LocalComposeDslDebugNodeInfo = staticCompositionLocalOf<ComposeDslDebugNodeInfo?> {
+    null
+}
+
+internal typealias ComposeDslModifierResolver =
+    @Composable (Modifier, Map<String, Any?>) -> Modifier
 
 @Composable
 internal fun renderComposeDslNode(
     node: ToolPkgComposeDslNode,
     onAction: (String, Any?) -> Unit,
-    nodePath: String
+    nodePath: String,
+    modifierResolver: ComposeDslModifierResolver = { base, props ->
+        defaultComposeDslModifierResolver(base, props)
+    }
 ) {
-    val normalizedType = normalizeToken(node.type)
-    if (normalizedType == "canvas") {
-        renderCanvasNode(node, onAction)
-        return
+    val routeInstanceId = LocalComposeDslRouteInstanceId.current
+    val nodeKey = node.props["key"]?.toString()?.trim()?.ifBlank { null }
+    CompositionLocalProvider(
+        LocalComposeDslDebugNodeInfo provides
+            ComposeDslDebugNodeInfo(
+                routeInstanceId = routeInstanceId,
+                nodePath = nodePath,
+                nodeType = node.type,
+                nodeKey = nodeKey
+            )
+    ) {
+        val normalizedType = normalizeToken(node.type)
+        if (normalizedType == "canvas") {
+            renderCanvasNode(node, onAction, modifierResolver)
+            return@CompositionLocalProvider
+        }
+        if (normalizedType == "webview") {
+            renderWebViewNode(node, onAction, modifierResolver)
+            return@CompositionLocalProvider
+        }
+        val renderer = composeDslGeneratedNodeRendererRegistry[normalizedType]
+        if (renderer != null) {
+            renderer(node, onAction, nodePath, modifierResolver)
+            return@CompositionLocalProvider
+        }
+        Text(
+            text = "Unsupported node: ${node.type}",
+            style = MaterialTheme.typography.bodySmall
+        )
     }
-    val renderer = composeDslGeneratedNodeRendererRegistry[normalizedType]
-    if (renderer != null) {
-        renderer(node, onAction, nodePath)
-        return
+}
+
+@Composable
+internal fun applyComposeDslNodeDebugLayoutModifier(modifier: Modifier): Modifier {
+    val nodeInfo = LocalComposeDslDebugNodeInfo.current ?: return modifier
+    if (nodeInfo.routeInstanceId.isBlank()) {
+        return modifier
     }
-    Text(
-        text = "Unsupported node: ${node.type}",
-        style = MaterialTheme.typography.bodySmall
-    )
+    return modifier.onGloballyPositioned { coordinates ->
+        val rootBounds = coordinates.boundsInRoot()
+        val windowPosition = coordinates.positionInWindow()
+        ToolPkgComposeDslDebugSnapshotStore.updateLayout(
+            ToolPkgComposeDslLayoutSnapshot(
+                routeInstanceId = nodeInfo.routeInstanceId,
+                nodePath = nodeInfo.nodePath,
+                nodeType = nodeInfo.nodeType,
+                nodeKey = nodeInfo.nodeKey,
+                rootX = rootBounds.left,
+                rootY = rootBounds.top,
+                width = rootBounds.width,
+                height = rootBounds.height,
+                windowX = windowPosition.x,
+                windowY = windowPosition.y,
+                updatedAtMillis = System.currentTimeMillis()
+            )
+        )
+    }
 }
 
 internal typealias ComposeDslNodeRenderer =
-    @Composable (ToolPkgComposeDslNode, (String, Any?) -> Unit, String) -> Unit
+    @Composable (ToolPkgComposeDslNode, (String, Any?) -> Unit, String, ComposeDslModifierResolver) -> Unit
 
 private data class CanvasCommand(
     val type: String,
@@ -494,6 +771,23 @@ private data class CanvasCommand(
     val brush: Brush?,
     val alpha: Float?,
     val strokeWidth: Float
+)
+
+private data class ComposeDslWebViewRequest(
+    val url: String?,
+    val html: String?,
+    val baseUrl: String?,
+    val mimeType: String,
+    val encoding: String,
+    val headers: Map<String, String>
+)
+
+private data class ComposeDslWebViewCallbackIds(
+    val onPageStarted: String?,
+    val onPageFinished: String?,
+    val onReceivedError: String?,
+    val onUrlChanged: String?,
+    val onProgressChanged: String?
 )
 
 private fun canvasNumberFromValue(value: Any?): Float? {
@@ -516,6 +810,35 @@ private fun canvasUnitFromValue(value: Any?): String? {
         map["unit"]?.toString()
             ?: map["__unit"]?.toString()
     return token?.trim()?.lowercase(Locale.ROOT).orEmpty().ifBlank { null }
+}
+
+private fun buildComposeDslWebViewRequest(props: Map<String, Any?>): ComposeDslWebViewRequest {
+    val url = props.stringOrNull("url")
+    val html = props.stringOrNull("html")
+    require(url != null || html != null) {
+        "WebView requires either 'url' or 'html'."
+    }
+    val headers =
+        (props["headers"] as? Map<*, *>)
+            ?.entries
+            ?.mapNotNull { (key, value) ->
+                val normalizedKey = key?.toString()?.trim().orEmpty()
+                if (normalizedKey.isBlank() || value == null) {
+                    null
+                } else {
+                    normalizedKey to value.toString()
+                }
+            }
+            ?.toMap()
+            .orEmpty()
+    return ComposeDslWebViewRequest(
+        url = url,
+        html = html,
+        baseUrl = props.stringOrNull("baseUrl"),
+        mimeType = props.string("mimeType", "text/html"),
+        encoding = props.string("encoding", "UTF-8"),
+        headers = headers
+    )
 }
 
 
@@ -569,7 +892,8 @@ private fun parseCanvasCommands(raw: Any?): List<CanvasCommand> {
 @Composable
 private fun renderCanvasNode(
     node: ToolPkgComposeDslNode,
-    onAction: (String, Any?) -> Unit
+    onAction: (String, Any?) -> Unit,
+    modifierResolver: ComposeDslModifierResolver
 ) {
     val props = node.props
     val commands = parseCanvasCommands(props["commands"])
@@ -597,7 +921,7 @@ private fun renderCanvasNode(
     }
 
     var modifier =
-        applyCommonModifier(Modifier, props)
+        applyScopedCommonModifier(Modifier, props, modifierResolver)
             .onSizeChanged { size ->
                 if (onSizeChangedActionId != null && size != lastSize) {
                     lastSize = size
@@ -911,9 +1235,356 @@ private fun renderCanvasNode(
     }
 }
 
+@Composable
+private fun renderWebViewNode(
+    node: ToolPkgComposeDslNode,
+    onAction: (String, Any?) -> Unit,
+    modifierResolver: ComposeDslModifierResolver
+) {
+    val props = node.props
+    val request = buildComposeDslWebViewRequest(props)
+    val context = LocalContext.current
+    val nestedScrollInterop = rememberNestedScrollInteropConnection()
+    val modifier =
+        applyScopedCommonModifier(Modifier, props, modifierResolver).let { base ->
+            if (props.bool("nestedScrollInterop", false)) {
+                base.nestedScroll(nestedScrollInterop)
+            } else {
+                base
+            }
+        }
+    val callbackIdsState =
+        rememberUpdatedState(
+            ComposeDslWebViewCallbackIds(
+                onPageStarted = ToolPkgComposeDslParser.extractActionId(props["onPageStarted"]),
+                onPageFinished = ToolPkgComposeDslParser.extractActionId(props["onPageFinished"]),
+                onReceivedError = ToolPkgComposeDslParser.extractActionId(props["onReceivedError"]),
+                onUrlChanged = ToolPkgComposeDslParser.extractActionId(props["onUrlChanged"]),
+                onProgressChanged = ToolPkgComposeDslParser.extractActionId(props["onProgressChanged"])
+            )
+        )
+    val onActionState = rememberUpdatedState(onAction)
+    var pendingFileChooserCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+    val fileChooserLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val callback = pendingFileChooserCallback
+            pendingFileChooserCallback = null
+            if (callback == null) {
+                return@rememberLauncherForActivityResult
+            }
+            val uris =
+                WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+                    ?: run {
+                        val intent = result.data
+                        val directData = intent?.data?.let { arrayOf(it) }
+                        val clipData =
+                            intent?.clipData?.let { clip ->
+                                Array(clip.itemCount) { index -> clip.getItemAt(index).uri }
+                            }
+                        directData ?: clipData
+                    }
+            callback.onReceiveValue(uris)
+        }
+
+    val webView = remember(context) {
+        WebViewConfig.createWebView(context).apply {
+            webViewClient =
+                object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): Boolean {
+                        val callbackIds = callbackIdsState.value
+                        val url = request?.url?.toString()
+                        val actionId = callbackIds.onUrlChanged
+                        if (!actionId.isNullOrBlank() && !url.isNullOrBlank()) {
+                            onActionState.value(
+                                actionId,
+                                mapOf(
+                                    "url" to url,
+                                    "isMainFrame" to (request?.isForMainFrame ?: true),
+                                    "method" to request?.method
+                                )
+                            )
+                        }
+                        return false
+                    }
+
+                    override fun onPageStarted(
+                        view: WebView?,
+                        url: String?,
+                        favicon: android.graphics.Bitmap?
+                    ) {
+                        super.onPageStarted(view, url, favicon)
+                        val callbackIds = callbackIdsState.value
+                        val actionId = callbackIds.onPageStarted
+                        if (!actionId.isNullOrBlank()) {
+                            onActionState.value(
+                                actionId,
+                                mapOf(
+                                    "url" to url,
+                                    "title" to view?.title,
+                                    "canGoBack" to (view?.canGoBack() ?: false),
+                                    "canGoForward" to (view?.canGoForward() ?: false)
+                                )
+                            )
+                        }
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        val callbackIds = callbackIdsState.value
+                        val actionId = callbackIds.onPageFinished
+                        if (!actionId.isNullOrBlank()) {
+                            onActionState.value(
+                                actionId,
+                                mapOf(
+                                    "url" to url,
+                                    "title" to view?.title,
+                                    "canGoBack" to (view?.canGoBack() ?: false),
+                                    "canGoForward" to (view?.canGoForward() ?: false)
+                                )
+                            )
+                        }
+                    }
+
+                    override fun onReceivedError(
+                        view: WebView?,
+                        errorCode: Int,
+                        description: String?,
+                        failingUrl: String?
+                    ) {
+                        super.onReceivedError(view, errorCode, description, failingUrl)
+                        val callbackIds = callbackIdsState.value
+                        val actionId = callbackIds.onReceivedError
+                        if (!actionId.isNullOrBlank()) {
+                            onActionState.value(
+                                actionId,
+                                mapOf(
+                                    "errorCode" to errorCode,
+                                    "description" to description,
+                                    "url" to failingUrl
+                                )
+                            )
+                        }
+                    }
+
+                    override fun onReceivedError(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                        error: WebResourceError?
+                    ) {
+                        super.onReceivedError(view, request, error)
+                        val callbackIds = callbackIdsState.value
+                        val actionId = callbackIds.onReceivedError
+                        if (!actionId.isNullOrBlank()) {
+                            onActionState.value(
+                                actionId,
+                                mapOf(
+                                    "errorCode" to error?.errorCode,
+                                    "description" to error?.description?.toString(),
+                                    "url" to request?.url?.toString(),
+                                    "isMainFrame" to (request?.isForMainFrame ?: true)
+                                )
+                            )
+                        }
+                    }
+                }
+
+            webChromeClient =
+                object : WebChromeClient() {
+                    override fun onCreateWindow(
+                        view: WebView?,
+                        isDialog: Boolean,
+                        isUserGesture: Boolean,
+                        resultMsg: android.os.Message?
+                    ): Boolean {
+                        val message = resultMsg ?: return false
+                        val transport = message.obj as? WebView.WebViewTransport ?: return false
+                        transport.webView = view
+                        message.sendToTarget()
+                        return true
+                    }
+
+                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                        return super.onConsoleMessage(consoleMessage)
+                    }
+
+                    override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                        super.onProgressChanged(view, newProgress)
+                        val callbackIds = callbackIdsState.value
+                        val actionId = callbackIds.onProgressChanged
+                        if (!actionId.isNullOrBlank()) {
+                            onActionState.value(
+                                actionId,
+                                mapOf(
+                                    "progress" to newProgress,
+                                    "url" to view?.url,
+                                    "title" to view?.title
+                                )
+                            )
+                        }
+                    }
+
+                    override fun onShowFileChooser(
+                        webView: WebView?,
+                        filePathCallback: ValueCallback<Array<Uri>>?,
+                        fileChooserParams: FileChooserParams?
+                    ): Boolean {
+                        if (filePathCallback == null) {
+                            return false
+                        }
+                        pendingFileChooserCallback?.onReceiveValue(null)
+                        pendingFileChooserCallback = filePathCallback
+                        return try {
+                            val intent =
+                                fileChooserParams?.createIntent()
+                                    ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                                        addCategory(Intent.CATEGORY_OPENABLE)
+                                        type = "*/*"
+                                    }
+                            if (fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                            }
+                            fileChooserLauncher.launch(intent)
+                            true
+                        } catch (_: Throwable) {
+                            pendingFileChooserCallback?.onReceiveValue(null)
+                            pendingFileChooserCallback = null
+                            false
+                        }
+                    }
+
+                    override fun onPermissionRequest(request: PermissionRequest?) {
+                        request?.grant(request.resources)
+                    }
+
+                    override fun onGeolocationPermissionsShowPrompt(
+                        origin: String?,
+                        callback: GeolocationPermissions.Callback?
+                    ) {
+                        callback?.invoke(origin.orEmpty(), true, false)
+                    }
+
+                    override fun onJsAlert(
+                        view: WebView?,
+                        url: String?,
+                        message: String?,
+                        result: android.webkit.JsResult?
+                    ): Boolean {
+                        result?.confirm()
+                        return true
+                    }
+
+                    override fun onJsConfirm(
+                        view: WebView?,
+                        url: String?,
+                        message: String?,
+                        result: android.webkit.JsResult?
+                    ): Boolean {
+                        result?.confirm()
+                        return true
+                    }
+
+                    override fun onJsPrompt(
+                        view: WebView?,
+                        url: String?,
+                        message: String?,
+                        defaultValue: String?,
+                        result: android.webkit.JsPromptResult?
+                    ): Boolean {
+                        result?.confirm(defaultValue)
+                        return true
+                    }
+                }
+        }
+    }
+
+    DisposableEffect(webView) {
+        webView.post {
+            webView.requestFocus()
+        }
+        onDispose {
+            try {
+                webView.stopLoading()
+                webView.loadUrl("about:blank")
+                webView.clearHistory()
+                webView.removeAllViews()
+                webView.destroy()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    LaunchedEffect(
+        webView,
+        request.url,
+        request.html,
+        request.baseUrl,
+        request.mimeType,
+        request.encoding,
+        request.headers,
+        props.bool("javaScriptEnabled", true),
+        props.bool("domStorageEnabled", true),
+        props.bool("allowFileAccess", true),
+        props.bool("allowContentAccess", true),
+        props.bool("supportZoom", true),
+        props.bool("useWideViewPort", true),
+        props.bool("loadWithOverviewMode", true),
+        props.stringOrNull("userAgent")
+    ) {
+        webView.settings.apply {
+            javaScriptEnabled = props.bool("javaScriptEnabled", true)
+            domStorageEnabled = props.bool("domStorageEnabled", true)
+            databaseEnabled = true
+            javaScriptCanOpenWindowsAutomatically = true
+            setSupportMultipleWindows(true)
+            allowFileAccess = props.bool("allowFileAccess", true)
+            allowContentAccess = props.bool("allowContentAccess", true)
+            allowFileAccessFromFileURLs = true
+            allowUniversalAccessFromFileURLs = true
+            val supportZoom = props.bool("supportZoom", true)
+            setSupportZoom(supportZoom)
+            builtInZoomControls = supportZoom
+            displayZoomControls = false
+            loadWithOverviewMode = props.bool("loadWithOverviewMode", true)
+            useWideViewPort = props.bool("useWideViewPort", true)
+            cacheMode = WebSettings.LOAD_DEFAULT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            }
+            props.stringOrNull("userAgent")?.let { userAgentString = it }
+        }
+        val url = request.url
+        if (url != null) {
+            if (request.headers.isEmpty()) {
+                webView.loadUrl(url)
+            } else {
+                webView.loadUrl(url, request.headers)
+            }
+        } else {
+            webView.loadDataWithBaseURL(
+                request.baseUrl,
+                request.html.orEmpty(),
+                request.mimeType,
+                request.encoding,
+                null
+            )
+        }
+    }
+
+    AndroidView(
+        modifier = modifier,
+        factory = { webView }
+    )
+}
+
 
 @Composable
-internal fun applyCommonModifier(base: Modifier, props: Map<String, Any?>): Modifier {
+internal fun applyCommonModifier(
+    base: Modifier,
+    props: Map<String, Any?>
+): Modifier {
     var modifier = base
 
     val explicitWidth = props.floatOrNull("width")
@@ -970,6 +1641,11 @@ internal fun applyCommonModifier(base: Modifier, props: Map<String, Any?>): Modi
         }
     }
 
+    val zIndex = props.floatOrNull("zIndex")
+    if (zIndex != null) {
+        modifier = modifier.zIndex(zIndex)
+    }
+
     modifier = applyProxyModifierOps(modifier, props["modifier"])
 
     return modifier
@@ -996,8 +1672,30 @@ private data class ComposeDslModifierOp(
     val args: List<Any?>
 )
 
+internal fun Map<String, Any?>.paddingValuesOrNull(key: String): PaddingValues? {
+    return when (val raw = this[key]) {
+        is Number -> PaddingValues(raw.toFloat().dp)
+        is Map<*, *> -> {
+            val horizontal = (raw["horizontal"] as? Number)?.toFloat()
+            val vertical = (raw["vertical"] as? Number)?.toFloat()
+            if (horizontal != null || vertical != null) {
+                PaddingValues(
+                    horizontal = (horizontal ?: 0f).dp,
+                    vertical = (vertical ?: 0f).dp
+                )
+            } else {
+                null
+            }
+        }
+        else -> null
+    }
+}
+
 @Composable
-private fun applyProxyModifierOps(base: Modifier, rawModifier: Any?): Modifier {
+private fun applyProxyModifierOps(
+    base: Modifier,
+    rawModifier: Any?
+): Modifier {
     val ops = extractModifierOps(rawModifier)
     if (ops.isEmpty()) {
         return base
@@ -1023,8 +1721,24 @@ private fun extractModifierOps(rawModifier: Any?): List<ComposeDslModifierOp> {
     }
 }
 
+internal fun Map<String, Any?>.scopeAlignToken(): String? {
+    stringOrNull("align")?.let { return it }
+    return extractModifierOps(this["modifier"])
+        .lastOrNull { op -> normalizeToken(op.name) == "align" }
+        ?.args
+        ?.firstOrNull()
+        ?.toString()
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+}
+
 @Composable
-private fun applySingleModifierOp(modifier: Modifier, op: ComposeDslModifierOp): Modifier {
+private fun applySingleModifierOp(
+    modifier: Modifier,
+    op: ComposeDslModifierOp
+): Modifier {
+    val onAction = LocalComposeDslActionHandler.current
+    val nodeInfo = LocalComposeDslDebugNodeInfo.current
     val token = normalizeToken(op.name)
     return when (token) {
         "fillmaxsize" -> {
@@ -1095,6 +1809,20 @@ private fun applySingleModifierOp(modifier: Modifier, op: ComposeDslModifierOp):
         "clip" -> {
             val shape = shapeFromModifierArg(op.args.getOrNull(0)) ?: return modifier
             modifier.clip(shape)
+        }
+        "clickable" -> {
+            val actionId = ToolPkgComposeDslParser.extractActionId(op.args.getOrNull(0))
+            if (actionId.isNullOrBlank()) {
+                modifier
+            } else {
+                modifier.clickable {
+                    AppLogger.d(
+                        TAG,
+                        "compose_dsl clickable triggered: routeInstanceId=${nodeInfo?.routeInstanceId.orEmpty()}, nodePath=${nodeInfo?.nodePath.orEmpty()}, nodeType=${nodeInfo?.nodeType.orEmpty()}, nodeKey=${nodeInfo?.nodeKey.orEmpty()}, actionId=$actionId"
+                    )
+                    onAction(actionId, null)
+                }
+            }
         }
         else -> modifier
     }
@@ -1221,6 +1949,17 @@ internal fun Map<String, Any?>.dp(key: String, defaultValue: Dp = 0.dp): Dp {
     return (floatOrNull(key) ?: defaultValue.value).dp
 }
 
+internal fun popupPropertiesFromValue(value: Any?): PopupProperties {
+    val map = value as? Map<*, *> ?: return PopupProperties()
+    return PopupProperties(
+        focusable = (map["focusable"] as? Boolean) ?: false,
+        dismissOnBackPress = (map["dismissOnBackPress"] as? Boolean) ?: true,
+        dismissOnClickOutside = (map["dismissOnClickOutside"] as? Boolean) ?: true,
+        clippingEnabled = (map["clippingEnabled"] as? Boolean) ?: true,
+        usePlatformDefaultWidth = (map["usePlatformDefaultWidth"] as? Boolean) ?: false
+    )
+}
+
 @Composable
 internal fun Map<String, Any?>.textStyle(key: String): androidx.compose.ui.text.TextStyle {
     val typography = MaterialTheme.typography
@@ -1230,42 +1969,117 @@ internal fun Map<String, Any?>.textStyle(key: String): androidx.compose.ui.text.
 }
 
 internal fun Map<String, Any?>.horizontalAlignment(key: String): Alignment.Horizontal {
-    val token = normalizeToken(string(key))
-    val getter =
-        horizontalAlignmentGetterByToken[token]
-            ?: horizontalAlignmentGetterByToken["${token}horizontally"]
-    return (getter?.invoke(Alignment) as? Alignment.Horizontal) ?: Alignment.Start
+    return horizontalAlignmentFromToken(stringOrNull(key))
+}
+
+internal fun horizontalAlignmentFromToken(raw: String?): Alignment.Horizontal {
+    val token = normalizeToken(raw.orEmpty())
+    return when (token) {
+        "center", "centerhorizontally" -> Alignment.CenterHorizontally
+        "end", "right" -> Alignment.End
+        else -> Alignment.Start
+    }
 }
 
 internal fun Map<String, Any?>.verticalAlignment(key: String): Alignment.Vertical {
-    val token = normalizeToken(string(key))
-    val getter =
-        verticalAlignmentGetterByToken[token]
-            ?: verticalAlignmentGetterByToken["${token}vertically"]
-            ?: verticalAlignmentGetterByToken[if (token == "end") "bottom" else token]
-    return (getter?.invoke(Alignment) as? Alignment.Vertical) ?: Alignment.Top
+    return verticalAlignmentFromToken(stringOrNull(key))
+}
+
+internal fun verticalAlignmentFromToken(raw: String?): Alignment.Vertical {
+    val token = normalizeToken(raw.orEmpty())
+    return when (token) {
+        "center", "centervertically" -> Alignment.CenterVertically
+        "end", "bottom" -> Alignment.Bottom
+        else -> Alignment.Top
+    }
+}
+
+internal fun Map<String, Any?>.textOverflow(key: String): TextOverflow {
+    return when (normalizeToken(string(key))) {
+        "ellipsis" -> TextOverflow.Ellipsis
+        else -> TextOverflow.Clip
+    }
 }
 
 internal fun Map<String, Any?>.boxAlignment(key: String): Alignment {
-    val token = normalizeToken(string(key))
-    val getter =
-        boxAlignmentGetterByToken[token]
-            ?: boxAlignmentGetterByToken[if (token == "end") "bottomend" else token]
-    return (getter?.invoke(Alignment) as? Alignment) ?: Alignment.TopStart
+    return boxAlignmentFromToken(stringOrNull(key))
+}
+
+internal fun boxAlignmentFromToken(raw: String?): Alignment {
+    val token = normalizeToken(raw.orEmpty())
+    return when (token) {
+        "center" -> Alignment.Center
+        "topcenter", "centertop" -> Alignment.TopCenter
+        "topend", "endtop", "topright", "righttop" -> Alignment.TopEnd
+        "centerstart", "startcenter", "centerleft", "leftcenter" -> Alignment.CenterStart
+        "centerend", "endcenter", "centerright", "rightcenter" -> Alignment.CenterEnd
+        "bottomstart", "startbottom", "bottomleft", "leftbottom" -> Alignment.BottomStart
+        "bottomcenter", "centerbottom" -> Alignment.BottomCenter
+        "bottomend", "endbottom", "bottomright", "rightbottom", "end" -> Alignment.BottomEnd
+        else -> Alignment.TopStart
+    }
+}
+
+internal fun Map<String, Any?>.contentScale(key: String): ContentScale {
+    return when (normalizeToken(string(key))) {
+        "crop" -> ContentScale.Crop
+        "fillbounds", "fill" -> ContentScale.FillBounds
+        "fillwidth" -> ContentScale.FillWidth
+        "fillheight" -> ContentScale.FillHeight
+        "inside" -> ContentScale.Inside
+        "none" -> ContentScale.None
+        else -> ContentScale.Fit
+    }
+}
+
+internal fun Map<String, Any?>.imageModelOrNull(): Any? {
+    val rawValue =
+        stringOrNull("url")
+            ?: stringOrNull("uri")
+            ?: stringOrNull("path")
+            ?: stringOrNull("fileUri")
+            ?: stringOrNull("src")
+            ?: return null
+    val normalized = rawValue.trim()
+    if (normalized.isEmpty()) {
+        return null
+    }
+    return when {
+        normalized.startsWith("http://", ignoreCase = true) ||
+            normalized.startsWith("https://", ignoreCase = true) -> normalized
+        normalized.startsWith("content://", ignoreCase = true) ||
+            normalized.startsWith("file://", ignoreCase = true) ||
+            normalized.startsWith("android.resource://", ignoreCase = true) -> Uri.parse(normalized)
+        normalized.startsWith("/") -> File(normalized)
+        Regex("^[A-Za-z]:[\\\\/]").containsMatchIn(normalized) -> File(normalized)
+        else -> normalized
+    }
 }
 
 internal fun Map<String, Any?>.horizontalArrangement(key: String, spacing: Dp): Arrangement.Horizontal {
     val token = normalizeToken(string(key))
-    val getter = horizontalArrangementGetterByToken[token]
-    return (getter?.invoke(Arrangement) as? Arrangement.Horizontal) ?: Arrangement.spacedBy(spacing)
+    return when (token) {
+        "start" -> Arrangement.Start
+        "center" -> Arrangement.Center
+        "end" -> Arrangement.End
+        "spacebetween" -> Arrangement.SpaceBetween
+        "spacearound" -> Arrangement.SpaceAround
+        "spaceevenly" -> Arrangement.SpaceEvenly
+        else -> Arrangement.spacedBy(spacing)
+    }
 }
 
 internal fun Map<String, Any?>.verticalArrangement(key: String, spacing: Dp): Arrangement.Vertical {
     val token = normalizeToken(string(key))
-    val getter =
-        verticalArrangementGetterByToken[token]
-            ?: verticalArrangementGetterByToken[if (token == "end") "bottom" else token]
-    return (getter?.invoke(Arrangement) as? Arrangement.Vertical) ?: Arrangement.spacedBy(spacing)
+    return when (token) {
+        "top", "start" -> Arrangement.Top
+        "center" -> Arrangement.Center
+        "bottom", "end" -> Arrangement.Bottom
+        "spacebetween" -> Arrangement.SpaceBetween
+        "spacearound" -> Arrangement.SpaceAround
+        "spaceevenly" -> Arrangement.SpaceEvenly
+        else -> Arrangement.spacedBy(spacing)
+    }
 }
 
 internal fun Map<String, Any?>.fontWeightOrNull(key: String): FontWeight? {

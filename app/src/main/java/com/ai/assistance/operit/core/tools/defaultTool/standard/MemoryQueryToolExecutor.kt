@@ -253,7 +253,7 @@ class MemoryQueryToolExecutor(private val context: Context) : ToolExecutor {
 
         AppLogger.d(
             TAG,
-            "Executing memory query: '$query' in folder: '${folderPath ?: "All"}', snapshot_id=${snapshotState.id}, snapshot_created=$snapshotCreated, start_time: ${startTimeMs ?: "null"}, end_time: ${endTimeMs ?: "null"}, limit: $validLimit, threshold=${threshold ?: DEFAULT_RELEVANCE_THRESHOLD}, mode=${settings.scoreMode}, keywordWeight=${settings.keywordWeight}, vectorWeight=${settings.vectorWeight}, edgeWeight=${settings.edgeWeight}"
+            "Executing memory query: '$query' in folder: '${folderPath ?: "All"}', snapshot_id=${snapshotState.id}, snapshot_created=$snapshotCreated, start_time: ${startTimeMs ?: "null"}, end_time: ${endTimeMs ?: "null"}, limit: $validLimit, threshold=${threshold ?: DEFAULT_RELEVANCE_THRESHOLD}, mode=${settings.scoreMode}, keywordWeight=${settings.keywordWeight}, tagWeight=${settings.tagWeight}, vectorWeight=${settings.vectorWeight}, edgeWeight=${settings.edgeWeight}"
         )
 
         return try {
@@ -262,6 +262,7 @@ class MemoryQueryToolExecutor(private val context: Context) : ToolExecutor {
                 folderPath = folderPath,
                 scoreMode = settings.scoreMode,
                 keywordWeight = settings.keywordWeight,
+                tagWeight = settings.tagWeight,
                 semanticWeight = settings.vectorWeight,
                 edgeWeight = settings.edgeWeight,
                 relevanceThreshold = threshold ?: DEFAULT_RELEVANCE_THRESHOLD,
@@ -1200,9 +1201,7 @@ class MemoryQueryToolExecutor(private val context: Context) : ToolExecutor {
         excludedBySnapshotCount: Int = 0
     ): MemoryQueryResultData = withContext(Dispatchers.IO) {
         val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-        // 当 limit > 20 时，只返回标题和截断内容
-        val isTruncatedMode = limit > 20
-        val maxContentLength = 40 // 截断后的最大内容长度（更严格）
+        val isWildcardQuery = query.trim() == "*"
         
         val memoryInfos = memories.map { memory ->
             val content: String
@@ -1226,7 +1225,7 @@ class MemoryQueryToolExecutor(private val context: Context) : ToolExecutor {
                         "Chunks ${matchingChunks.map { it.chunkIndex + 1 }.take(5).joinToString(", ")}/$totalChunks"
                     }
                     
-                    if (isTruncatedMode) {
+                    if (isWildcardQuery || limit > 20) {
                         // 截断模式：只显示文档标题和分块信息
                         content = "Document: ${memory.title} ($totalChunks chunks)"
                     } else {
@@ -1241,26 +1240,21 @@ class MemoryQueryToolExecutor(private val context: Context) : ToolExecutor {
                     // 如果二次探查未找到（理论上很少见，因为全局搜索已经认为它相关），提供一个回退信息
                     chunkInfo = null
                     chunkIndices = null
-                    if (isTruncatedMode) {
+                    if (isWildcardQuery || limit > 20) {
                         content = "Document: ${memory.title}"
                     } else {
                         content = "Document '${memory.title}' was found, but no specific chunks matched the query '$query'. The document's general content is: ${memory.content}"
                     }
                 }
             } else {
-                // 对于普通记忆
+                // 对于普通记忆，只有通配查询时返回短摘要，其余始终返回完整内容
                 chunkInfo = null
                 chunkIndices = null
-                if (isTruncatedMode) {
-                    // 截断模式：只返回标题和部分内容
-                    content = if (memory.content.length > maxContentLength) {
-                        memory.content.take(maxContentLength) + "..."
-                    } else {
-                        memory.content
-                    }
+                content = if (isWildcardQuery) {
+                    val summary = memory.content.take(10)
+                    if (memory.content.length > 10) "$summary..." else summary
                 } else {
-                    // 完整模式：返回完整内容
-                    content = memory.content
+                    memory.content
                 }
             }
 

@@ -29,7 +29,10 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.ai.assistance.operit.core.tools.AIToolHandler
+import com.ai.assistance.operit.core.tools.packTool.PackageManager
 import com.ai.assistance.operit.data.preferences.ApiPreferences
+import com.ai.assistance.operit.ui.features.chat.webview.createAndResetWorkspaceDirectory
 import kotlinx.coroutines.*
 
 /**
@@ -41,6 +44,8 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
     val context = LocalContext.current
     var showFileBrowser by remember { mutableStateOf(false) }
     var showProjectTypeDialog by remember { mutableStateOf(false) }
+    var projectTypeDialogError by remember { mutableStateOf<String?>(null) }
+    var isImportingToolPkgTemplate by remember { mutableStateOf(false) }
 
     var pendingRepoBookmarkUri by remember { mutableStateOf<Uri?>(null) }
     var repoBookmarkNameInput by remember { mutableStateOf("") }
@@ -48,9 +53,16 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
     var repoBookmarkNameError by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
+    val toolHandler = remember { AIToolHandler.getInstance(context) }
+    val packageManager = remember { PackageManager.getInstance(context, toolHandler) }
+    var toolPkgWorkspaceTemplates by remember { mutableStateOf<List<PackageManager.ToolPkgWorkspaceTemplate>>(emptyList()) }
 
     val apiPreferences = remember { ApiPreferences.getInstance(context) }
     val safBookmarks by apiPreferences.safBookmarksFlow.collectAsState(initial = emptyList())
+
+    LaunchedEffect(Unit) {
+        toolPkgWorkspaceTemplates = packageManager.getToolPkgWorkspaceTemplates(context)
+    }
 
     fun querySafBookmarkDisplayName(uri: Uri): String {
         return try {
@@ -104,6 +116,55 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
             pendingRepoBookmarkUri = uri
             repoBookmarkNameInput = queryRepoBookmarkName(uri)
             showRepoBookmarkNameDialog = true
+        }
+    }
+
+    fun bindBuiltInWorkspace(projectType: String?) {
+        val workspaceDir =
+            if (projectType == null) {
+                createAndGetDefaultWorkspace(context, chatId)
+            } else {
+                createAndGetDefaultWorkspace(context, chatId, projectType)
+            }
+        onBindWorkspace(workspaceDir.absolutePath, null)
+        showProjectTypeDialog = false
+        projectTypeDialogError = null
+    }
+
+    fun importToolPkgWorkspaceTemplate(template: PackageManager.ToolPkgWorkspaceTemplate) {
+        if (isImportingToolPkgTemplate) return
+        projectTypeDialogError = null
+        isImportingToolPkgTemplate = true
+        scope.launch {
+            val importAttempt =
+                withContext(Dispatchers.IO) {
+                    val workspaceDir = createAndResetWorkspaceDirectory(context, chatId)
+                    packageManager.importToolPkgWorkspaceTemplate(
+                        containerPackageName = template.containerPackageName,
+                        templateId = template.templateId,
+                        destinationDir = workspaceDir
+                    ).fold(
+                        onSuccess = { Result.success(workspaceDir to it) },
+                        onFailure = {
+                            if (workspaceDir.exists()) {
+                                workspaceDir.deleteRecursively()
+                            }
+                            Result.failure(it)
+                        }
+                    )
+                }
+
+            importAttempt.fold(
+                onSuccess = { (_, result) ->
+                    showProjectTypeDialog = false
+                    onBindWorkspace(result.workspacePath, null)
+                },
+                onFailure = {
+                    projectTypeDialogError =
+                        it.message ?: context.getString(R.string.workspace_template_import_failed)
+                }
+            )
+            isImportingToolPkgTemplate = false
         }
     }
 
@@ -201,7 +262,12 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
         ) {
             if (showProjectTypeDialog) {
                 AlertDialog(
-                    onDismissRequest = { showProjectTypeDialog = false },
+                    onDismissRequest = {
+                        if (!isImportingToolPkgTemplate) {
+                            showProjectTypeDialog = false
+                            projectTypeDialogError = null
+                        }
+                    },
                     title = {
                         Text(
                             text = context.getString(R.string.workspace_select_language_type_title),
@@ -220,6 +286,22 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+
+                            projectTypeDialogError?.let { error ->
+                                Text(
+                                    text = error,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+
+                            if (isImportingToolPkgTemplate) {
+                                Text(
+                                    text = context.getString(R.string.workspace_template_importing),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             
                             Spacer(modifier = Modifier.height(8.dp))
                             
@@ -228,9 +310,7 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
                                 title = context.getString(R.string.workspace_project_type_blank_title),
                                 description = context.getString(R.string.workspace_project_type_blank_description),
                                 onClick = {
-                                    val workspaceDir = createAndGetDefaultWorkspace(context, chatId, "blank")
-                                    onBindWorkspace(workspaceDir.absolutePath, null)
-                                    showProjectTypeDialog = false
+                                    bindBuiltInWorkspace("blank")
                                 }
                             )
                             
@@ -240,9 +320,7 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
                                 title = context.getString(R.string.workspace_project_type_office_title),
                                 description = context.getString(R.string.workspace_project_type_office_description),
                                 onClick = {
-                                    val workspaceDir = createAndGetDefaultWorkspace(context, chatId, "office")
-                                    onBindWorkspace(workspaceDir.absolutePath, null)
-                                    showProjectTypeDialog = false
+                                    bindBuiltInWorkspace("office")
                                 }
                             )
                             
@@ -252,9 +330,7 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
                                 title = context.getString(R.string.workspace_project_type_web_title),
                                 description = context.getString(R.string.workspace_project_type_web_description),
                                 onClick = {
-                                    val workspaceDir = createAndGetDefaultWorkspace(context, chatId)
-                                    onBindWorkspace(workspaceDir.absolutePath, null)
-                                    showProjectTypeDialog = false
+                                    bindBuiltInWorkspace(null)
                                 }
                             )
 
@@ -264,9 +340,7 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
                                 title = context.getString(R.string.workspace_project_type_android_title),
                                 description = context.getString(R.string.workspace_project_type_android_description),
                                 onClick = {
-                                    val workspaceDir = createAndGetDefaultWorkspace(context, chatId, "android")
-                                    onBindWorkspace(workspaceDir.absolutePath, null)
-                                    showProjectTypeDialog = false
+                                    bindBuiltInWorkspace("android")
                                 }
                             )
 
@@ -276,9 +350,7 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
                                 title = context.getString(R.string.workspace_project_type_flutter_title),
                                 description = context.getString(R.string.workspace_project_type_flutter_description),
                                 onClick = {
-                                    val workspaceDir = createAndGetDefaultWorkspace(context, chatId, "flutter")
-                                    onBindWorkspace(workspaceDir.absolutePath, null)
-                                    showProjectTypeDialog = false
+                                    bindBuiltInWorkspace("flutter")
                                 }
                             )
                              
@@ -288,9 +360,7 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
                                 title = context.getString(R.string.workspace_project_type_node_title),
                                 description = context.getString(R.string.workspace_project_type_node_description),
                                 onClick = {
-                                    val workspaceDir = createAndGetDefaultWorkspace(context, chatId, "node")
-                                    onBindWorkspace(workspaceDir.absolutePath, null)
-                                    showProjectTypeDialog = false
+                                    bindBuiltInWorkspace("node")
                                 }
                             )
                             
@@ -300,9 +370,7 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
                                 title = context.getString(R.string.workspace_project_type_typescript_title),
                                 description = context.getString(R.string.workspace_project_type_typescript_description),
                                 onClick = {
-                                    val workspaceDir = createAndGetDefaultWorkspace(context, chatId, "typescript")
-                                    onBindWorkspace(workspaceDir.absolutePath, null)
-                                    showProjectTypeDialog = false
+                                    bindBuiltInWorkspace("typescript")
                                 }
                             )
                             
@@ -312,9 +380,7 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
                                 title = context.getString(R.string.workspace_project_type_python_title),
                                 description = context.getString(R.string.workspace_project_type_python_description),
                                 onClick = {
-                                    val workspaceDir = createAndGetDefaultWorkspace(context, chatId, "python")
-                                    onBindWorkspace(workspaceDir.absolutePath, null)
-                                    showProjectTypeDialog = false
+                                    bindBuiltInWorkspace("python")
                                 }
                             )
                             
@@ -324,9 +390,7 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
                                 title = context.getString(R.string.workspace_project_type_java_title),
                                 description = context.getString(R.string.workspace_project_type_java_description),
                                 onClick = {
-                                    val workspaceDir = createAndGetDefaultWorkspace(context, chatId, "java")
-                                    onBindWorkspace(workspaceDir.absolutePath, null)
-                                    showProjectTypeDialog = false
+                                    bindBuiltInWorkspace("java")
                                 }
                             )
                             
@@ -336,16 +400,47 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
                                 title = context.getString(R.string.workspace_project_type_go_title),
                                 description = context.getString(R.string.workspace_project_type_go_description),
                                 onClick = {
-                                    val workspaceDir = createAndGetDefaultWorkspace(context, chatId, "go")
-                                    onBindWorkspace(workspaceDir.absolutePath, null)
-                                    showProjectTypeDialog = false
+                                    bindBuiltInWorkspace("go")
                                 }
                             )
+
+                            if (toolPkgWorkspaceTemplates.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = context.getString(R.string.workspace_project_type_toolpkg_section),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+
+                                toolPkgWorkspaceTemplates.forEach { template ->
+                                    ProjectTypeCard(
+                                        icon = Icons.Default.Extension,
+                                        title = template.displayName,
+                                        description =
+                                            buildString {
+                                                append(template.containerPackageName)
+                                                if (template.description.isNotBlank()) {
+                                                    append(" · ")
+                                                    append(template.description)
+                                                }
+                                            },
+                                        onClick = {
+                                            importToolPkgWorkspaceTemplate(template)
+                                        }
+                                    )
+                                }
+                            }
                         }
                     },
                     confirmButton = {},
                     dismissButton = {
-                        TextButton(onClick = { showProjectTypeDialog = false }) {
+                        TextButton(
+                            onClick = {
+                                showProjectTypeDialog = false
+                                projectTypeDialogError = null
+                            },
+                            enabled = !isImportingToolPkgTemplate
+                        ) {
                             Text(context.getString(R.string.cancel))
                         }
                     }
@@ -391,6 +486,7 @@ fun WorkspaceSetup(chatId: String, onBindWorkspace: (String, String?) -> Unit) {
                     title = context.getString(R.string.create_default_workspace),
                     description = context.getString(R.string.create_new_workspace_in_app),
                     onClick = {
+                        projectTypeDialogError = null
                         showProjectTypeDialog = true
                     }
                 )

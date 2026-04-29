@@ -40,6 +40,9 @@ import {
     FileInfoData as _FileInfoData,
     HttpResponseData as _HttpResponseData,
     VisitWebResultData as _VisitWebResultData,
+    TerminalCommandResultData as _TerminalCommandResultData,
+    TerminalStreamEventData as _TerminalStreamEventData,
+    HiddenTerminalCommandResultData as _HiddenTerminalCommandResultData,
     CombinedOperationResultData as _CombinedOperationResultData,
     AutomationExecutionResultData as _AutomationExecutionResultData,
     FilePartContentData as _FilePartContentData,
@@ -184,6 +187,9 @@ declare global {
     type FileInfoData = _FileInfoData;
     type HttpResponseData = _HttpResponseData;
     type VisitWebResultData = _VisitWebResultData;
+    type TerminalCommandResultData = _TerminalCommandResultData;
+    type TerminalStreamEventData = _TerminalStreamEventData;
+    type HiddenTerminalCommandResultData = _HiddenTerminalCommandResultData;
     type CombinedOperationResultData = _CombinedOperationResultData;
     type AutomationExecutionResultData = _AutomationExecutionResultData;
     type FilePartContentData = _FilePartContentData;
@@ -231,12 +237,19 @@ declare global {
         type?: string;
         name: string;
         params?: ToolParams;
+        onIntermediateResult?: (value: unknown) => void;
+    }
+
+    interface ToolCallOptions<TIntermediate = unknown> {
+        onIntermediateResult?: (value: TIntermediate) => void;
     }
 
     // Tool call functions
     function toolCall<T extends string>(toolType: string, toolName: T, toolParams?: ToolParams): Promise<ToolReturnType<T>>;
     function toolCall<T extends string>(toolName: T, toolParams?: ToolParams): Promise<ToolReturnType<T>>;
     function toolCall<T extends string>(config: ToolConfig & { name: T }): Promise<ToolReturnType<T>>;
+    function toolCall<T extends string, TIntermediate = unknown>(toolType: string, toolName: T, toolParams: ToolParams | undefined, options: ToolCallOptions<TIntermediate>): Promise<ToolReturnType<T>>;
+    function toolCall<T extends string, TIntermediate = unknown>(toolName: T, toolParams: ToolParams | undefined, options: ToolCallOptions<TIntermediate>): Promise<ToolReturnType<T>>;
     function toolCall(toolName: string): Promise<any>;
 
     // Complete function

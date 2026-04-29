@@ -3,11 +3,10 @@
  */
 
 import {
-    SleepResultData, SystemSettingData, AppOperationData, AppListData,
-    DeviceInfoResultData, NotificationData, LocationData,
-    ADBResultData, IntentResultData, TerminalCommandResultData, HiddenTerminalCommandResultData,
-    TerminalSessionCreationResultData, TerminalSessionCloseResultData, TerminalSessionScreenResultData,
-    StringResultData
+    StringResultData, SleepResultData, SystemSettingData, AppOperationData, AppListData,
+    AppUsageTimeResultData, DeviceInfoResultData, NotificationData, LocationData,
+    ADBResultData, IntentResultData, TerminalCommandResultData, TerminalStreamEventData, HiddenTerminalCommandResultData,
+    TerminalSessionCreationResultData, TerminalSessionCloseResultData, TerminalSessionScreenResultData
 } from './results';
 
 /**
@@ -100,6 +99,17 @@ export namespace System {
     function getNotifications(limit?: number, includeOngoing?: boolean): Promise<NotificationData>;
 
     /**
+     * Get app foreground usage time from Android Usage Access.
+     * @param options Query options
+     */
+    function getAppUsageTime(options?: {
+        packageName?: string;
+        sinceHours?: number | string;
+        limit?: number | string;
+        includeSystemApps?: boolean;
+    }): Promise<AppUsageTimeResultData>;
+
+    /**
      * Get device location
      * @param highAccuracy - Whether to use high accuracy mode (default: false)
      * @param timeout - Timeout in seconds (default: 10)
@@ -161,6 +171,19 @@ export namespace System {
          * @returns Promise resolving to the command execution result.
          */
         function exec(sessionId: string, command: string, timeoutMs?: number | string): Promise<TerminalCommandResultData>;
+
+        /**
+         * Execute a command in a terminal session and receive incremental output chunks.
+         * Final resolution still returns the complete terminal command result.
+         * @param sessionId The ID of the session.
+         * @param command The command to execute.
+         * @param options Streaming execution options.
+         * @returns Promise resolving to the final command execution result.
+         */
+        function execStreaming(sessionId: string, command: string, options?: {
+            timeoutMs?: number | string;
+            onIntermediateResult?: (event: TerminalStreamEventData) => void;
+        }): Promise<TerminalCommandResultData>;
 
         /**
          * Execute a command in a hidden non-PTY executor.

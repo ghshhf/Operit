@@ -764,8 +764,8 @@ fun NodeDialog(
                 if (packageName.isNotBlank() && packageToolName.isNotBlank()) {
                     withContext(Dispatchers.IO) {
                         try {
-                            if (!packageManager.isPackageImported(packageName)) {
-                                packageManager.importPackage(packageName)
+                            if (!packageManager.isPackageEnabled(packageName)) {
+                                packageManager.enablePackage(packageName)
                             }
                             packageManager.usePackage(packageName)
                         } catch (_: Exception) {
@@ -951,7 +951,8 @@ fun NodeDialog(
         "schedule" to stringResource(R.string.workflow_trigger_type_schedule),
         "tasker" to stringResource(R.string.workflow_trigger_type_tasker),
         "intent" to stringResource(R.string.workflow_trigger_type_intent),
-        "speech" to stringResource(R.string.workflow_trigger_type_speech)
+        "speech" to stringResource(R.string.workflow_trigger_type_speech),
+        "app_open" to stringResource(R.string.workflow_trigger_type_app_open)
     )
 
     AlertDialog(
@@ -1916,6 +1917,12 @@ fun NodeDialog(
                                     modifier = Modifier.padding(top = 4.dp)
                                 )
                             }
+                        } else if (triggerType == "app_open") {
+                            Text(
+                                text = stringResource(R.string.workflow_app_open_trigger_help),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         } else if (triggerType != "manual") {
                             OutlinedTextField(
                                 value = triggerConfig,
@@ -1954,6 +1961,7 @@ fun NodeDialog(
                                     "tasker" -> triggerTypes["tasker"].orEmpty()
                                     "intent" -> triggerTypes["intent"].orEmpty()
                                     "speech" -> triggerTypes["speech"].orEmpty()
+                                    "app_open" -> triggerTypes["app_open"].orEmpty()
                                     else -> context.getString(R.string.workflow_trigger_fallback)
                                 }
                             }

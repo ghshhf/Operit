@@ -18,13 +18,6 @@ function readSettings(): ExtraInfoInjectionSettings {
   return loadSettings();
 }
 
-function formatDecimal(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "0";
-  }
-  return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
-}
-
 function createSectionTitle(ctx: ComposeDslContext, icon: string, title: string): ComposeNode {
   return ctx.UI.Row({ verticalAlignment: "center" }, [
     ctx.UI.Icon({ name: icon, tint: "primary", size: 20 }),
@@ -118,9 +111,7 @@ function createMemoryConfigSection(
   enabled: boolean,
   allowRepeatedMemorySearch: boolean,
   onAllowRepeatedMemorySearchChange: (checked: boolean) => void,
-  thresholdValue: string,
   limitValue: string,
-  onThresholdChange: (value: string) => void,
   onLimitChange: (value: string) => void,
   onApply: () => void
 ): ComposeNode {
@@ -150,19 +141,6 @@ function createMemoryConfigSection(
         enabled
       ),
       createDivider(ctx),
-      ctx.UI.TextField({
-        enabled,
-        label: text.memoryThresholdFieldLabel,
-        placeholder: text.memoryThresholdFieldPlaceholder,
-        value: thresholdValue,
-        onValueChange: onThresholdChange,
-        singleLine: true,
-      }),
-      ctx.UI.Text({
-        text: text.memoryThresholdFieldDescription,
-        style: "bodySmall",
-        color: "onSurfaceVariant",
-      }),
       ctx.UI.TextField({
         enabled,
         label: text.memoryLimitFieldLabel,
@@ -230,6 +208,17 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
   const injectBatteryState = useStateValue(ctx, "injectBattery", initial.injectBattery);
   const injectWeatherState = useStateValue(ctx, "injectWeather", initial.injectWeather);
   const injectLocationState = useStateValue(ctx, "injectLocation", initial.injectLocation);
+  const injectCurrentScreenAppState = useStateValue(
+    ctx,
+    "injectCurrentScreenApp",
+    initial.injectCurrentScreenApp
+  );
+  const injectRecentAppUsageState = useStateValue(
+    ctx,
+    "injectRecentAppUsage",
+    initial.injectRecentAppUsage
+  );
+  const injectScreenTextState = useStateValue(ctx, "injectScreenText", initial.injectScreenText);
   const injectNotificationsState = useStateValue(
     ctx,
     "injectNotifications",
@@ -241,13 +230,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     "allowRepeatedMemorySearch",
     initial.allowRepeatedMemorySearch
   );
-  const memoryThresholdState = useStateValue(ctx, "memoryThreshold", initial.memoryThreshold);
   const memoryLimitState = useStateValue(ctx, "memoryLimit", initial.memoryLimit);
-  const memoryThresholdInputState = useStateValue(
-    ctx,
-    "memoryThresholdInput",
-    formatDecimal(initial.memoryThreshold)
-  );
   const memoryLimitInputState = useStateValue(
     ctx,
     "memoryLimitInput",
@@ -264,12 +247,13 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     injectBatteryState.set(next.injectBattery);
     injectWeatherState.set(next.injectWeather);
     injectLocationState.set(next.injectLocation);
+    injectCurrentScreenAppState.set(next.injectCurrentScreenApp);
+    injectRecentAppUsageState.set(next.injectRecentAppUsage);
+    injectScreenTextState.set(next.injectScreenText);
     injectNotificationsState.set(next.injectNotifications);
     injectMemoryState.set(next.injectMemory);
     allowRepeatedMemorySearchState.set(next.allowRepeatedMemorySearch);
-    memoryThresholdState.set(next.memoryThreshold);
     memoryLimitState.set(next.memoryLimit);
-    memoryThresholdInputState.set(formatDecimal(next.memoryThreshold));
     memoryLimitInputState.set(String(next.memoryLimit));
   };
 
@@ -290,14 +274,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
   };
 
   const applyMemorySettings = (): void => {
-    const threshold = Number(memoryThresholdInputState.value.trim());
     const limit = Number(memoryLimitInputState.value.trim());
-
-    if (!Number.isFinite(threshold) || threshold < 0) {
-      successMessageState.set("");
-      errorMessageState.set(`${text.saveErrorPrefix}${text.invalidMemoryThresholdMessage}`);
-      return;
-    }
 
     if (!Number.isFinite(limit) || limit < 1) {
       successMessageState.set("");
@@ -306,7 +283,6 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     }
 
     persistSettings({
-      memoryThreshold: threshold,
       memoryLimit: Math.floor(limit),
     });
   };
@@ -320,13 +296,20 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     injectBatteryState.value ? text.summaryBatteryEnabled : text.summaryBatteryDisabled,
     injectWeatherState.value ? text.summaryWeatherEnabled : text.summaryWeatherDisabled,
     injectLocationState.value ? text.summaryLocationEnabled : text.summaryLocationDisabled,
+    injectCurrentScreenAppState.value
+      ? text.summaryCurrentScreenAppEnabled
+      : text.summaryCurrentScreenAppDisabled,
+    injectRecentAppUsageState.value
+      ? text.summaryRecentAppUsageEnabled
+      : text.summaryRecentAppUsageDisabled,
+    injectScreenTextState.value
+      ? text.summaryScreenTextEnabled
+      : text.summaryScreenTextDisabled,
     injectNotificationsState.value
       ? text.summaryNotificationsEnabled
       : text.summaryNotificationsDisabled,
     injectMemoryState.value
-      ? `${text.summaryMemoryEnabled} (${text.memoryThresholdLabel}: ${formatDecimal(
-          memoryThresholdState.value
-        )}; ${text.memoryLimitLabel}: ${memoryLimitState.value}; ${
+      ? `${text.summaryMemoryEnabled} (${text.memoryLimitLabel}: ${memoryLimitState.value}; ${
           allowRepeatedMemorySearchState.value
             ? text.summaryMemoryRepeatEnabled
             : text.summaryMemoryRepeatDisabled
@@ -429,6 +412,30 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
           },
         },
         {
+          title: text.currentScreenAppToggleTitle,
+          subtitle: text.currentScreenAppToggleDescription,
+          checked: injectCurrentScreenAppState.value,
+          onCheckedChange: checked => {
+            persistSettings({ injectCurrentScreenApp: checked });
+          },
+        },
+        {
+          title: text.recentAppUsageToggleTitle,
+          subtitle: text.recentAppUsageToggleDescription,
+          checked: injectRecentAppUsageState.value,
+          onCheckedChange: checked => {
+            persistSettings({ injectRecentAppUsage: checked });
+          },
+        },
+        {
+          title: text.screenTextToggleTitle,
+          subtitle: text.screenTextToggleDescription,
+          checked: injectScreenTextState.value,
+          onCheckedChange: checked => {
+            persistSettings({ injectScreenText: checked });
+          },
+        },
+        {
           title: text.notificationsToggleTitle,
           subtitle: text.notificationsToggleDescription,
           checked: injectNotificationsState.value,
@@ -453,11 +460,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
         checked => {
           persistSettings({ allowRepeatedMemorySearch: checked });
         },
-        memoryThresholdInputState.value,
         memoryLimitInputState.value,
-        value => {
-          memoryThresholdInputState.set(value);
-        },
         value => {
           memoryLimitInputState.set(value);
         },

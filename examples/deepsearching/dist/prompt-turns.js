@@ -3,9 +3,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createPromptTurn = createPromptTurn;
 exports.normalizePromptTurnList = normalizePromptTurnList;
 exports.toKotlinPromptTurnList = toKotlinPromptTurnList;
-const ArrayList = Java.type("java.util.ArrayList");
-const LinkedHashMap = Java.type("java.util.LinkedHashMap");
+exports.createSendMessageOptions = createSendMessageOptions;
+const PromptTurnClass = Java.type("com.ai.assistance.operit.core.chat.hooks.PromptTurn");
 const PromptTurnKindClass = Java.type("com.ai.assistance.operit.core.chat.hooks.PromptTurnKind");
+const SendMessageOptionsClass = Java.type("com.ai.assistance.operit.api.chat.EnhancedAIService$SendMessageOptions");
 function createPromptTurn(kind, content, toolName, metadata) {
     const turn = {
         kind,
@@ -38,11 +39,22 @@ function normalizePromptTurnList(value) {
     return turns;
 }
 function toKotlinPromptTurnList(history) {
-    const list = new ArrayList();
-    for (const turn of history || []) {
-        list.add(Java.newInstance("com.ai.assistance.operit.core.chat.hooks.PromptTurn", resolvePromptTurnKind(turn.kind), String(turn.content ?? ""), typeof turn.toolName === "string" ? turn.toolName : null, toJavaJsonObject(turn.metadata)));
-    }
-    return list;
+    return (history || []).map((turn) => new PromptTurnClass(resolvePromptTurnKind(turn.kind), String(turn.content ?? ""), typeof turn.toolName === "string" ? turn.toolName : null, isJsonObject(turn.metadata) ? turn.metadata : {}));
+}
+function createSendMessageOptions(options) {
+    const javaOptions = new SendMessageOptionsClass();
+    javaOptions.message = String(options.message ?? "");
+    javaOptions.chatId = options.chatId ?? null;
+    javaOptions.chatHistory = toKotlinPromptTurnList(options.chatHistory || []);
+    javaOptions.maxTokens = Number(options.maxTokens);
+    javaOptions.tokenUsageThreshold = Number(options.tokenUsageThreshold);
+    javaOptions.workspacePath = options.workspacePath ?? null;
+    javaOptions.customSystemPromptTemplate = options.customSystemPromptTemplate ?? null;
+    javaOptions.subTask = Boolean(options.isSubTask);
+    javaOptions.proxySenderName = options.proxySenderName ?? null;
+    javaOptions.enableMemoryAutoUpdate = options.enableMemoryAutoUpdate ?? true;
+    javaOptions.callbacks = options.callbacks ?? null;
+    return javaOptions;
 }
 function normalizePromptTurnKind(kind) {
     const normalized = String(kind ?? "").trim().toUpperCase();
@@ -77,30 +89,4 @@ function resolvePromptTurnKind(kind) {
 }
 function isJsonObject(value) {
     return !!value && typeof value === "object" && !Array.isArray(value);
-}
-function toJavaJsonObject(value) {
-    if (!value) {
-        return new LinkedHashMap();
-    }
-    const map = new LinkedHashMap();
-    for (const [key, item] of Object.entries(value)) {
-        map.put(String(key), toJavaValue(item));
-    }
-    return map;
-}
-function toJavaValue(value) {
-    if (value === undefined || value === null) {
-        return null;
-    }
-    if (Array.isArray(value)) {
-        const list = new ArrayList();
-        for (const item of value) {
-            list.add(toJavaValue(item));
-        }
-        return list;
-    }
-    if (typeof value === "object") {
-        return toJavaJsonObject(value);
-    }
-    return value;
 }

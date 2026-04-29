@@ -132,11 +132,10 @@ class ApiPreferences private constructor(private val context: Context) {
         const val DEFAULT_KEEP_SCREEN_ON = true
         // Keys for Thinking Mode and Thinking Guidance
         val ENABLE_THINKING_MODE = booleanPreferencesKey("enable_thinking_mode")
-        val ENABLE_THINKING_GUIDANCE = booleanPreferencesKey("enable_thinking_guidance")
         val THINKING_QUALITY_LEVEL = intPreferencesKey("thinking_quality_level")
 
-        // Key for Memory Attachment
-        val ENABLE_MEMORY_QUERY = booleanPreferencesKey("enable_memory_query")
+        // Key for Memory Auto Update
+        val ENABLE_MEMORY_AUTO_UPDATE = booleanPreferencesKey("enable_memory_auto_update")
 
         // Key for Auto Read
         val ENABLE_AUTO_READ = booleanPreferencesKey("enable_auto_read")
@@ -153,29 +152,21 @@ class ApiPreferences private constructor(private val context: Context) {
         // Key for Disable User Preference Description
         val DISABLE_USER_PREFERENCE_DESCRIPTION = booleanPreferencesKey("disable_user_preference_description")
 
-        // Key for Disable LaTeX Description
-        val DISABLE_LATEX_DESCRIPTION = booleanPreferencesKey("disable_latex_description")
-
         // Key for Disable Status Tags
         val DISABLE_STATUS_TAGS = booleanPreferencesKey("disable_status_tags")
 
         // Custom System Prompt Template (Advanced Configuration)
         val CUSTOM_SYSTEM_PROMPT_TEMPLATE = stringPreferencesKey("custom_system_prompt_template")
 
-        // Keys for Truncation Settings (文件和结果截断配置)
-        val MAX_FILE_SIZE_BYTES = intPreferencesKey("max_file_size_bytes")
-        val PART_SIZE = intPreferencesKey("part_size")
-        val MAX_TEXT_RESULT_LENGTH = intPreferencesKey("max_text_result_length")
         val MAX_IMAGE_HISTORY_USER_TURNS = intPreferencesKey("max_image_history_user_turns")
         val MAX_MEDIA_HISTORY_USER_TURNS = intPreferencesKey("max_media_history_user_turns")
 
-        // Default values for Thinking Mode and Thinking Guidance
+        // Default values for Thinking Mode
         const val DEFAULT_ENABLE_THINKING_MODE = false
-        const val DEFAULT_ENABLE_THINKING_GUIDANCE = false
         const val DEFAULT_THINKING_QUALITY_LEVEL = 2
 
-        // Default value for Memory Attachment
-        const val DEFAULT_ENABLE_MEMORY_QUERY = true
+        // Default value for Memory Auto Update
+        const val DEFAULT_ENABLE_MEMORY_AUTO_UPDATE = true
 
         // Default value for Auto Read
         const val DEFAULT_ENABLE_AUTO_READ = false
@@ -189,19 +180,12 @@ class ApiPreferences private constructor(private val context: Context) {
         // Default value for Disable User Preference Description
         const val DEFAULT_DISABLE_USER_PREFERENCE_DESCRIPTION = false
 
-        // Default value for Disable LaTeX Description
-        const val DEFAULT_DISABLE_LATEX_DESCRIPTION = false
-
         // Default value for Disable Status Tags
         const val DEFAULT_DISABLE_STATUS_TAGS = false
 
         // Default system prompt template (empty means use built-in template)
         const val DEFAULT_SYSTEM_PROMPT_TEMPLATE = ""
 
-        // Default values for Truncation Settings (文件和结果截断的默认值)
-        const val DEFAULT_MAX_FILE_SIZE_BYTES = 32000  // 文件读取操作的最大字节数限制
-        const val DEFAULT_PART_SIZE = 200  // 分段读取文件时，每个部分的行数
-        const val DEFAULT_MAX_TEXT_RESULT_LENGTH = 5000  // 通用文本结果的最大字符数限制
         const val DEFAULT_MAX_IMAGE_HISTORY_USER_TURNS = 2
         const val DEFAULT_MAX_MEDIA_HISTORY_USER_TURNS = 1
 
@@ -217,7 +201,7 @@ class ApiPreferences private constructor(private val context: Context) {
 
         // API 配置默认值
         const val DEFAULT_API_ENDPOINT = "https://api.deepseek.com/v1/chat/completions"
-        const val DEFAULT_MODEL_NAME = "deepseek-chat"
+        const val DEFAULT_MODEL_NAME = "deepseek-v4-flash"
         private const val ENCODED_API_KEY = "c2stNmI4NTYyMjUzNmFjNDhjMDgwYzUwNDhhYjVmNWQxYmQ="
         val DEFAULT_API_KEY: String by lazy { decodeApiKey(ENCODED_API_KEY) }
 
@@ -300,21 +284,15 @@ class ApiPreferences private constructor(private val context: Context) {
             preferences[ENABLE_THINKING_MODE] ?: DEFAULT_ENABLE_THINKING_MODE
         }
 
-    // Flow for Thinking Guidance
-    val enableThinkingGuidanceFlow: Flow<Boolean> =
-        context.apiDataStore.data.map { preferences ->
-            preferences[ENABLE_THINKING_GUIDANCE] ?: DEFAULT_ENABLE_THINKING_GUIDANCE
-            }
-
     val thinkingQualityLevelFlow: Flow<Int> =
         context.apiDataStore.data.map { preferences ->
             (preferences[THINKING_QUALITY_LEVEL] ?: DEFAULT_THINKING_QUALITY_LEVEL).coerceIn(1, 4)
         }
 
-    // Flow for Memory Attachment
-    val enableMemoryQueryFlow: Flow<Boolean> =
+    // Flow for Memory Auto Update
+    val enableMemoryAutoUpdateFlow: Flow<Boolean> =
         context.apiDataStore.data.map { preferences ->
-            preferences[ENABLE_MEMORY_QUERY] ?: DEFAULT_ENABLE_MEMORY_QUERY
+            preferences[ENABLE_MEMORY_AUTO_UPDATE] ?: DEFAULT_ENABLE_MEMORY_AUTO_UPDATE
         }
 
     // Flow for Auto Read
@@ -350,12 +328,6 @@ class ApiPreferences private constructor(private val context: Context) {
             preferences[DISABLE_USER_PREFERENCE_DESCRIPTION] ?: DEFAULT_DISABLE_USER_PREFERENCE_DESCRIPTION
         }
 
-    // Flow for Disable LaTeX Description
-    val disableLatexDescriptionFlow: Flow<Boolean> =
-        context.apiDataStore.data.map { preferences ->
-            preferences[DISABLE_LATEX_DESCRIPTION] ?: DEFAULT_DISABLE_LATEX_DESCRIPTION
-        }
-
     // Flow for Disable Status Tags
     val disableStatusTagsFlow: Flow<Boolean> =
         context.apiDataStore.data.map { preferences ->
@@ -367,22 +339,6 @@ class ApiPreferences private constructor(private val context: Context) {
             context.apiDataStore.data.map { preferences ->
                 preferences[CUSTOM_SYSTEM_PROMPT_TEMPLATE] ?: DEFAULT_SYSTEM_PROMPT_TEMPLATE
             }
-
-    // Flows for Truncation Settings (文件和结果截断配置的Flow)
-    val maxFileSizeBytesFlow: Flow<Int> =
-        context.apiDataStore.data.map { preferences ->
-            preferences[MAX_FILE_SIZE_BYTES] ?: DEFAULT_MAX_FILE_SIZE_BYTES
-        }
-
-    val partSizeFlow: Flow<Int> =
-        context.apiDataStore.data.map { preferences ->
-            preferences[PART_SIZE] ?: DEFAULT_PART_SIZE
-        }
-
-    val maxTextResultLengthFlow: Flow<Int> =
-        context.apiDataStore.data.map { preferences ->
-            preferences[MAX_TEXT_RESULT_LENGTH] ?: DEFAULT_MAX_TEXT_RESULT_LENGTH
-        }
 
     val maxImageHistoryUserTurnsFlow: Flow<Int> =
         context.apiDataStore.data.map { preferences ->
@@ -420,11 +376,6 @@ class ApiPreferences private constructor(private val context: Context) {
         context.apiDataStore.edit { preferences -> preferences[ENABLE_THINKING_MODE] = isEnabled }
     }
 
-    // Save Thinking Guidance setting
-    suspend fun saveEnableThinkingGuidance(isEnabled: Boolean) {
-        context.apiDataStore.edit { preferences -> preferences[ENABLE_THINKING_GUIDANCE] = isEnabled }
-    }
-
     suspend fun saveThinkingQualityLevel(level: Int) {
         context.apiDataStore.edit { preferences ->
             preferences[THINKING_QUALITY_LEVEL] = level.coerceIn(1, 4)
@@ -433,35 +384,18 @@ class ApiPreferences private constructor(private val context: Context) {
 
     suspend fun updateThinkingSettings(
         enableThinkingMode: Boolean? = null,
-        enableThinkingGuidance: Boolean? = null,
         thinkingQualityLevel: Int? = null
     ) {
         context.apiDataStore.edit { preferences ->
-            val prevMode = preferences[ENABLE_THINKING_MODE] ?: DEFAULT_ENABLE_THINKING_MODE
-            val prevGuidance = preferences[ENABLE_THINKING_GUIDANCE] ?: DEFAULT_ENABLE_THINKING_GUIDANCE
-
-            var newMode = enableThinkingMode ?: prevMode
-            var newGuidance = enableThinkingGuidance ?: prevGuidance
-
-            // Enforce mutual exclusivity.
-            if (enableThinkingMode == true) {
-                newGuidance = false
-            } else if (enableThinkingGuidance == true) {
-                newMode = false
-            } else if (newMode && newGuidance) {
-                newGuidance = false
-            }
-
-            preferences[ENABLE_THINKING_MODE] = newMode
-            preferences[ENABLE_THINKING_GUIDANCE] = newGuidance
+            enableThinkingMode?.let { preferences[ENABLE_THINKING_MODE] = it }
 
             thinkingQualityLevel?.let { preferences[THINKING_QUALITY_LEVEL] = it.coerceIn(1, 4) }
         }
     }
 
-    // Save Memory Attachment setting
-    suspend fun saveEnableMemoryQuery(isEnabled: Boolean) {
-        context.apiDataStore.edit { preferences -> preferences[ENABLE_MEMORY_QUERY] = isEnabled }
+    // Save Memory Auto Update setting
+    suspend fun saveEnableMemoryAutoUpdate(isEnabled: Boolean) {
+        context.apiDataStore.edit { preferences -> preferences[ENABLE_MEMORY_AUTO_UPDATE] = isEnabled }
     }
 
     // Save Auto Read setting
@@ -510,11 +444,6 @@ class ApiPreferences private constructor(private val context: Context) {
         context.apiDataStore.edit { preferences ->
             preferences[DISABLE_USER_PREFERENCE_DESCRIPTION] = isDisabled
         }
-    }
-
-    // Save Disable LaTeX Description setting
-    suspend fun saveDisableLatexDescription(isDisabled: Boolean) {
-        context.apiDataStore.edit { preferences -> preferences[DISABLE_LATEX_DESCRIPTION] = isDisabled }
     }
 
     // Save Disable Status Tags setting
@@ -821,29 +750,6 @@ class ApiPreferences private constructor(private val context: Context) {
         }
     }
 
-    // ===== Truncation Settings 截断设置相关方法 =====
-
-    // 保存文件读取最大字节数
-    suspend fun saveMaxFileSizeBytes(sizeBytes: Int) {
-        context.apiDataStore.edit { preferences ->
-            preferences[MAX_FILE_SIZE_BYTES] = sizeBytes
-        }
-    }
-
-    // 保存分段读取的行数
-    suspend fun savePartSize(size: Int) {
-        context.apiDataStore.edit { preferences ->
-            preferences[PART_SIZE] = size
-        }
-    }
-
-    // 保存文本结果最大长度
-    suspend fun saveMaxTextResultLength(length: Int) {
-        context.apiDataStore.edit { preferences ->
-            preferences[MAX_TEXT_RESULT_LENGTH] = length
-        }
-    }
-
     suspend fun saveMaxImageHistoryUserTurns(turns: Int) {
         context.apiDataStore.edit { preferences ->
             preferences[MAX_IMAGE_HISTORY_USER_TURNS] = turns
@@ -856,24 +762,6 @@ class ApiPreferences private constructor(private val context: Context) {
         }
     }
 
-    // 获取文件读取最大字节数
-    suspend fun getMaxFileSizeBytes(): Int {
-        val preferences = context.apiDataStore.data.first()
-        return preferences[MAX_FILE_SIZE_BYTES] ?: DEFAULT_MAX_FILE_SIZE_BYTES
-    }
-
-    // 获取分段读取的行数
-    suspend fun getPartSize(): Int {
-        val preferences = context.apiDataStore.data.first()
-        return preferences[PART_SIZE] ?: DEFAULT_PART_SIZE
-    }
-
-    // 获取文本结果最大长度
-    suspend fun getMaxTextResultLength(): Int {
-        val preferences = context.apiDataStore.data.first()
-        return preferences[MAX_TEXT_RESULT_LENGTH] ?: DEFAULT_MAX_TEXT_RESULT_LENGTH
-    }
-
     suspend fun getMaxImageHistoryUserTurns(): Int {
         val preferences = context.apiDataStore.data.first()
         return preferences[MAX_IMAGE_HISTORY_USER_TURNS] ?: DEFAULT_MAX_IMAGE_HISTORY_USER_TURNS
@@ -884,27 +772,10 @@ class ApiPreferences private constructor(private val context: Context) {
         return preferences[MAX_MEDIA_HISTORY_USER_TURNS] ?: DEFAULT_MAX_MEDIA_HISTORY_USER_TURNS
     }
 
-    // 重置截断设置为默认值
-    suspend fun resetTruncationSettings() {
+    suspend fun resetHistoryRetentionSettings() {
         context.apiDataStore.edit { preferences ->
-            preferences[MAX_FILE_SIZE_BYTES] = DEFAULT_MAX_FILE_SIZE_BYTES
-            preferences[PART_SIZE] = DEFAULT_PART_SIZE
-            preferences[MAX_TEXT_RESULT_LENGTH] = DEFAULT_MAX_TEXT_RESULT_LENGTH
             preferences[MAX_IMAGE_HISTORY_USER_TURNS] = DEFAULT_MAX_IMAGE_HISTORY_USER_TURNS
             preferences[MAX_MEDIA_HISTORY_USER_TURNS] = DEFAULT_MAX_MEDIA_HISTORY_USER_TURNS
-        }
-    }
-
-    // 批量保存所有截断设置
-    suspend fun saveTruncationSettings(
-        maxFileSizeBytes: Int,
-        partSize: Int,
-        maxTextResultLength: Int
-    ) {
-        context.apiDataStore.edit { preferences ->
-            preferences[MAX_FILE_SIZE_BYTES] = maxFileSizeBytes
-            preferences[PART_SIZE] = partSize
-            preferences[MAX_TEXT_RESULT_LENGTH] = maxTextResultLength
         }
     }
 }

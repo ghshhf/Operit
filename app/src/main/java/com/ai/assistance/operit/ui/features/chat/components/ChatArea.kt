@@ -1,8 +1,5 @@
 package com.ai.assistance.operit.ui.features.chat.components
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
@@ -15,6 +12,7 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,25 +20,36 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
@@ -52,8 +61,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -61,6 +72,8 @@ import androidx.compose.ui.unit.sp
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.data.model.AiReference
 import com.ai.assistance.operit.data.model.ChatMessage
+import com.ai.assistance.operit.data.model.ChatMessageDisplayMode
+import com.ai.assistance.operit.data.preferences.DisplayPreferencesManager
 
 import androidx.compose.ui.window.PopupProperties
 
@@ -79,6 +92,7 @@ import com.ai.assistance.operit.ui.features.chat.components.style.bubble.BubbleI
 import com.ai.assistance.operit.ui.features.chat.components.style.bubble.BubbleStyleChatMessage
 import com.ai.assistance.operit.util.ChatMarkupRegex
 import com.ai.assistance.operit.util.WaifuMessageProcessor
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -132,6 +146,11 @@ private data class PaginationWindow(
 
 private fun isPaginationTriggerMessage(message: ChatMessage): Boolean {
     return message.sender == "user" || message.sender == "ai" || message.sender == "summary"
+}
+
+private fun isHiddenUserPlaceholder(message: ChatMessage): Boolean {
+    return message.sender == "user" &&
+        message.displayMode == ChatMessageDisplayMode.HIDDEN_PLACEHOLDER
 }
 
 private fun buildPaginationState(
@@ -289,8 +308,11 @@ fun ChatArea(
     onSelectMessageToEdit: ((Int, ChatMessage, String) -> Unit)? = null,
     onCopyMessage: ((ChatMessage) -> Unit)? = null,
     onDeleteMessage: ((Int) -> Unit)? = null,
+    onDeleteCurrentMessageVariant: ((Int) -> Unit)? = null,
     onDeleteMessagesFrom: ((Int) -> Unit)? = null,
     onRollbackToMessage: ((Int) -> Unit)? = null, // 回滚到指定消息的回调
+    onRegenerateMessage: ((Int) -> Unit)? = null,
+    onSwitchMessageVariant: ((Int, Int) -> Unit)? = null,
     onSpeakMessage: ((String) -> Unit)? = null, // 添加朗读回调参数
     onAutoReadMessage: ((String) -> Unit)? = null, // 添加自动朗读回调参数
     onReplyToMessage: ((ChatMessage) -> Unit)? = null, // 添加回复回调参数
@@ -308,6 +330,8 @@ fun ChatArea(
     cursorUserBubbleWaterGlass: Boolean = false,
     bubbleUserBubbleLiquidGlass: Boolean = false,
     bubbleUserBubbleWaterGlass: Boolean = false,
+    bubbleAiBubbleLiquidGlass: Boolean = false,
+    bubbleAiBubbleWaterGlass: Boolean = false,
     isMultiSelectMode: Boolean = false, // 是否处于多选模式
     selectedMessageIndices: Set<Int> = emptySet(), // 已选中的消息索引集合
     onToggleMultiSelectMode: ((Int?) -> Unit)? = null, // 切换多选模式的回调，可传入要初始选中的消息索引
@@ -323,6 +347,12 @@ fun ChatArea(
     bubbleAiContentPaddingRight: Float = 12f,
     showChatFloatingDotsAnimation: Boolean = true,
 ) {
+    val context = LocalContext.current
+    val displayPreferencesManager = remember { DisplayPreferencesManager.getInstance(context) }
+    val showMessageTokenStats by
+        displayPreferencesManager.showMessageTokenStats.collectAsState(initial = false)
+    val showMessageTimingStats by
+        displayPreferencesManager.showMessageTimingStats.collectAsState(initial = false)
     var newestVisibleDepthState by remember(currentChatId) { mutableStateOf(1) }
     var oldestVisibleDepthState by remember(currentChatId) { mutableStateOf(1) }
     var viewportHeightPx by remember { mutableStateOf(0) }
@@ -532,18 +562,25 @@ fun ChatArea(
                             onSelectMessageToEdit = onSelectMessageToEdit,
                             onCopyMessage = onCopyMessage,
                             onDeleteMessage = onDeleteMessage,
+                            onDeleteCurrentMessageVariant = onDeleteCurrentMessageVariant,
                             onDeleteMessagesFrom = onDeleteMessagesFrom,
                             onRollbackToMessage = onRollbackToMessage,
+                            onRegenerateMessage = onRegenerateMessage,
+                            onSwitchMessageVariant = onSwitchMessageVariant,
                             onSpeakMessage = onSpeakMessage,
                             onReplyToMessage = onReplyToMessage,
                             onCreateBranch = onCreateBranch,
                             onInsertSummary = onInsertSummary,
                             onMentionRoleFromAvatar = onMentionRoleFromAvatar,
                             chatStyle = chatStyle,
+                            showMessageTokenStats = showMessageTokenStats,
+                            showMessageTimingStats = showMessageTimingStats,
                             cursorUserBubbleLiquidGlass = cursorUserBubbleLiquidGlass,
                             cursorUserBubbleWaterGlass = cursorUserBubbleWaterGlass,
                             bubbleUserBubbleLiquidGlass = bubbleUserBubbleLiquidGlass,
                             bubbleUserBubbleWaterGlass = bubbleUserBubbleWaterGlass,
+                            bubbleAiBubbleLiquidGlass = bubbleAiBubbleLiquidGlass,
+                            bubbleAiBubbleWaterGlass = bubbleAiBubbleWaterGlass,
                             isHidden = shouldHide,
                             isMultiSelectMode = isMultiSelectMode,
                             isSelected = selectedMessageIndices.contains(actualIndex),
@@ -663,18 +700,25 @@ private fun MessageItem(
     onSelectMessageToEdit: ((Int, ChatMessage, String) -> Unit)?,
     onCopyMessage: ((ChatMessage) -> Unit)?,
     onDeleteMessage: ((Int) -> Unit)?,
+    onDeleteCurrentMessageVariant: ((Int) -> Unit)?,
     onDeleteMessagesFrom: ((Int) -> Unit)?,
     onRollbackToMessage: ((Int) -> Unit)? = null, // 回滚到指定消息的回调
+    onRegenerateMessage: ((Int) -> Unit)? = null,
+    onSwitchMessageVariant: ((Int, Int) -> Unit)? = null,
     onSpeakMessage: ((String) -> Unit)? = null, // 添加朗读回调
     onReplyToMessage: ((ChatMessage) -> Unit)? = null, // 添加回复回调
     onCreateBranch: ((Long) -> Unit)? = null, // 添加创建分支回调
     onInsertSummary: ((Int, ChatMessage) -> Unit)? = null, // 添加插入总结回调
     onMentionRoleFromAvatar: ((String) -> Unit)? = null, // 长按角色头像提及
     chatStyle: ChatStyle, // 新增参数
+    showMessageTokenStats: Boolean = false,
+    showMessageTimingStats: Boolean = false,
     cursorUserBubbleLiquidGlass: Boolean = false,
     cursorUserBubbleWaterGlass: Boolean = false,
     bubbleUserBubbleLiquidGlass: Boolean = false,
     bubbleUserBubbleWaterGlass: Boolean = false,
+    bubbleAiBubbleLiquidGlass: Boolean = false,
+    bubbleAiBubbleWaterGlass: Boolean = false,
     isHidden: Boolean = false, // 新增参数控制隐藏
     isMultiSelectMode: Boolean = false, // 是否处于多选模式
     isSelected: Boolean = false, // 是否被选中
@@ -690,13 +734,15 @@ private fun MessageItem(
     bubbleAiContentPaddingLeft: Float = 12f,
     bubbleAiContentPaddingRight: Float = 12f,
 ) {
-    val context = LocalContext.current
     var showContextMenu by remember { mutableStateOf(false) }
     var showMessageInfoDialog by remember { mutableStateOf(false) }
+    var showHiddenUserMessageDialog by remember { mutableStateOf(false) }
+    var copyPreviewText by remember { mutableStateOf<String?>(null) }
 
 
     // 只有用户和AI的消息才能被操作
     val isActionable = message.sender == "user" || message.sender == "ai"
+    val isHiddenUserMessage = isHiddenUserPlaceholder(message)
 
     Box(
         modifier =
@@ -714,6 +760,8 @@ private fun MessageItem(
                 onClick = {
                     if (isMultiSelectMode && isActionable) {
                         onToggleSelection?.invoke()
+                    } else if (!isMultiSelectMode && enableDialogs && isHiddenUserMessage) {
+                        showHiddenUserMessageDialog = true
                     }
                 },
                 onLongClick = { 
@@ -723,58 +771,79 @@ private fun MessageItem(
                 },
             ),
     ) {
-        when (chatStyle) {
-            ChatStyle.CURSOR -> {
-                CursorStyleChatMessage(
-                    message = message,
-                    userMessageColor = userMessageColor,
-                    userMessageLiquidGlassEnabled = cursorUserBubbleLiquidGlass,
-                    userMessageWaterGlassEnabled = cursorUserBubbleWaterGlass,
-                    aiMessageColor = aiMessageColor,
-                    userTextColor = userTextColor,
-                    aiTextColor = aiTextColor,
-                    systemMessageColor = systemMessageColor,
-                    systemTextColor = systemTextColor,
-                    thinkingBackgroundColor = thinkingBackgroundColor,
-                    thinkingTextColor = thinkingTextColor,
-                    supportToolMarkup = true,
-                    initialThinkingExpanded = true,
-                    onDeleteMessage = onDeleteMessage,
-                    index = index,
-                    enableDialogs = enableDialogs,
-                    onEditSummary = { summaryMessage ->
-                        onSelectMessageToEdit?.invoke(index, summaryMessage, "summary")
-                    }
-                )
+        Column {
+            when (chatStyle) {
+                ChatStyle.CURSOR -> {
+                    CursorStyleChatMessage(
+                        message = message,
+                        userMessageColor = userMessageColor,
+                        userMessageLiquidGlassEnabled = cursorUserBubbleLiquidGlass,
+                        userMessageWaterGlassEnabled = cursorUserBubbleWaterGlass,
+                        aiMessageColor = aiMessageColor,
+                        userTextColor = userTextColor,
+                        aiTextColor = aiTextColor,
+                        systemMessageColor = systemMessageColor,
+                        systemTextColor = systemTextColor,
+                        thinkingBackgroundColor = thinkingBackgroundColor,
+                        thinkingTextColor = thinkingTextColor,
+                        supportToolMarkup = true,
+                        initialThinkingExpanded = false,
+                        onDeleteMessage = onDeleteMessage,
+                        index = index,
+                        enableDialogs = enableDialogs,
+                        onEditSummary = { summaryMessage ->
+                            onSelectMessageToEdit?.invoke(index, summaryMessage, "summary")
+                        }
+                    )
+                }
+
+                ChatStyle.BUBBLE -> {
+                    BubbleStyleChatMessage(
+                        message = message,
+                        userMessageColor = userMessageColor,
+                        aiMessageColor = aiMessageColor,
+                        userTextColor = userTextColor,
+                        aiTextColor = aiTextColor,
+                        systemMessageColor = systemMessageColor,
+                        systemTextColor = systemTextColor,
+                        userMessageLiquidGlassEnabled = bubbleUserBubbleLiquidGlass,
+                        userMessageWaterGlassEnabled = bubbleUserBubbleWaterGlass,
+                        aiMessageLiquidGlassEnabled = bubbleAiBubbleLiquidGlass,
+                        aiMessageWaterGlassEnabled = bubbleAiBubbleWaterGlass,
+                        userBubbleImageStyle = bubbleUserImageStyle,
+                        aiBubbleImageStyle = bubbleAiImageStyle,
+                        bubbleUserRoundedCornersEnabled = bubbleUserRoundedCornersEnabled,
+                        bubbleAiRoundedCornersEnabled = bubbleAiRoundedCornersEnabled,
+                        bubbleUserContentPaddingLeft = bubbleUserContentPaddingLeft,
+                        bubbleUserContentPaddingRight = bubbleUserContentPaddingRight,
+                        bubbleAiContentPaddingLeft = bubbleAiContentPaddingLeft,
+                        bubbleAiContentPaddingRight = bubbleAiContentPaddingRight,
+                        isHidden = isHidden,
+                        onDeleteMessage = onDeleteMessage,
+                        index = index,
+                        enableDialogs = enableDialogs,
+                        onRoleAvatarLongPress = onMentionRoleFromAvatar,
+                        onEditSummary = { summaryMessage ->
+                            onSelectMessageToEdit?.invoke(index, summaryMessage, "summary")
+                        }
+                    )
+                }
             }
 
-            ChatStyle.BUBBLE -> {
-                BubbleStyleChatMessage(
+            if (message.sender == "ai" &&
+                (
+                    message.variantCount > 1 ||
+                        (showMessageTokenStats && hasDisplayableTokenStats(message)) ||
+                        (showMessageTimingStats && hasDisplayableTimingStats(message))
+                )
+            ) {
+                MessageFooterBar(
                     message = message,
-                    userMessageColor = userMessageColor,
-                    aiMessageColor = aiMessageColor,
-                    userTextColor = userTextColor,
-                    aiTextColor = aiTextColor,
-                    systemMessageColor = systemMessageColor,
-                    systemTextColor = systemTextColor,
-                    userMessageLiquidGlassEnabled = bubbleUserBubbleLiquidGlass,
-                    userMessageWaterGlassEnabled = bubbleUserBubbleWaterGlass,
-                    userBubbleImageStyle = bubbleUserImageStyle,
-                    aiBubbleImageStyle = bubbleAiImageStyle,
-                    bubbleUserRoundedCornersEnabled = bubbleUserRoundedCornersEnabled,
-                    bubbleAiRoundedCornersEnabled = bubbleAiRoundedCornersEnabled,
-                    bubbleUserContentPaddingLeft = bubbleUserContentPaddingLeft,
-                    bubbleUserContentPaddingRight = bubbleUserContentPaddingRight,
-                    bubbleAiContentPaddingLeft = bubbleAiContentPaddingLeft,
-                    bubbleAiContentPaddingRight = bubbleAiContentPaddingRight,
-                    isHidden = isHidden,
-                    onDeleteMessage = onDeleteMessage,
-                    index = index,
-                    enableDialogs = enableDialogs,
-                    onRoleAvatarLongPress = onMentionRoleFromAvatar,
-                    onEditSummary = { summaryMessage ->
-                        onSelectMessageToEdit?.invoke(index, summaryMessage, "summary")
-                    }
+                    showMessageTokenStats = showMessageTokenStats,
+                    showMessageTimingStats = showMessageTimingStats,
+                    onSelectVariant = { targetVariantIndex ->
+                        onSwitchMessageVariant?.invoke(index, targetVariantIndex)
+                    },
                 )
             }
         }
@@ -783,97 +852,96 @@ private fun MessageItem(
             expanded = showContextMenu,
             onDismissRequest = { showContextMenu = false },
             modifier = Modifier
-                .width(140.dp)
-                .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(6.dp)),
+                .width(180.dp),
+            shape = RoundedCornerShape(6.dp),
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 1f),
+            tonalElevation = 6.dp,
+            shadowElevation = 10.dp,
             properties = PopupProperties(
                 focusable = true,
                 dismissOnBackPress = true,
                 dismissOnClickOutside = true
             )
         ) {
-            // 复制选项
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        stringResource(id = R.string.copy_message),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontSize = 13.sp
-                    )
-                },
-                onClick = {
-                    val clipboardManager =
-                        context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    val cleanContent = cleanXmlTags(message.content)
-                    val clipData =
-                        ClipData.newPlainText(
-                            context.getString(R.string.chat_clipboard_label_message),
-                            cleanContent
-                        )
-                    clipboardManager.setPrimaryClip(clipData)
-                    Toast.makeText(context, context.getString(R.string.message_copied), Toast.LENGTH_SHORT).show()
-                    onCopyMessage?.invoke(message)
-                    showContextMenu = false
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = stringResource(id = R.string.copy_message),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
-                    )
-                },
-                modifier = Modifier.height(36.dp)
-            )
-
-            // 朗读消息选项
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        stringResource(R.string.read_message),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontSize = 13.sp
-                    )
-                },
-                onClick = {
-                    onSpeakMessage?.invoke(message.content)
-                    showContextMenu = false
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
-                        contentDescription = stringResource(R.string.read_message),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
-                    )
-                },
-                modifier = Modifier.height(36.dp)
-            )
-
-            // 根据消息发送者显示不同的操作
-            if (message.sender == "user") {
-                // 编辑并重发选项
+            if (!isHiddenUserMessage) {
+                // 复制选项
                 DropdownMenuItem(
                     text = {
                         Text(
-                            stringResource(id = R.string.edit_and_resend),
+                            stringResource(id = R.string.copy_message),
                             style = MaterialTheme.typography.bodyMedium,
                             fontSize = 13.sp
                         )
                     },
                     onClick = {
-                        onSelectMessageToEdit?.invoke(index, message, "user")
+                        val cleanContent = cleanXmlTags(message.content)
+                        copyPreviewText = cleanContent
+                        onCopyMessage?.invoke(message)
                         showContextMenu = false
                     },
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = stringResource(id = R.string.edit_and_resend),
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = stringResource(id = R.string.copy_message),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
                         )
                     },
                     modifier = Modifier.height(36.dp)
                 )
+
+                // 朗读消息选项
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(R.string.read_message),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontSize = 13.sp
+                        )
+                    },
+                    onClick = {
+                        onSpeakMessage?.invoke(message.content)
+                        showContextMenu = false
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.VolumeUp,
+                            contentDescription = stringResource(R.string.read_message),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    modifier = Modifier.height(36.dp)
+                )
+            }
+
+            // 根据消息发送者显示不同的操作
+            if (message.sender == "user") {
+                if (!isHiddenUserMessage) {
+                    // 编辑并重发选项
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(id = R.string.edit_and_resend),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontSize = 13.sp
+                            )
+                        },
+                        onClick = {
+                            onSelectMessageToEdit?.invoke(index, message, "user")
+                            showContextMenu = false
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = stringResource(id = R.string.edit_and_resend),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        modifier = Modifier.height(36.dp)
+                    )
+                }
                 // 回滚到此处
                 DropdownMenuItem(
                     text = {
@@ -898,6 +966,28 @@ private fun MessageItem(
                     modifier = Modifier.height(36.dp)
                 )
             } else if (message.sender == "ai") {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(id = R.string.chat_regenerate_single),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontSize = 13.sp
+                        )
+                    },
+                    onClick = {
+                        onRegenerateMessage?.invoke(index)
+                        showContextMenu = false
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = stringResource(id = R.string.chat_regenerate_single),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    modifier = Modifier.height(36.dp)
+                )
                 // 修改记忆选项
                 DropdownMenuItem(
                     text = {
@@ -920,6 +1010,31 @@ private fun MessageItem(
                         )
                     },
                     modifier = Modifier.height(36.dp)
+                )
+            }
+
+            if (message.sender == "ai" && message.variantCount > 1) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(id = R.string.chat_delete_single_variant),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontSize = 13.sp,
+                        )
+                    },
+                    onClick = {
+                        onDeleteCurrentMessageVariant?.invoke(index)
+                        showContextMenu = false
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = stringResource(id = R.string.chat_delete_single_variant),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    },
+                    modifier = Modifier.height(36.dp),
                 )
             }
 
@@ -1069,10 +1184,221 @@ private fun MessageItem(
             )
         }
 
+        if (enableDialogs && isHiddenUserMessage && showHiddenUserMessageDialog) {
+            AlertDialog(
+                onDismissRequest = { showHiddenUserMessageDialog = false },
+                title = { Text(text = stringResource(R.string.chat_hidden_user_message_badge)) },
+                text = {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        Text(
+                            text = message.content,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showHiddenUserMessageDialog = false }) {
+                        Text(text = stringResource(R.string.floating_close))
+                    }
+                },
+            )
+        }
+
         if (showMessageInfoDialog) {
             MessageInfoDialog(
                 message = message,
                 onDismiss = { showMessageInfoDialog = false }
+            )
+        }
+
+        copyPreviewText?.let { previewText ->
+            MessageCopyPreviewBottomSheet(
+                text = previewText,
+                onDismiss = { copyPreviewText = null }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageCopyPreviewBottomSheet(
+    text: String,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, bottom = 24.dp)
+        ) {
+            Text(
+                text = stringResource(id = R.string.copy_message),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            BasicTextField(
+                value = text,
+                onValueChange = {},
+                readOnly = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 520.dp)
+                    .padding(bottom = 12.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(text))
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.message_copied_to_clipboard),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                ) {
+                    Text(text = stringResource(id = R.string.copy_all_content))
+                }
+            }
+        }
+    }
+}
+
+private fun hasDisplayableTokenStats(message: ChatMessage): Boolean {
+    return message.inputTokens > 0 || message.cachedInputTokens > 0 || message.outputTokens > 0
+}
+
+private fun hasDisplayableTimingStats(message: ChatMessage): Boolean {
+    return message.waitDurationMs > 0L || message.outputDurationMs > 0L
+}
+
+private fun formatCompactDuration(durationMs: Long): String {
+    if (durationMs <= 0L) return "0ms"
+    return if (durationMs >= 1000L) {
+        if (durationMs >= 10_000L) {
+            String.format(Locale.getDefault(), "%.0fs", durationMs / 1000f)
+        } else {
+            String.format(Locale.getDefault(), "%.1fs", durationMs / 1000f)
+        }
+    } else {
+        "${durationMs}ms"
+    }
+}
+
+@Composable
+private fun MessageFooterBar(
+    message: ChatMessage,
+    showMessageTokenStats: Boolean,
+    showMessageTimingStats: Boolean,
+    onSelectVariant: (Int) -> Unit,
+) {
+    val hasPrevious = message.selectedVariantIndex > 0
+    val hasNext = message.selectedVariantIndex < message.variantCount - 1
+    val context = LocalContext.current
+    val tokenSummary =
+        remember(message.inputTokens, message.cachedInputTokens, message.outputTokens) {
+            val totalTokens = message.inputTokens + message.outputTokens
+            context.getString(
+                R.string.chat_message_token_stats_compact,
+                totalTokens,
+                message.cachedInputTokens,
+                message.inputTokens,
+                message.outputTokens,
+            )
+        }
+    val timeSummary =
+        remember(message.waitDurationMs, message.outputDurationMs) {
+            val totalDuration = (message.waitDurationMs + message.outputDurationMs).coerceAtLeast(0L)
+            context.getString(
+                R.string.chat_message_timing_stats_compact,
+                formatCompactDuration(totalDuration),
+                formatCompactDuration(message.waitDurationMs),
+                formatCompactDuration(message.outputDurationMs),
+            )
+        }
+    val statsTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f)
+
+    Column(
+        modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (message.variantCount > 1) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.chat_previous_variant),
+                    tint =
+                        if (hasPrevious) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                        },
+                    modifier =
+                        Modifier
+                            .size(16.dp)
+                            .clickable(enabled = hasPrevious) {
+                                onSelectVariant(message.selectedVariantIndex - 1)
+                            },
+                )
+                Text(
+                    text =
+                        stringResource(
+                            R.string.chat_message_variant_counter,
+                            message.selectedVariantIndex + 1,
+                            message.variantCount,
+                        ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = stringResource(R.string.chat_next_variant),
+                    tint =
+                        if (hasNext) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                        },
+                    modifier =
+                        Modifier
+                            .size(16.dp)
+                            .clickable(enabled = hasNext) {
+                                onSelectVariant(message.selectedVariantIndex + 1)
+                            },
+                )
+            }
+        }
+
+        if (showMessageTokenStats && hasDisplayableTokenStats(message)) {
+            Text(
+                text = tokenSummary,
+                style = MaterialTheme.typography.labelSmall,
+                color = statsTextColor,
+            )
+        }
+
+        if (showMessageTimingStats && hasDisplayableTimingStats(message)) {
+            Text(
+                text = timeSummary,
+                style = MaterialTheme.typography.labelSmall,
+                color = statsTextColor,
             )
         }
     }

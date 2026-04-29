@@ -24,28 +24,28 @@ import {
  * Provides methods for managing chat conversations
  */
 export namespace Chat {
-    interface SendMessageAdvancedParams {
-        message: string;
-        chatId?: string;
-        chatHistory?: Array<[string, string]>;
-        workspacePath?: string;
-        functionType?: string;
-        promptFunctionType?: string;
-        enableThinking?: boolean;
-        thinkingGuidance?: boolean;
-        enableMemoryQuery?: boolean;
-        maxTokens: number;
-        tokenUsageThreshold: number;
-        customSystemPromptTemplate?: string;
-        isSubTask?: boolean;
-        stream?: boolean;
+    interface StartServiceOptions {
+        initial_mode?: 'WINDOW' | 'BALL' | 'VOICE_BALL' | 'FULLSCREEN' | 'RESULT_DISPLAY' | 'SCREEN_OCR';
+        auto_enter_voice_chat?: boolean;
+        wake_launched?: boolean;
+        timeout_ms?: number;
+        keep_if_exists?: boolean;
+    }
+
+    interface SendMessageOptions {
+        persist_turn?: boolean;
+        notify_reply?: boolean;
+        hide_user_message?: boolean;
+        disable_warning?: boolean;
+        timeout_ms?: number;
     }
 
     /**
      * Start the chat service (floating window)
+     * @param options - Optional service startup options
      * @returns Promise resolving to service start result
      */
-    function startService(): Promise<ChatServiceStartResultData>;
+    function startService(options?: StartServiceOptions): Promise<ChatServiceStartResultData>;
 
     /**
      * Create a new chat conversation
@@ -110,16 +110,16 @@ export namespace Chat {
      * @param chatId - Optional chat ID to send the message to (defaults to current chat)
      * @param roleCardId - Optional role card ID to use for this send
      * @param senderName - Optional display name when AI sends as user
+     * @param options - Optional per-turn controls for persistence, notification, hidden user-message display, and timeout
      * @returns Promise resolving to the message send result
      */
-    function sendMessage(message: string, chatId?: string, roleCardId?: string, senderName?: string): Promise<MessageSendResultData>;
-
-    /**
-     * Send a message to AI with advanced controls.
-     * @param params - Advanced send parameters
-     * @returns Promise resolving to the message send result
-     */
-    function sendMessageAdvanced(params: SendMessageAdvancedParams): Promise<MessageSendResultData>;
+    function sendMessage(
+        message: string,
+        chatId?: string,
+        roleCardId?: string,
+        senderName?: string,
+        options?: SendMessageOptions
+    ): Promise<MessageSendResultData>;
 
     /**
      * List all character cards

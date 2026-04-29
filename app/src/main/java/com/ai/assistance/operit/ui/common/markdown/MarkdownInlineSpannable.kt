@@ -2,7 +2,6 @@ package com.ai.assistance.operit.ui.common.markdown
 
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.SpannableStringBuilder
 import android.text.Spanned
@@ -24,10 +23,12 @@ import com.ai.assistance.operit.util.AppLogger
 import com.ai.assistance.operit.util.markdown.MarkdownNodeStable
 import com.ai.assistance.operit.util.markdown.MarkdownProcessorType
 import com.ai.assistance.operit.util.streamnative.NativeMarkdownSplitter
-import kotlin.math.ceil
 import ru.noties.jlatexmath.JLatexMathDrawable
+import kotlin.math.ceil
 
 private const val TAG = "MarkdownInlineSpannable"
+private const val INLINE_LATEX_PLACEHOLDER = '\uFFFC'
+private const val MAX_INLINE_RENDER_DEPTH = 24
 
 private object NestedInlineNodeCache {
     private const val MAX_ENTRIES = 256
@@ -55,7 +56,6 @@ private fun inlineCodeBackgroundColor(textColor: Color): Int {
 }
 
 private class InlineCodeSpan(
-    private val textColor: Int,
     private val backgroundColor: Int,
     private val textScale: Float,
     private val horizontalPaddingPx: Float,
@@ -69,17 +69,8 @@ private class InlineCodeSpan(
         end: Int,
         fm: Paint.FontMetricsInt?
     ): Int {
-        if (fm != null) {
-            val originalMetrics = paint.fontMetricsInt
-            fm.ascent = originalMetrics.ascent
-            fm.descent = originalMetrics.descent
-            fm.top = originalMetrics.top
-            fm.bottom = originalMetrics.bottom
-        }
-
         val codePaint = createCodePaint(paint)
-        val textWidth = codePaint.measureText(text, start, end)
-        return ceil(textWidth + horizontalPaddingPx * 2f).toInt().coerceAtLeast(1)
+        return ceil(codePaint.measureText(text, start, end) + horizontalPaddingPx * 2f).toInt()
     }
 
     override fun draw(
@@ -94,32 +85,39 @@ private class InlineCodeSpan(
         paint: Paint
     ) {
         val codePaint = createCodePaint(paint)
-        val textWidth = codePaint.measureText(text, start, end)
-        val backgroundRect = RectF(
-            x,
-            top + verticalInsetPx,
-            x + textWidth + horizontalPaddingPx * 2f,
-            bottom - verticalInsetPx
-        )
+        val segmentWidth = codePaint.measureText(text, start, end)
+        val segmentStartX = x
+        val segmentEndX = x + segmentWidth + horizontalPaddingPx * 2f
 
-        val backgroundPaint = Paint(codePaint).apply {
-            color = backgroundColor
-            style = Paint.Style.FILL
-        }
-
+        val previousColor = paint.color
+        val previousStyle = paint.style
+        paint.color = backgroundColor
+        paint.style = Paint.Style.FILL
         canvas.drawRoundRect(
-            backgroundRect,
+            segmentStartX,
+            top + verticalInsetPx,
+            segmentEndX,
+            bottom - verticalInsetPx,
             cornerRadiusPx,
             cornerRadiusPx,
-            backgroundPaint
+            paint
         )
-        canvas.drawText(text, start, end, x + horizontalPaddingPx, y.toFloat(), codePaint)
+        paint.color = previousColor
+        paint.style = previousStyle
+
+        canvas.drawText(
+            text,
+            start,
+            end,
+            x + horizontalPaddingPx,
+            y.toFloat(),
+            codePaint
+        )
     }
 
     private fun createCodePaint(source: Paint): Paint =
         Paint(source).apply {
-            color = textColor
-            typeface = Typeface.MONOSPACE
+            typeface = getMarkdownCodeTypeface()
             textSize = source.textSize * textScale
             isAntiAlias = true
         }
@@ -131,7 +129,6 @@ private fun createInlineCodeSpan(
 ): InlineCodeSpan {
     val densityScale = density?.density ?: 1f
     return InlineCodeSpan(
-        textColor = textColor.toArgb(),
         backgroundColor = inlineCodeBackgroundColor(textColor),
         textScale = 0.9f,
         horizontalPaddingPx = 4f * densityScale,
@@ -179,7 +176,23 @@ private fun resolveNestedInlineChildren(node: MarkdownNodeStable): List<Markdown
         return node.children
     }
 
-    return NestedInlineNodeCache.getOrParse(resolveNestedInlineText(node))
+    val resolvedText = resolveNestedInlineText(node)
+    val parsedChildren = NestedInlineNodeCache.getOrParse(resolvedText)
+    if (parsedChildren.isSingleSelfReferenceOf(node, resolvedText)) {
+        return emptyList()
+    }
+    return parsedChildren
+}
+
+private fun List<MarkdownNodeStable>.isSingleSelfReferenceOf(
+    node: MarkdownNodeStable,
+    resolvedText: String
+): Boolean {
+    if (size != 1) return false
+    val onlyChild = first()
+    return onlyChild.type == node.type &&
+        onlyChild.content == resolvedText &&
+        onlyChild.children.isEmpty()
 }
 
 private fun appendInlineNode(
@@ -188,8 +201,21 @@ private fun appendInlineNode(
     textColor: Color,
     primaryColor: Color,
     density: Density? = null,
-    fontSize: TextUnit? = null
+    fontSize: TextUnit? = null,
+    visitedNodes: Set<MarkdownNodeStable> = emptySet(),
+    depth: Int = 0
 ) {
+    if (depth >= MAX_INLINE_RENDER_DEPTH) {
+        builder.append(resolveNestedInlineText(child))
+        return
+    }
+    if (child in visitedNodes) {
+        builder.append(resolveNestedInlineText(child))
+        return
+    }
+    val nextVisitedNodes = visitedNodes + child
+    val nextDepth = depth + 1
+
     val content = child.content
 
     when (child.type) {
@@ -200,7 +226,16 @@ private fun appendInlineNode(
             val start = builder.length
             if (nestedChildren.isNotEmpty()) {
                 nestedChildren.forEach {
-                    appendInlineNode(builder, it, textColor, primaryColor, density, fontSize)
+                    appendInlineNode(
+                        builder,
+                        it,
+                        textColor,
+                        primaryColor,
+                        density,
+                        fontSize,
+                        nextVisitedNodes,
+                        nextDepth
+                    )
                 }
             } else {
                 builder.append(linkText)
@@ -227,7 +262,16 @@ private fun appendInlineNode(
             val start = builder.length
             if (nestedChildren.isNotEmpty()) {
                 nestedChildren.forEach {
-                    appendInlineNode(builder, it, textColor, primaryColor, density, fontSize)
+                    appendInlineNode(
+                        builder,
+                        it,
+                        textColor,
+                        primaryColor,
+                        density,
+                        fontSize,
+                        nextVisitedNodes,
+                        nextDepth
+                    )
                 }
             } else {
                 builder.append(fallbackText)
@@ -292,7 +336,7 @@ private fun appendInlineNode(
                     drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
 
                     val start = builder.length
-                    builder.append(" ")
+                    builder.append(INLINE_LATEX_PLACEHOLDER)
                     val end = builder.length
                     builder.setSpan(
                         ImageSpan(drawable, ImageSpan.ALIGN_BASELINE),

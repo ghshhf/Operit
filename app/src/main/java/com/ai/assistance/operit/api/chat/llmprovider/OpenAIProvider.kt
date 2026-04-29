@@ -7,7 +7,6 @@ import android.util.Base64
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.core.chat.hooks.PromptTurn
 import com.ai.assistance.operit.core.chat.hooks.PromptTurnKind
-import com.ai.assistance.operit.core.chat.hooks.mergeAdjacentTurns
 import com.ai.assistance.operit.data.model.ApiProviderType
 import com.ai.assistance.operit.data.model.ModelOption
 import com.ai.assistance.operit.data.model.ModelParameter
@@ -139,7 +138,12 @@ open class OpenAIProvider(
     ) {
         val parsed = OpenAIResponsesPayloadAdapter.parseUsageCounts(usage) ?: return
         tokenCacheManager.updateActualTokens(parsed.actualInputTokens, parsed.cachedInputTokens)
-        onTokensUpdated(parsed.totalInputTokens, parsed.cachedInputTokens, parsed.outputTokens)
+        tokenCacheManager.setOutputTokens(parsed.outputTokens)
+        onTokensUpdated(
+            parsed.totalInputTokens,
+            parsed.cachedInputTokens,
+            tokenCacheManager.outputTokenCount
+        )
     }
 
     private fun buildOpenAiErrorDetail(error: JSONObject, fallback: String): String {
@@ -261,6 +265,15 @@ open class OpenAIProvider(
             // 消息长度在限制之内，直接打印
             AppLogger.d(tag, "$prefix$message")
         }
+    }
+
+    protected fun logFinalOutput(tag: String, content: CharSequence, prefix: String = "Final output: ") {
+        val finalOutput = content.toString()
+        if (finalOutput.isBlank()) {
+            AppLogger.d(tag, "${prefix.trimEnd()}[empty]")
+            return
+        }
+        logLargeString(tag, finalOutput, prefix)
     }
 
      protected fun sanitizeImageDataForLogging(json: JSONObject): JSONObject {
@@ -683,8 +696,14 @@ open class OpenAIProvider(
         return chatHistory
     }
 
-    protected open fun mergePromptTurnsForProvider(history: List<PromptTurn>): List<PromptTurn> {
-        return history.mergeAdjacentTurns()
+    protected open fun prepareHistoryForProvider(
+        chatHistory: List<PromptTurn>,
+        useToolCall: Boolean
+    ): List<PromptTurn> {
+        return StructuredToolCallBridge.compileHistoryForProvider(
+            buildEffectiveHistory(chatHistory),
+            useToolCall = useToolCall
+        )
     }
 
     /**
@@ -813,12 +832,12 @@ open class OpenAIProvider(
         preserveThinkInHistory: Boolean = false
     ): Pair<JSONArray, Int> {
         val messagesArray = JSONArray()
+        val providerReadyHistory = prepareHistoryForProvider(chatHistory, useToolCall)
 
         // 使用TokenCacheManager计算token数量（包含工具定义）
-        val comparableHistory = buildComparableHistory(chatHistory, preserveThinkInHistory)
+        val comparableHistory = buildComparableHistory(providerReadyHistory, preserveThinkInHistory)
         val tokenCount = tokenCacheManager.calculateInputTokens(comparableHistory, toolsJson)
-
-        val effectiveHistory = mergePromptTurnsForProvider(buildEffectiveHistory(chatHistory))
+        val effectiveHistory = providerReadyHistory
 
         var queuedAssistantToolText: String? = null
         var queuedToolCalls = JSONArray()
@@ -1069,7 +1088,8 @@ open class OpenAIProvider(
         // 使用TokenCacheManager计算token数量
         return tokenCacheManager.calculateInputTokens(
             buildComparableHistory(chatHistory, preserveThinkInHistory = false),
-            toolsJson
+            toolsJson,
+            updateState = false
         )
     }
 
@@ -2028,8 +2048,12 @@ open class OpenAIProvider(
         emitter: StreamEmitter,
         onTokensUpdated: suspend (input: Int, cachedInput: Int, output: Int) -> Unit
     ) {
-        val choices = jsonResponse.getJSONArray("choices")
-        if (choices.length() == 0) return
+        val usage = jsonResponse.optJSONObject("usage")
+        val choices = jsonResponse.optJSONArray("choices")
+        if (choices == null || choices.length() == 0) {
+            applyUsageToCounters(usage, onTokensUpdated)
+            return
+        }
 
         val choice = choices.getJSONObject(0)
 
@@ -2081,6 +2105,8 @@ open class OpenAIProvider(
                 }
             }
         }
+
+        applyUsageToCounters(usage, onTokensUpdated)
     }
 
     /**
@@ -2402,6 +2428,7 @@ open class OpenAIProvider(
                 activeCall = null
                 activeResponse = null
                 AppLogger.d("AIService", "【发送消息】响应处理完成，已清理活跃引用")
+                logFinalOutput("AIService", receivedContent, "Final output summary: ")
 
                 // 成功处理后返回
                 AppLogger.d(

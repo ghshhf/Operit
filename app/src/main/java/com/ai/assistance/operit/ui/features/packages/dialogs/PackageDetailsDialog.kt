@@ -1,6 +1,8 @@
 package com.ai.assistance.operit.ui.features.packages.dialogs
 
 import com.ai.assistance.operit.util.AppLogger
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,7 +36,7 @@ fun PackageDetailsDialog(
         toolPackage: ToolPackage?,
         packageManager: PackageManager,
         onRunScript: (String, PackageTool) -> Unit,
-        onOpenToolPkgPluginConfig: (String, String, String) -> Unit,
+        onOpenToolPkgPluginConfig: (String, String, String, Boolean) -> Unit,
         onDismiss: () -> Unit,
         onPackageDeleted: () -> Unit
 ) {
@@ -107,6 +109,7 @@ fun PackageDetailsDialog(
     val states = (toolPackage ?: resolvedPackage)?.states.orEmpty()
     val hasStates = states.isNotEmpty()
     val baseTools = (toolPackage ?: resolvedPackage)?.tools.orEmpty()
+    val contentScrollState = rememberScrollState()
 
     var selectedTabIndex by remember(packageName, activeStateId, hasStates) {
         val initialIndex = if (!hasStates) {
@@ -158,6 +161,13 @@ fun PackageDetailsDialog(
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface
         ) {
+            val resolvedAuthors =
+                metaPackage
+                    ?.author
+                    ?.map(String::trim)
+                    ?.filter(String::isNotBlank)
+                    .orEmpty()
+
             Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
                 // 紧凑的标题栏
                 Row(
@@ -177,6 +187,13 @@ fun PackageDetailsDialog(
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
+                        if (resolvedAuthors.isNotEmpty()) {
+                            Text(
+                                text = "作者：${resolvedAuthors.joinToString(", ")}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         Text(
                             text = "ID: $packageName",
                             style = MaterialTheme.typography.bodySmall,
@@ -207,36 +224,46 @@ fun PackageDetailsDialog(
                 val resolvedDescription =
                     toolPkgDetails?.description?.takeIf { it.isNotBlank() } ?: packageDescription
 
-                if (resolvedDescription.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(12.dp))
+                Column(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .verticalScroll(contentScrollState)
+                ) {
+                    if (resolvedDescription.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = resolvedDescription,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     Text(
-                        text = resolvedDescription,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = if (isToolPkgContainer) {
+                            stringResource(R.string.pkg_toolpkg_subpackages)
+                        } else {
+                            stringResource(R.string.pkg_tool_list)
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
                     )
-                }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                Text(
-                    text = if (isToolPkgContainer) {
-                        stringResource(R.string.pkg_toolpkg_subpackages)
-                    } else {
-                        stringResource(R.string.pkg_tool_list)
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Box(modifier = Modifier.weight(1f)) {
                     if (isToolPkgContainer) {
                         val details = toolPkgDetails
                         if (details == null) {
-                            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator()
+                            }
                         } else {
-                            Column(modifier = Modifier.fillMaxSize()) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = CardDefaults.cardColors(
@@ -261,6 +288,16 @@ fun PackageDetailsDialog(
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
+                                        Text(
+                                            text = stringResource(R.string.pkg_toolpkg_workflow_templates, details.workflowTemplateCount),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = stringResource(R.string.pkg_toolpkg_workspace_templates, details.workspaceTemplateCount),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
 
@@ -281,16 +318,42 @@ fun PackageDetailsDialog(
                                     )
                                 }
 
+                                if (details.workflowTemplates.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = stringResource(R.string.pkg_toolpkg_registered_workflow_templates),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    ToolPkgWorkflowTemplatesCard(
+                                        templates = details.workflowTemplates
+                                    )
+                                }
+
+                                if (details.workspaceTemplates.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = stringResource(R.string.pkg_toolpkg_registered_workspace_templates),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    ToolPkgWorkspaceTemplatesCard(
+                                        templates = details.workspaceTemplates
+                                    )
+                                }
+
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 if (details.subpackages.isEmpty()) {
                                     EmptyToolsCard(message = stringResource(R.string.pkg_toolpkg_empty_subpackages))
                                 } else {
-                                    LazyColumn(
-                                        modifier = Modifier.fillMaxSize(),
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
                                         verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        items(items = details.subpackages, key = { it.packageName }) { subpackage ->
+                                        details.subpackages.forEach { subpackage ->
                                             fun applySubpackageToggle(enabled: Boolean) {
                                                 toolPkgToggleError = null
                                                 val fallbackDetails = details
@@ -399,11 +462,11 @@ fun PackageDetailsDialog(
                         if (tools.isEmpty()) {
                             EmptyToolsCard(message = stringResource(R.string.pkg_no_tools))
                         } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                items(items = tools, key = { tool -> tool.name }) { tool ->
+                                tools.forEach { tool ->
                                     ToolCard(
                                         tool = tool,
                                         toolIdPrefix = packageName,
@@ -413,7 +476,7 @@ fun PackageDetailsDialog(
                             }
                         }
                     } else {
-                        Column(modifier = Modifier.fillMaxSize()) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
                             ScrollableTabRow(
                                 selectedTabIndex = selectedTabIndex,
                                 edgePadding = 0.dp
@@ -487,11 +550,11 @@ fun PackageDetailsDialog(
                             if (toolsForTab.isEmpty()) {
                                 EmptyToolsCard(message = stringResource(R.string.mcp_no_available_tools))
                             } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    items(items = toolsForTab, key = { tool -> tool.name }) { tool ->
+                                    toolsForTab.forEach { tool ->
                                         ToolCard(
                                             tool = tool,
                                             toolIdPrefix = packageName,
@@ -502,6 +565,8 @@ fun PackageDetailsDialog(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -656,7 +721,7 @@ private fun EmptyToolsCard(message: String) {
 @Composable
 private fun ToolPkgPluginConfigCard(
     modules: List<PackageManager.ToolPkgToolboxUiModule>,
-    onOpenToolPkgPluginConfig: (String, String, String) -> Unit
+    onOpenToolPkgPluginConfig: (String, String, String, Boolean) -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -668,7 +733,8 @@ private fun ToolPkgPluginConfigCard(
                     onOpenToolPkgPluginConfig(
                         module.containerPackageName,
                         module.uiModuleId,
-                        module.title
+                        module.title,
+                        module.keepAlive
                     )
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -703,6 +769,120 @@ private fun ToolPkgPluginConfigCard(
                     ) {
                         Text(
                             text = stringResource(R.string.pkg_plugin_config_open_action),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolPkgWorkflowTemplatesCard(
+    templates: List<PackageManager.ToolPkgWorkflowTemplate>
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        templates.forEach { template ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountTree,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = template.displayName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (template.description.isNotBlank()) {
+                            Text(
+                                text = template.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolPkgWorkspaceTemplatesCard(
+    templates: List<PackageManager.ToolPkgWorkspaceTemplate>
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        templates.forEach { template ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FolderCopy,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = template.displayName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (template.description.isNotBlank()) {
+                            Text(
+                                text = template.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(999.dp)
+                    ) {
+                        Text(
+                            text = template.projectType,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSecondaryContainer,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)

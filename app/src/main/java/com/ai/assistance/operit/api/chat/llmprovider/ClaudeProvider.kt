@@ -5,7 +5,6 @@ import com.ai.assistance.operit.util.AppLogger
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.core.chat.hooks.PromptTurn
 import com.ai.assistance.operit.core.chat.hooks.PromptTurnKind
-import com.ai.assistance.operit.core.chat.hooks.mergeAdjacentTurns
 import com.ai.assistance.operit.core.chat.hooks.toPromptTurns
 import com.ai.assistance.operit.data.model.ApiProviderType
 import com.ai.assistance.operit.data.model.ModelOption
@@ -82,6 +81,30 @@ class ClaudeProvider(
     // 重置token计数
     override fun resetTokenCounts() {
         tokenCacheManager.resetTokenCounts()
+    }
+
+    private fun logLargeString(tag: String, message: String, prefix: String = "") {
+        val maxLogSize = 3000
+        if (message.length > maxLogSize) {
+            val chunkCount = message.length / maxLogSize + 1
+            for (i in 0 until chunkCount) {
+                val start = i * maxLogSize
+                val end = minOf((i + 1) * maxLogSize, message.length)
+                val chunkMessage = message.substring(start, end)
+                AppLogger.d(tag, "$prefix Part ${i + 1}/$chunkCount: $chunkMessage")
+            }
+        } else {
+            AppLogger.d(tag, "$prefix$message")
+        }
+    }
+
+    private fun logFinalOutput(content: CharSequence, prefix: String = "Claude final output: ") {
+        val finalOutput = content.toString()
+        if (finalOutput.isBlank()) {
+            AppLogger.d("AIService", "${prefix.trimEnd()}[empty]")
+            return
+        }
+        logLargeString("AIService", finalOutput, prefix)
     }
 
     // 取消当前流式传输
@@ -622,7 +645,11 @@ class ClaudeProvider(
         preserveThinkInHistory: Boolean
     ): ClaudeSerializedHistory {
         val messagesArray = JSONArray()
-        val effectiveHistory = chatHistory.mergeAdjacentTurns()
+        val effectiveHistory =
+            StructuredToolCallBridge.compileHistoryForProvider(
+                chatHistory,
+                useToolCall = enableToolCall
+            )
 
         val systemMessages = effectiveHistory.filter { it.kind == PromptTurnKind.SYSTEM }
         val systemPrompt =
@@ -930,7 +957,11 @@ class ClaudeProvider(
                 systemBlocks = serializedHistory.systemBlocks,
                 messagesArray = serializedHistory.messagesArray
             )
-        return tokenCacheManager.calculateInputTokens(comparableHistory, toolsJson)
+        return tokenCacheManager.calculateInputTokens(
+            comparableHistory,
+            toolsJson,
+            updateState = false
+        )
     }
 
     // 创建Claude API请求体
@@ -1696,6 +1727,7 @@ class ClaudeProvider(
                 }
 
                 AppLogger.d("AIService", "【Claude】请求成功完成")
+                logFinalOutput(receivedContent, "Claude final output summary: ")
                 return@stream
             } catch (e: Exception) {
                 lastException = e
