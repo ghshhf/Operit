@@ -1423,6 +1423,8 @@
     <string name="speech_error_init_failed">Failed to initialize speech recognition engine</string>
     <string name="speech_error_not_initialized">Speech recognition engine not initialized</string>
     <string name="title_activity_crash_report">Application Error</string>
+    <string name="title_activity_data_recovery">Data Recovery</string>
+    <string name="shortcut_data_recovery">Data Recovery</string>
 
     <!-- Crash Report Screen -->
     <string name="crash_report_header">The application has encountered an unrecoverable error and needs to restart.</string>

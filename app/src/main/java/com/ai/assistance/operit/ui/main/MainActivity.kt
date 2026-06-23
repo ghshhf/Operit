@@ -16,7 +16,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -31,10 +33,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.lifecycle.Observer
 import androidx.lifecycle.lifecycleScope
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.api.chat.AIForegroundService
+import com.ai.assistance.operit.core.application.OperitApplication
 import com.ai.assistance.operit.core.tools.AIToolHandler
 import com.ai.assistance.operit.data.preferences.AgreementPreferences
 import com.ai.assistance.operit.data.preferences.DisplayPreferencesManager
@@ -197,6 +201,16 @@ class MainActivity : ComponentActivity() {
         // Set window background to solid color to prevent system theme leaking through
         window.setBackgroundDrawableResource(android.R.color.black)
 
+        setAppContent()
+        lifecycleScope.launch {
+            delay(16)
+            completeStartup(savedInstanceState)
+        }
+    }
+
+    private fun completeStartup(savedInstanceState: Bundle?) {
+        (application as OperitApplication).initializeMainApplication()
+
         // Handle the intent that started the activity
         handleIntent(intent)
         restoreRuntimeTaskViewVisibilityIfNeeded()
@@ -218,8 +232,6 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, getString(R.string.plugin_loading_skipped), Toast.LENGTH_SHORT).show()
         }
 
-        // 设置初始界面 - 显示加载占位符
-        setAppContent()
         processPendingGitHubAuth()
 
         // 初始化并设置更新管理器
@@ -393,7 +405,6 @@ class MainActivity : ComponentActivity() {
             val newChat = chatHistoryManager.createNewChat(
                 setAsCurrentChat = false
             )
-            chatHistoryManager.setOpeningStatementSuppressed(newChat.id, true)
             chatHistoryManager.setCurrentChatId(newChat.id)
             AppLogger.d(TAG, "启动时已创建新的空白聊天")
         } catch (e: Exception) {
@@ -692,8 +703,12 @@ class MainActivity : ComponentActivity() {
                 Box {
                     // 如果初始化检查未完成，则显示一个占位符，避免在检查完成前显示不完整的界面
                     if (!initialChecksDone) {
-                        // 在这里可以放置一个加载指示器，或者一个空白屏幕
-                        // 为了简单起见，我们暂时留空，因为检查过程很快
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
                     } else {
                         // 检查是否需要显示用户协议
                         if (!agreementPreferences.isAgreementAccepted()) {

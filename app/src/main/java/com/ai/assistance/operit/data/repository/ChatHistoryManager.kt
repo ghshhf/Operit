@@ -5,7 +5,6 @@ import android.net.Uri
 import com.ai.assistance.operit.util.AppLogger
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
-import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.ai.assistance.operit.R
@@ -392,8 +391,6 @@ class ChatHistoryManager private constructor(private val context: Context) {
     // DataStore键
     private object PreferencesKeys {
         val CURRENT_CHAT_ID = stringPreferencesKey("current_chat_id")
-        val SUPPRESS_OPENING_STATEMENT_CHAT_IDS =
-            stringSetPreferencesKey("suppress_opening_statement_chat_ids")
     }
 
     // 辅助函数：将ChatEntity转换为ChatHistory
@@ -1376,31 +1373,6 @@ class ChatHistoryManager private constructor(private val context: Context) {
         }
     }
 
-    suspend fun isOpeningStatementSuppressed(chatId: String): Boolean {
-        return context.currentChatIdDataStore.data.first()
-            [PreferencesKeys.SUPPRESS_OPENING_STATEMENT_CHAT_IDS]
-            ?.contains(chatId) == true
-    }
-
-    suspend fun setOpeningStatementSuppressed(chatId: String, suppressed: Boolean) {
-        context.currentChatIdDataStore.edit { preferences ->
-            val current =
-                preferences[PreferencesKeys.SUPPRESS_OPENING_STATEMENT_CHAT_IDS].orEmpty()
-            val updated =
-                if (suppressed) {
-                    current + chatId
-                } else {
-                    current - chatId
-                }
-
-            if (updated.isEmpty()) {
-                preferences.remove(PreferencesKeys.SUPPRESS_OPENING_STATEMENT_CHAT_IDS)
-            } else {
-                preferences[PreferencesKeys.SUPPRESS_OPENING_STATEMENT_CHAT_IDS] = updated
-            }
-        }
-    }
-
     // 检查聊天是否存在
     suspend fun chatExists(chatId: String): Boolean {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
@@ -1447,7 +1419,6 @@ class ChatHistoryManager private constructor(private val context: Context) {
                         preferences.remove(PreferencesKeys.CURRENT_CHAT_ID)
                     }
                 }
-                setOpeningStatementSuppressed(chatId, false)
                 return true
             } catch (e: Exception) {
                 throw e

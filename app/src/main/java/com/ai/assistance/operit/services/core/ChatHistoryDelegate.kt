@@ -663,11 +663,6 @@ class ChatHistoryDelegate(
     private suspend fun syncOpeningStatementIfNoUserMessage(chatId: String) {
         AppLogger.d(TAG, "开始同步开场白，聊天ID: $chatId")
 
-        if (chatHistoryManager.isOpeningStatementSuppressed(chatId)) {
-            AppLogger.d(TAG, "聊天 $chatId 已设置为启动空白聊天，跳过开场白同步")
-            return
-        }
-        
         historyUpdateMutex.withLock {
             val chatMeta = _chatHistories.value.firstOrNull { it.id == chatId }
             if (!chatMeta?.characterGroupId.isNullOrBlank()) {

@@ -1405,6 +1405,8 @@
     <string name="speech_error_init_failed">Failed to initialize speech recognition engine</string>
     <string name="speech_error_not_initialized">Speech recognition engine not initialized</string>
     <string name="title_activity_crash_report">Application Error</string>
+    <string name="title_activity_data_recovery">数据救援</string>
+    <string name="shortcut_data_recovery">数据救援</string>
 
     <!-- Crash Report Screen -->
     <string name="crash_report_header">应用遇到了一个无法恢复的错误，需要重启。</string>
