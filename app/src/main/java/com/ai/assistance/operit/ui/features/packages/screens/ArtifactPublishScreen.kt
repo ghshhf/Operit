@@ -483,34 +483,28 @@ fun ArtifactPublishScreen(
         OutlinedTextField(
             value = description,
             onValueChange = {
-                if (!isContinuationMode) {
-                    viewModel.clearPendingMarketRegistrationRetry()
-                    description = it
-                }
+                viewModel.clearPendingMarketRegistrationRetry()
+                description = it
             },
             label = { Text(stringResource(R.string.description_label)) },
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
-            readOnly = isContinuationMode
         )
         OutlinedTextField(
             value = detail,
             onValueChange = {
-                if (!isContinuationMode) {
-                    viewModel.clearPendingMarketRegistrationRetry()
-                    detail = it
-                }
+                viewModel.clearPendingMarketRegistrationRetry()
+                detail = it
             },
             label = { Text(stringResource(R.string.market_detail_section_details)) },
             modifier = Modifier.fillMaxWidth(),
             minLines = 4,
-            maxLines = 10,
-            readOnly = isContinuationMode
+            maxLines = 10
         )
         ExposedDropdownMenuBox(
             expanded = categoryExpanded,
             onExpandedChange = {
-                if (!isContinuationMode && categories.isNotEmpty()) {
+                if (categories.isNotEmpty()) {
                     categoryExpanded = !categoryExpanded
                 }
             }
@@ -528,7 +522,7 @@ fun ArtifactPublishScreen(
                     .fillMaxWidth()
                     .menuAnchor(),
                 readOnly = true,
-                enabled = !isContinuationMode && categories.isNotEmpty(),
+                enabled = categories.isNotEmpty(),
                 trailingIcon = {
                     ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded)
                 },

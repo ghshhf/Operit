@@ -398,7 +398,8 @@ class GitHubForgePublishService(
 
         return marketStatsApiService.publishNewVersion(
             entryId = resolvedEntryId,
-            request = request
+            request = request,
+            includeEntryPatch = true
         ).map { response ->
             MarketV2Entry(
                 type = payload.type.wireValue,

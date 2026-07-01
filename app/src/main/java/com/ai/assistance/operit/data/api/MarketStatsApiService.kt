@@ -425,6 +425,7 @@ data class MarketV2PublishRequest(
 
 @Serializable
 data class MarketV2NewVersionRequest(
+    val entry: MarketV2EntryUpdateRequest? = null,
     val version: MarketV2PublishVersion,
     val repoVersion: MarketV2PublishRepoVersion? = null,
     val asset: MarketV2PublishAsset? = null
@@ -971,7 +972,11 @@ class MarketStatsApiService {
             }
         }
 
-    suspend fun publishNewVersion(entryId: String, request: MarketV2PublishRequest): Result<MarketV2NewVersionResponse> =
+    suspend fun publishNewVersion(
+        entryId: String,
+        request: MarketV2PublishRequest,
+        includeEntryPatch: Boolean = false
+    ): Result<MarketV2NewVersionResponse> =
         withContext(Dispatchers.IO) {
             runCatching {
                 val resolvedEntryId = entryId.trim().ifBlank { error("Missing entry id") }
@@ -981,6 +986,18 @@ class MarketStatsApiService {
                     body =
                         json.encodeToString(
                             MarketV2NewVersionRequest(
+                                entry =
+                                    if (includeEntryPatch) {
+                                        MarketV2EntryUpdateRequest(
+                                            title = request.title,
+                                            description = request.description,
+                                            detail = request.detail,
+                                            categoryId = request.categoryId,
+                                            allowPublicUpdates = request.allowPublicUpdates
+                                        )
+                                    } else {
+                                        null
+                                    },
                                 version = request.version,
                                 repoVersion = request.repoVersion,
                                 asset = request.asset
