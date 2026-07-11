@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -147,7 +148,7 @@ fun ModelConfigScreen(
     val configManager = remember { ModelConfigManager(context) }
     val functionalConfigManager = remember { FunctionalConfigManager(context) }
     val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val saveCoordinator = rememberModelConfigSaveCoordinator()
 
     // 配置状态

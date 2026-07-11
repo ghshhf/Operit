@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -24,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
@@ -67,7 +69,7 @@ fun ToolPromptManagerDialog(
         mutableStateOf(manageableTools)
     }
 
-    val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val lazyListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
         orderedTools = orderedTools.toMutableList().apply {
             add(to.index, removeAt(from.index))

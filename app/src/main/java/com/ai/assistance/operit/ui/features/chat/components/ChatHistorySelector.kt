@@ -81,6 +81,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -561,7 +562,7 @@ fun ChatHistorySelector(
             is ActivePrompt.CharacterGroup -> null
         }
     }
-    val actualLazyListState = lazyListState ?: rememberLazyListState()
+    val actualLazyListState = lazyListState ?: rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val ungroupedText = stringResource(R.string.ungrouped)
 
     // 当搜索查询改变时，执行内容搜索（带防抖延迟）

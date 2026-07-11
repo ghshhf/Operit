@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -696,7 +697,7 @@ private fun ChatMessagesView(
     val hasOlderDisplayHistory = hasOlderDisplayHistoryState.value
     val hasNewerDisplayHistory = hasNewerDisplayHistoryState.value
     val isLoadingDisplayWindow = isLoadingDisplayWindowState.value
-    val scrollState = rememberLazyListState()
+    val scrollState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val messagesCount = floatContext.messages.size
     val displayMessages =
         floatContext.messages
