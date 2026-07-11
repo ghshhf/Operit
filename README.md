@@ -17,6 +17,10 @@
   <a href="https://qm.qq.com/q/Sa4fKEH7sO"><img src="https://img.shields.io/badge/💬-QQ群-blue.svg" alt="QQ Group"></a>
   <a href="https://discord.gg/YnV9MWurRF"><img src="https://img.shields.io/badge/🎮-Discord-5865F2.svg" alt="Discord"></a>
   <a href="https://github.com/AAswordman/Operit/issues"><img src="https://img.shields.io/badge/🐛-Issues-orange.svg" alt="Issues"></a>
+  <br>
+  <img src="https://img.shields.io/github/actions/workflow/status/ghshhf/Operit/ci.yml?branch=main&label=build" alt="Build">
+  <img src="https://img.shields.io/badge/fork-v1.12.0--fork.1-blue" alt="Fork Version">
+  <a href="https://github.com/ghshhf/Operit/issues"><img src="https://img.shields.io/github/issues/ghshhf/Operit" alt="Fork Issues"></a>
 </div>
 
 <div align="center">
@@ -33,6 +37,25 @@
     <img src="docs/assets/README_examples/UI_beautified.jpg" width="22%" alt="Operit预览图4" style="display: inline-block; border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.15); margin: 0 3px; max-width: 220px;">
   </div>
 </div>
+
+---
+
+## 🍴 关于本 Fork / About This Fork
+
+> **`ghshhf/Operit` 是 Operit 的「工程化进阶版」——上游负责想象，我们负责让它真的能跑。**
+
+这是一个基于 [`AAswordman/Operit`](https://github.com/AAswordman/Operit) 的社区 fork，定位为**最可靠的分支**：
+在上游每月发版的同时，我们保证**每一个版本都编译通过、核心路径有测试守护、工具调用更稳、新贡献者 30 分钟能跑起来**。
+
+相比上游，我们的差异化点：
+
+- 🔧 **CI 门禁 + 自动化测试**：每次 PR 与上游同步都自动编译验证、跑单元测试，杜绝"回退式发版"。
+- 🧪 **工具调用可靠性**：统一调度层、参数校验、可观测日志，让 Agent 工具真的能用。
+- 📚 **贡献者友好**：中英双语贡献指南、跨平台编译指南、架构文档、一键 Dev Container。
+- 🌍 **产品化运营**：月度发版、文档站、多语言、透明路线图（`docs/ROADMAP.md`）。
+
+遵循 **sync-first** 原则：上游一有更新先合入 `main`，再在其上做修复，并通过 [`PATCHES.md`](PATCHES.md) 跟踪补丁。
+想参与？见 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)（[English](CONTRIBUTING.en.md)）。
 
 ---
 

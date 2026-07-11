@@ -1,0 +1,150 @@
+# =============================================================================
+# CI for ghshhf/Operit  (engineering-hardening baseline)
+#
+# WHAT THIS DOES
+#   - build : compile a debug APK (./gradlew assembleDebug) + run JVM unit
+#             tests (./gradlew testDebugUnitTest). This is the HARD gate:
+#             "it must compile and existing tests must pass".
+#   - lint  : ktlint (Kotlin style) + detekt (static analysis). Currently
+#             SOFT (continue-on-error) because the inherited upstream tree has
+#             pre-existing style debt; flip to blocking after a cleanup sprint.
+#
+# MAINTAINER TODO (required before this is meaningful)
+#   1. Enable Actions: repo Settings -> Actions -> General -> "Allow all
+#      actions". The first run is triggered automatically by this file.
+#   2. The full native build (MNN / llama.cpp / ncnn) is HEAVY. On the default
+#      ubuntu runner it may approach the 120-min limit. If it times out, either
+#      raise timeout-minutes, use a larger runner, or scope the PR gate to
+#      `:app:compileDebugKotlin` (see commented alt job) and keep full
+#      assembleDebug on a nightly schedule.
+#   3. The `tools/hotbuild/OperitNightlyRelease` submodule uses an SSH URL and
+#      is intentionally NOT initialised (it is a release helper, not a Gradle
+#      module). All compile-time submodules are HTTPS and are initialised below.
+# =============================================================================
+
+name: CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]          # also gate every upstream sync merge
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  JAVA_HOME: /usr/lib/jvm/temurin-17-jdk
+
+jobs:
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build & Unit Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout (submodules off; we init the HTTPS ones manually)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init compile-time submodules (HTTPS only)
+        run: |
+          git submodule update --init --depth 1 \
+            terminal \
+            mnn/src/main/cpp/MNN \
+            llama/third_party/llama.cpp \
+            mmd/third_party/saba \
+            mmd/third_party/bullet3 \
+            app/src/main/cpp/thirdparty/ncnn \
+            app/src/main/cpp/thirdparty/sherpa-ncnn \
+            quickjs/thirdparty/quickjs \
+            fbx/third_party/ufbx
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK + CMake + platform and accept licenses
+        run: |
+          sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "platforms;android-36" "build-tools;36.0.0"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+
+      - name: Point local.properties at the CI SDK
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/libs.versions.toml') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Assemble debug APK (compile gate)
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Run JVM unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
+  # ---------------------------------------------------------------------------
+  lint:
+    name: ktlint + detekt
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true     # TODO: remove after style cleanup sprint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: ktlint
+        run: |
+          curl -sSL -o ktlint.zip https://github.com/pinterest/ktlint/releases/download/1.5.0/ktlint-cli-1.5.0.zip
+          unzip -o ktlint.zip
+          ./ktlint --editorconfig=./.editorconfig . || true
+
+      - name: detekt
+        run: |
+          curl -sSL -o detekt.zip https://github.com/detekt/detekt/releases/download/v1.23.7/detekt-cli-1.23.7.zip
+          unzip -o detekt.zip
+          java -jar detekt-cli-1.23.7/lib/detekt-cli-1.23.7-all.jar \
+            --config detekt.yml \
+            --input . \
+            --excludes "**/build/**,**/.idea/**,**/.git/**" \
+            --report sarif:detekt.sarif.json || true
+
+# -----------------------------------------------------------------------------
+# Alternative FAST PR gate (not enabled). Use this instead of the heavy
+# `build` job above if the full native assemble times out on the free runner.
+# Keep the full `assembleDebug` on a nightly cron for release-readiness.
+#
+#   fast-build:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#         with: { submodules: false }
+#       - run: git submodule update --init --depth 1 terminal quickjs/thirdparty/quickjs app/src/main/cpp/thirdparty/ncnn app/src/main/cpp/thirdparty/sherpa-ncnn
+#       - uses: actions/setup-java@v4
+#         with: { distribution: temurin, java-version: '17' }
+#       - uses: android-actions/setup-android@v3
+#       - run: sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" && echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+#       - run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+#       - run: chmod +x ./gradlew && ./gradlew :app:compileDebugKotlin testDebugUnitTest --no-daemon
+# -----------------------------------------------------------------------------

@@ -1,0 +1,23 @@
+{
+  "name": "Operit Fork Dev",
+  "dockerfile": "Dockerfile",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "JetBrains.kotlin",
+        "google-android.java-formatter",
+        "ms-azuretools.vscode-docker",
+        "ms-python.python"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "kotlin.languageServer.enabled": true
+      }
+    }
+  },
+  "postCreateCommand": "chmod +x gradlew && ./gradlew --version",
+  "remoteUser": "root"
+}

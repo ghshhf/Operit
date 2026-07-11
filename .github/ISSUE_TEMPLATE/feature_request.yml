@@ -1,0 +1,42 @@
+name: 💡 Feature request
+description: Suggest a feature or enhancement for the ghshhf/Operit fork
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We are the engineering-hardened fork. Proposals that improve
+        reliability, tool-calling, contributor experience, or reach (i18n/ops)
+        are especially welcome. Fork-only ideas should carry the
+        `fork-enhancement` label.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What problem would this solve? Why now?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature and how it should behave.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered (optional)
+  - type: dropdown
+    id: pillar
+    attributes:
+      label: Which differentiation pillar does this serve?
+      options:
+        - "Engineering moat (CI / tests / reliability)"
+        - "Tool-call reliability"
+        - "Contributor-friendliness"
+        - "Reach & ops (i18n / release / docs)"
+        - "Other / not sure"
+    validations:
+      required: false
