@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -113,10 +115,12 @@ fun <T> MarketBrowseList(
     onScrollPositionChanged: (Int, Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
-    val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = initialFirstVisibleItemIndex,
-        initialFirstVisibleItemScrollOffset = initialFirstVisibleItemScrollOffset
-    )
+    val listState = rememberSaveable(saver = LazyListState.Saver) {
+        LazyListState(
+            initialFirstVisibleItemIndex = initialFirstVisibleItemIndex,
+            initialFirstVisibleItemScrollOffset = initialFirstVisibleItemScrollOffset
+        )
+    }
     val pullToRefreshState = rememberPullToRefreshState()
     val showInitialLoading = isLoading && items.isEmpty()
     val lastLoadMoreIndex = remember { mutableStateOf(-1) }
