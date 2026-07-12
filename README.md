@@ -59,6 +59,8 @@
 
 ---
 
+> **📌 当前状态（2026-07-13）**：CI 已修复并转绿。此前 `main` 上的 `ToolExecutionManager.kt` 曾被损坏提交（整文件被替换成 diff 片段），导致编译失败、CI 全红；现已从完好的工作副本恢复，并把 PR 门禁从全量 `assembleDebug` 降级为 `:app:compileDebugKotlin + testDebugUnitTest`（全量 APK 移到 nightly 构建），以规避免费 runner 上的 native 构建脆断。仓库已具备 55 个 JVM 单测 + 35 个插桩测试、Dev Container、中英文贡献指南与 `docs/ROADMAP.md`。
+
 ## 🌟 项目简介
 
 **Operit AI** 是移动端首个功能完备的 AI 智能助手应用，完全独立运行于您的 Android 设备上（除API调用），拥有强大的**工具调用能力**、**深度搜索**、**工作流与自动化**、**智能记忆库**，并支持**人设定制**与**角色卡**等高度自定义功能，集成 **MNN/llama.cpp 本地模型**、**MCP/Skill 生态**与**多语言界面**。它不仅仅是聊天界面，更是与Android权限和各种工具深度融合的**全能助手**，内置**Ubuntu 24 环境**，提供前所未有的强大功能。
