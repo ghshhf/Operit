@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -116,7 +117,7 @@ fun ContentDetailDialog(
                         )
                         .padding(8.dp)
                 ) {
-                    val dialogListState = rememberLazyListState()
+                    val dialogListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
                     val lines = remember(content) { content.lines() }
 
                     LaunchedEffect(lines.size) {

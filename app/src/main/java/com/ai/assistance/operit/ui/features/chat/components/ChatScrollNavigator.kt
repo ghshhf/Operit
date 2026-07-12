@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -50,6 +51,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -618,7 +620,7 @@ private fun ChatMessageLocatorDialog(
             .takeIf { it >= 0 }
             ?.let { (it - 2).coerceAtLeast(0) }
             ?: 0
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState(initialFirstVisibleItemIndex = initialIndex) }
     var searchQuery by remember { mutableStateOf("") }
     var searchEntries by remember { mutableStateOf<List<ChatMessageLocatorPreview>>(emptyList()) }
     var isLoadingSearchEntries by remember { mutableStateOf(false) }
