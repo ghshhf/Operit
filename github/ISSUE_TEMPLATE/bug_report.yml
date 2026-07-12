@@ -1,0 +1,43 @@
+name: Bug report / 问题反馈
+description: Report a bug to help us improve Operit
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量提供复现步骤与环境信息，方便我们定位问题。
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 简明描述你遇到的 bug
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 如何一步步触发该问题
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      options:
+        - Android
+        - Web
+        - 其他
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Operit 版本
+      description: 例如 v1.12.0
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图
+      description: 粘贴相关日志或截图链接
