@@ -683,7 +683,8 @@ class EnhancedAIService private constructor(private val context: Context) {
                 enableThinking = enableThinking,
                 stream = false,
                 availableTools = emptyList(),
-                preserveThinkInHistory = true,
+                // 子模型调用只取结果：历史里的思考块原样回传会逐轮放大上下文（issue #1341 机制 3）
+                preserveThinkInHistory = false,
                 recordTokenUsage = recordTokenUsage
             )
             .collect { chunk ->

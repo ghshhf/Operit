@@ -1544,7 +1544,7 @@ open class OpenAIProvider(
 
         suspend fun emitThinkContent(thinkContent: String, tag: String = "think") {
             if (thinkContent.isNotNullOrEmpty()) {
-                val wrapped = "<$tag>$thinkContent</$tag>"
+                val wrapped = "<$tag>${sanitizeReasoningText(thinkContent)}</$tag>"
                 emit(wrapped)
                 receivedContent.append(wrapped)
                 tokenCacheManager.addOutputTokens(ChatUtils.estimateTokenCount(thinkContent))
@@ -2013,7 +2013,7 @@ open class OpenAIProvider(
         // 如果正在思考模式，收到工具调用时应先关闭思考标签
         if (state.isInReasoningMode) {
             state.isInReasoningMode = false
-            emitter.emitTag("</think>")
+            emitter.emitMetadataTag("</think>")
             state.hasEmittedThinkStart = false
         }
 
@@ -2890,18 +2890,18 @@ open class OpenAIProvider(
             if (!state.isInReasoningMode) {
                 state.isInReasoningMode = true
                 if (!state.hasEmittedThinkStart) {
-                    emitter.emitTag("<think>")
+                    emitter.emitMetadataTag("<think>")
                     state.hasEmittedThinkStart = true
                 }
             }
-            emitter.emitContent(reasoningContent)
+            emitter.emitContent(sanitizeReasoningText(reasoningContent))
         }
         // 处理常规内容
         if (hasRegular) {
             // 如果之前在思考模式，现在切换到了常规内容，需要关闭思考标签
             if (state.isInReasoningMode) {
                 state.isInReasoningMode = false
-                emitter.emitTag("</think>")
+                emitter.emitMetadataTag("</think>")
                 state.hasEmittedThinkStart = false
             }
 
@@ -2926,7 +2926,7 @@ open class OpenAIProvider(
             return
         }
         state.isInReasoningMode = false
-        emitter.emitTag("</think>")
+        emitter.emitMetadataTag("</think>")
         state.hasEmittedThinkStart = false
     }
 
@@ -3129,7 +3129,7 @@ open class OpenAIProvider(
                     closeAllOpenToolCalls(state, emitter)
                     if (state.isInReasoningMode) {
                         state.isInReasoningMode = false
-                        emitter.emitTag("</think>")
+                        emitter.emitMetadataTag("</think>")
                         state.hasEmittedThinkStart = false
                     }
                     state.streamCompletionConfirmed = true
@@ -3506,4 +3506,17 @@ open class OpenAIProvider(
         }
         return responseStream.withEventChannel(eventChannel)
     }
+}
+
+/**
+ * 思考内容里的字面 "<" 会让下游 XML 拆分器把模型自己写出的 think 开始/结束标签
+ * 误判为框架标签：进入思考块后 endTagMatcher 是纯字面匹配，块内任何位置出现
+ * 结束标签都会提前闭合，后半段思考漏进正文并被历史原样回传（issue #1341
+ * 机制 1）。插入零宽空格（U+200B）后字面标签不再匹配，显示无损；
+ * removeThinkingContent 只匹配框架发射的、未经无害化的标签，不受影响。
+ * 仅用于思考内容，正文不碰。
+ */
+internal fun sanitizeReasoningText(text: String): String {
+    if (text.isEmpty() || !text.contains('<')) return text
+    return text.replace("<", "<\u200B")
 }
