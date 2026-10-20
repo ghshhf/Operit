@@ -64,6 +64,7 @@ import com.ai.assistance.operit.ui.features.settings.screens.SettingsScreen
 import com.ai.assistance.operit.ui.features.settings.screens.SpeechServicesSettingsScreen
 import com.ai.assistance.operit.ui.features.settings.screens.ThemeSettingsScreen
 import com.ai.assistance.operit.ui.features.settings.screens.ToolPermissionSettingsScreen
+import com.ai.assistance.operit.ui.features.settings.screens.LlamaModelScreen
 import com.ai.assistance.operit.ui.features.settings.screens.MnnModelDownloadScreen
 import com.ai.assistance.operit.ui.features.settings.screens.UserPreferencesSettingsScreen
 import com.ai.assistance.operit.ui.features.tokenstats.TokenUsageStatisticsScreen
@@ -828,7 +829,8 @@ sealed class Screen(
                 onGestureConsumed: (Boolean) -> Unit
         ) {
             ModelConfigScreen(
-                navigateToMnnModelDownload = { navigateTo(MnnModelDownload) }
+                navigateToMnnModelDownload = { navigateTo(MnnModelDownload) },
+                navigateToLlamaModelManager = { navigateTo(LlamaModelManager) }
             )
         }
     }
@@ -847,6 +849,7 @@ sealed class Screen(
         ) {
             ModelConfigScreen(
                 navigateToMnnModelDownload = { navigateTo(MnnModelDownload) },
+                navigateToLlamaModelManager = { navigateTo(LlamaModelManager) },
                 entryMode = ModelConfigEntryMode.CHAT_ONBOARDING
             )
         }
@@ -904,6 +907,23 @@ sealed class Screen(
         }
     }
     
+    // llama.cpp 本地模型管理屏幕
+    data object LlamaModelManager :
+        Screen(navItem = NavItem.Settings, titleRes = R.string.screen_title_llama_model_manager) {
+        @Composable
+        override fun Content(
+            navController: NavController,
+            navigateTo: ScreenNavigationHandler,
+            onGoBack: () -> Unit,
+            hasBackgroundImage: Boolean,
+            onLoading: (Boolean) -> Unit,
+            onError: (String) -> Unit,
+            onGestureConsumed: (Boolean) -> Unit
+        ) {
+            LlamaModelScreen(onBackPressed = onGoBack)
+        }
+    }
+
     // 新增：人设卡生成页面
     data object PersonaCardGeneration :
         Screen(navItem = NavItem.Settings, titleRes = R.string.screen_title_persona_card_generation) {

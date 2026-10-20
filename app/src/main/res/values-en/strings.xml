@@ -4271,7 +4271,7 @@
 
     <!-- llama.cpp Local Inference -->
     <string name="llama_local_model_tip">Local models are usually weaker. Consider disabling memory links and disabling tools for chat.</string>
-    <string name="llama_local_model_download_tip">llama.cpp models must be downloaded manually (.gguf). Put the model file in the folder below, then enter the file name in “Model name”:</string>
+    <string name="llama_local_model_download_tip">Download curated models or import a local .gguf file via \"Manage models\" below; you can also type the file name of a model already placed in the folder.</string>
     <string name="llama_local_model_dir">Default model folder: %1$s</string>
     <string name="llama_auto_config_tip">Batch size, mmap, Flash Attention, KV, and other Android compatibility settings are built in. In normal use, you only need thread count, context size, and GPU layers.</string>
     <string name="llama_select_downloaded_model">Select downloaded model</string>
@@ -8547,4 +8547,35 @@
 <!-- 已移除实验性提示 -->
     <string name="antigravity_login_completing">Completing authorization and loading account details…</string>
     <string name="antigravity_login_timed_out">Timed out after waiting 15 minutes for Google authorization. Please start sign-in again.</string>
+
+    <!-- llama.cpp local model manager -->
+    <string name="screen_title_llama_model_manager">Local Models</string>
+    <string name="llama_model_manager_title">Manage local models</string>
+    <string name="llama_model_manager_entry">Manage models (download / import)</string>
+    <string name="llama_model_dir_hint">Models live in Downloads/Operit/models/llama on this phone and are selectable in chat. Download from the curated catalog above or import a local GGUF file.</string>
+    <string name="llama_import_button">Import GGUF file</string>
+    <string name="llama_importing">Importing %1$s</string>
+    <string name="llama_import_success">Imported %1$s</string>
+    <string name="llama_import_failed">Import failed: %1$s</string>
+    <string name="llama_import_exists">A file with the same name already exists. Delete or rename it first.</string>
+    <string name="llama_search_models">Search models</string>
+    <string name="llama_no_search_results">No matching models</string>
+    <string name="llama_start_download">Download</string>
+    <string name="llama_pause">Pause</string>
+    <string name="llama_resume">Resume</string>
+    <string name="llama_download_complete">Ready</string>
+    <string name="llama_connecting">Connecting…</string>
+    <string name="llama_download_paused">Paused</string>
+    <string name="llama_delete_model">Delete model</string>
+    <string name="llama_confirm_delete_file">Delete “%1$s”? You will need to download or import it again.</string>
+    <string name="llama_model_meta">%1$s params · %2$s quant · context %3$s · %4$s</string>
+    <string name="llama_installed_files_title">Installed files</string>
+    <string name="llama_installed_empty">The folder is empty. Download from the curated catalog above, or tap “Import GGUF file”.</string>
+    <string name="llama_download_no_source">Catalog entry has no download URL</string>
+    <string name="llama_download_failed_http">Download failed: HTTP %1$d %2$s</string>
+    <string name="llama_download_response_empty">Server returned an empty response</string>
+    <string name="llama_download_unknown_error">Unknown error</string>
+    <string name="llama_download_size_mismatch">File size mismatch (expected %1$d bytes, got %2$d bytes)</string>
+    <string name="llama_download_rename_failed">Failed to save the file</string>
+    <string name="llama_download_invalid_gguf">Not a valid GGUF file: %1$s</string>
 </resources>
