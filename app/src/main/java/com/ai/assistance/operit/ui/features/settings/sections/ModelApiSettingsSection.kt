@@ -58,6 +58,7 @@ import com.ai.assistance.operit.data.api.CodexAuthManager
 import com.ai.assistance.operit.data.api.CodexUsageSnapshot
 import com.ai.assistance.operit.data.api.CodexUsageWindow
 import com.ai.assistance.operit.data.collects.ApiProviderConfigs
+import com.ai.assistance.operit.data.llama.LocalInferenceDefaults
 import com.ai.assistance.operit.data.model.ApiProviderType
 import com.ai.assistance.operit.data.model.ModelConfigData
 import com.ai.assistance.operit.data.model.ModelOption
@@ -275,6 +276,11 @@ fun ModelApiSettingsSection(
     var llamaThreadCountInput by remember(config.id) { mutableStateOf(config.llamaThreadCount.toString()) }
     var llamaContextSizeInput by remember(config.id) { mutableStateOf(config.llamaContextSize.toString()) }
     var llamaGpuLayersInput by remember(config.id) { mutableStateOf(config.llamaGpuLayers.toString()) }
+    var llamaBatchSizeInput by remember(config.id) { mutableStateOf(config.llamaBatchSize.toString()) }
+    var llamaUBatchSizeInput by remember(config.id) { mutableStateOf(config.llamaUBatchSize.toString()) }
+    var llamaUseMmapInput by remember(config.id) { mutableStateOf(config.llamaUseMmap) }
+    var llamaFlashAttentionInput by remember(config.id) { mutableStateOf(config.llamaFlashAttention) }
+    var llamaOffloadKqvInput by remember(config.id) { mutableStateOf(config.llamaOffloadKqv) }
 
     // 图片处理配置状态
     var enableDirectImageProcessingInput by remember(config.id) { mutableStateOf(config.enableDirectImageProcessing) }
@@ -322,6 +328,11 @@ fun ModelApiSettingsSection(
         val llamaThreadCount: Int,
         val llamaContextSize: Int,
         val llamaGpuLayers: Int,
+        val llamaBatchSize: Int,
+        val llamaUBatchSize: Int,
+        val llamaUseMmap: Boolean,
+        val llamaFlashAttention: Boolean,
+        val llamaOffloadKqv: Boolean,
         val enableDirectImageProcessing: Boolean,
         val enableDirectAudioProcessing: Boolean,
         val enableDirectVideoProcessing: Boolean,
@@ -348,6 +359,11 @@ fun ModelApiSettingsSection(
                     llamaThreadCount = state.llamaThreadCount,
                     llamaContextSize = state.llamaContextSize,
                     llamaGpuLayers = state.llamaGpuLayers,
+                    llamaBatchSize = state.llamaBatchSize,
+                    llamaUBatchSize = state.llamaUBatchSize,
+                    llamaUseMmap = state.llamaUseMmap,
+                    llamaFlashAttention = state.llamaFlashAttention,
+                    llamaOffloadKqv = state.llamaOffloadKqv,
                     enableDirectImageProcessing = state.enableDirectImageProcessing,
                     enableDirectAudioProcessing = state.enableDirectAudioProcessing,
                     enableDirectVideoProcessing = state.enableDirectVideoProcessing,
@@ -377,6 +393,11 @@ fun ModelApiSettingsSection(
             llamaThreadCount = llamaThreadCountInput.toIntOrNull()?.coerceAtLeast(1) ?: 4,
             llamaContextSize = llamaContextSizeInput.toIntOrNull()?.coerceAtLeast(1) ?: 2048,
             llamaGpuLayers = llamaGpuLayersInput.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+            llamaBatchSize = llamaBatchSizeInput.toIntOrNull()?.coerceAtLeast(1) ?: 512,
+            llamaUBatchSize = llamaUBatchSizeInput.toIntOrNull()?.coerceAtLeast(1) ?: 512,
+            llamaUseMmap = llamaUseMmapInput,
+            llamaFlashAttention = llamaFlashAttentionInput,
+            llamaOffloadKqv = llamaOffloadKqvInput,
             enableDirectImageProcessing = enableDirectImageProcessingInput,
             enableDirectAudioProcessing = enableDirectAudioProcessingInput,
             enableDirectVideoProcessing = enableDirectVideoProcessingInput,
@@ -695,6 +716,28 @@ fun ModelApiSettingsSection(
                         if (input.isEmpty() || input.toIntOrNull() != null) {
                             llamaGpuLayersInput = input
                         }
+                    },
+                    llamaBatchSizeInput = llamaBatchSizeInput,
+                    onBatchSizeChange = { input ->
+                        if (input.isEmpty() || input.toIntOrNull() != null) {
+                            llamaBatchSizeInput = input
+                        }
+                    },
+                    llamaUBatchSizeInput = llamaUBatchSizeInput,
+                    onUBatchSizeChange = { input ->
+                        if (input.isEmpty() || input.toIntOrNull() != null) {
+                            llamaUBatchSizeInput = input
+                        }
+                    },
+                    llamaUseMmapInput = llamaUseMmapInput,
+                    onUseMmapChange = { llamaUseMmapInput = it },
+                    llamaFlashAttentionInput = llamaFlashAttentionInput,
+                    onFlashAttentionChange = { llamaFlashAttentionInput = it },
+                    llamaOffloadKqvInput = llamaOffloadKqvInput,
+                    onOffloadKqvChange = { llamaOffloadKqvInput = it },
+                    onApplyDeviceRecommendations = {
+                        llamaThreadCountInput = LocalInferenceDefaults.recommendedThreadCount().toString()
+                        llamaContextSizeInput = LocalInferenceDefaults.recommendedContextSize(context).toString()
                     },
                     navigateToLlamaModelManager = navigateToLlamaModelManager
                 )
@@ -2223,6 +2266,17 @@ private fun LlamaSettingsBlock(
         onContextSizeChange: (String) -> Unit,
         llamaGpuLayersInput: String,
         onGpuLayersChange: (String) -> Unit,
+        llamaBatchSizeInput: String,
+        onBatchSizeChange: (String) -> Unit,
+        llamaUBatchSizeInput: String,
+        onUBatchSizeChange: (String) -> Unit,
+        llamaUseMmapInput: Boolean,
+        onUseMmapChange: (Boolean) -> Unit,
+        llamaFlashAttentionInput: Boolean,
+        onFlashAttentionChange: (Boolean) -> Unit,
+        llamaOffloadKqvInput: Boolean,
+        onOffloadKqvChange: (Boolean) -> Unit,
+        onApplyDeviceRecommendations: () -> Unit,
         navigateToLlamaModelManager: (() -> Unit)? = null
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2294,6 +2348,71 @@ private fun LlamaSettingsBlock(
                         imeAction = ImeAction.Next
                 ),
                 valueFilter = { input -> input.filter { it.isDigit() } }
+        )
+
+        // 设备推荐值：线程数与上下文按本机大核数量/内存实测填充，用户可再手工调整
+        OutlinedButton(
+                onClick = onApplyDeviceRecommendations,
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Icon(
+                    imageVector = Icons.Default.Tune,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                    text = stringResource(R.string.llama_apply_device_recommendations),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
+            )
+        }
+
+        SettingsTextField(
+                title = stringResource(R.string.llama_batch_size),
+                subtitle = stringResource(R.string.llama_batch_size_subtitle),
+                value = llamaBatchSizeInput,
+                onValueChange = onBatchSizeChange,
+                placeholder = "512",
+                keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Next
+                ),
+                valueFilter = { input -> input.filter { it.isDigit() } }
+        )
+
+        SettingsTextField(
+                title = stringResource(R.string.llama_ubatch_size),
+                subtitle = stringResource(R.string.llama_ubatch_size_subtitle),
+                value = llamaUBatchSizeInput,
+                onValueChange = onUBatchSizeChange,
+                placeholder = "512",
+                keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Next
+                ),
+                valueFilter = { input -> input.filter { it.isDigit() } }
+        )
+
+        SettingsSwitchRow(
+                title = stringResource(R.string.llama_use_mmap),
+                subtitle = stringResource(R.string.llama_use_mmap_subtitle),
+                checked = llamaUseMmapInput,
+                onCheckedChange = onUseMmapChange
+        )
+
+        SettingsSwitchRow(
+                title = stringResource(R.string.llama_flash_attention),
+                subtitle = stringResource(R.string.llama_flash_attention_subtitle),
+                checked = llamaFlashAttentionInput,
+                onCheckedChange = onFlashAttentionChange
+        )
+
+        SettingsSwitchRow(
+                title = stringResource(R.string.llama_offload_kqv),
+                subtitle = stringResource(R.string.llama_offload_kqv_subtitle),
+                checked = llamaOffloadKqvInput,
+                onCheckedChange = onOffloadKqvChange
         )
 
         SettingsInfoBanner(text = stringResource(R.string.llama_auto_config_tip))

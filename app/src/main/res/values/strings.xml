@@ -8565,4 +8565,5 @@
     <string name="llama_download_size_mismatch">文件大小不匹配（期望 %1$d 字节，实际 %2$d 字节）</string>
     <string name="llama_download_rename_failed">保存文件失败</string>
     <string name="llama_download_invalid_gguf">文件不是有效的 GGUF：%1$s</string>
+    <string name="llama_apply_device_recommendations">应用设备推荐值（线程 / 上下文）</string>
 </resources>

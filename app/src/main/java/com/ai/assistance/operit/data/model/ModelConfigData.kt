@@ -9,7 +9,7 @@ enum class ApiProviderType {
         XAI, // Grok（SpaceXAI）
         OPENAI_RESPONSES, // ChatGPT Responses（OpenAI）
         OPENAI_CODEX, // Codex（OpenAI）
-        ANTIGRAVITY, // Antigravity（Google）
+        ANTIGRAVITY, // Antigravity（Google）
         OPENAI_RESPONSES_GENERIC, // OpenAI Responses（通用）
         OPENAI_GENERIC, // OpenAI（通用）
         ANTHROPIC, // Claude（Anthropic）
@@ -173,7 +173,7 @@ data class ModelConfigData(
         val llamaUseMmap: Boolean = false, // Android上默认关闭，减少mmap导致的兼容性问题
         val llamaFlashAttention: Boolean = false, // Android上默认关闭，更接近PocketPal安全值
         val llamaKvUnified: Boolean = true, // 单并发聊天默认开启统一KV缓存
-        val llamaOffloadKqv: Boolean = false, // 仅在启用GPU层时有意义
+        val llamaOffloadKqv: Boolean = true, // GPU层卸载时KV缓存一并卸载（无GPU后端时JNI层自动忽略）
 
         // 图片处理配置
         val enableDirectImageProcessing: Boolean = false, // 是否启用直接图片处理
@@ -199,7 +199,7 @@ data class ModelConfigData(
 
         // 请求频率限制配置
         val requestLimitPerMinute: Int = 0, // 每分钟最大请求次数，0表示不限流
-        val maxConcurrentRequests: Int = 0, // 最大并发请求数，0表示不限制
+        val maxConcurrentRequests: Int = 0, // 最大并发请求数，0表示不限制
 )
 
 /** 简化版的模型配置数据，用于列表显示 */
@@ -229,7 +229,7 @@ fun getModelList(modelName: String): List<String> {
     return modelName.split(",").map { it.trim() }.filter { it.isNotEmpty() }
 }
 
-/** 
+/**
  * 计算有效的模型索引（处理越界情况）
  * 如果索引超出范围，自动返回0（第一个模型）
  * @param modelName 逗号分隔的模型名称字符串
