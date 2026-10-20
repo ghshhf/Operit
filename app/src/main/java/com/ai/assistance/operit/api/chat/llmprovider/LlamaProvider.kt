@@ -275,8 +275,12 @@ class LlamaProvider(
         _outputTokenCount = 0L
         onTokensUpdated(_inputTokenCount, 0L, 0L)
 
+        // Look the cap up by id and honor the enabled flag, like the sampling
+        // params below. Matching on the display name ("Max tokens") never hit,
+        // so requestedMaxNewTokens was always -1 and every local reply fell
+        // back to the native default cap instead of the configured value.
         val requestedMaxNewTokens = modelParameters
-            .find { it.name == "max_tokens" }
+            .firstOrNull { it.id == "max_tokens" && it.isEnabled }
             ?.let { (it.currentValue as? Number)?.toInt() }
             ?: -1
 
