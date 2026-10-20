@@ -169,13 +169,12 @@ class MNNProvider(
                 
                 AppLogger.d(TAG, "创建MNN LLM会话，后端: $backendType, 线程数: $threadCount")
                 
-                // Vulkan/OpenCL 后端需要 normal 内存模式以避免 Clone error
-                // CPU 后端可以使用 low 内存模式
-                val memoryMode = if (backendType in listOf("vulkan", "opencl", "opengl")) {
-                    "normal"
-                } else {
-                    "low"
-                }
+                // MNN 的 GPU 后端（Vulkan/OpenCL/OpenGL）对 int4/int8 量化模型只支持
+                // low 内存模式，normal 会在 MNNLlmSession.create() 加载阶段直接崩溃
+                // （#1239：S24 + int4 Qwen3.5-2B-MNN，无 tombstone、无 MNNProvider 日志）。
+                // normal 仅对 fp16/fp32 非量化模型有意义（避免 Clone error），而这里
+                // precision 固定为 "low"（量化推理路径），因此所有后端统一使用 low。
+                val memoryMode = "low"
                 
                 AppLogger.d(TAG, "内存模式: $memoryMode (后端: $backendType)")
                 
