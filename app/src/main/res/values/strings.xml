@@ -5468,7 +5468,7 @@
     <string name="llama_ubatch_size">微批大小</string>
     <string name="llama_ubatch_size_subtitle">建议不超过批大小，Android 上通常 512 更稳</string>
     <string name="llama_gpu_layers">GPU 层数</string>
-    <string name="llama_gpu_layers_subtitle">当前构建存在 GPU backend 时才会生效，0 表示纯 CPU</string>
+    <string name="llama_gpu_layers_subtitle">将部分模型层卸载到 Vulkan GPU 加速（需设备支持 Vulkan），0 表示纯 CPU。设备不支持时自动使用 CPU 推理。</string>
     <string name="llama_use_mmap">使用 mmap</string>
     <string name="llama_use_mmap_subtitle">Android 上默认建议关闭，很多机型关闭后更容易成功加载 GGUF</string>
     <string name="llama_flash_attention">启用 Flash Attention</string>

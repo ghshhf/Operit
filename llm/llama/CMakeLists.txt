@@ -18,6 +18,13 @@ operit_prepare_git_source(
     "720d7fa4097f76e5d0eade5a92c1df87c1faf9d9"
 )
 
+# The GPU layers setting only does something when a GPU backend is compiled in.
+# Vulkan is the one backend available across essentially all Android devices
+# (Adreno/Mali/Xclipse all expose it), so the offload path is not dead config.
+# Host build machines need the Vulkan SDK (glslc + SPIRV-Headers); CI installs
+# it before running Gradle.
+set(GGML_VULKAN ON CACHE BOOL "" FORCE)
+
 add_subdirectory("${OPERIT_LLAMA_CPP_SOURCE_DIR}" "${OPERIT_LLAMA_CPP_BINARY_DIR}" EXCLUDE_FROM_ALL)
 
 add_library(
