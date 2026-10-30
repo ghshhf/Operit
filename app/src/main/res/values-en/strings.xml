@@ -4283,7 +4283,7 @@
     <string name="llama_ubatch_size">Micro batch size</string>
     <string name="llama_ubatch_size_subtitle">Keep this at or below the batch size. On Android, 512 is usually the safer choice.</string>
     <string name="llama_gpu_layers">GPU layers</string>
-    <string name="llama_gpu_layers_subtitle">Only works when the current build has a GPU backend. Use 0 for CPU-only.</string>
+    <string name="llama_gpu_layers_subtitle">Offloads model layers to a Vulkan GPU for speed (requires device Vulkan support). Use 0 for CPU-only; devices without Vulkan automatically fall back to CPU inference.</string>
     <string name="llama_use_mmap">Use mmap</string>
     <string name="llama_use_mmap_subtitle">Off is the safer default on Android. Disabling mmap helps many devices load GGUF successfully.</string>
     <string name="llama_flash_attention">Enable Flash Attention</string>
