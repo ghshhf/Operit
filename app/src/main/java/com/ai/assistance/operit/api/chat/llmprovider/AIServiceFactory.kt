@@ -241,16 +241,20 @@ object AIServiceFactory {
         val safeThreadCount =
             config.llamaThreadCount.coerceAtLeast(1)
                 .coerceAtMost(Runtime.getRuntime().availableProcessors().coerceAtLeast(1))
+        val safeContextSize = config.llamaContextSize.coerceAtLeast(1)
+        // Batch sizes are clamped against n_ctx by the JNI layer as well; deriving
+        // them here keeps a small context from asking for a 512-token batch.
+        val safeBatchSize = config.llamaBatchSize.coerceAtLeast(1).coerceAtMost(safeContextSize)
         return LlamaSession.Config(
             nThreads = safeThreadCount,
-            nCtx = config.llamaContextSize.coerceAtLeast(1),
-            nBatch = 512,
-            nUBatch = 512,
+            nCtx = safeContextSize,
+            nBatch = safeBatchSize,
+            nUBatch = config.llamaUBatchSize.coerceAtLeast(1).coerceAtMost(safeBatchSize),
             nGpuLayers = config.llamaGpuLayers.coerceAtLeast(0),
-            useMmap = false,
-            flashAttention = false,
-            kvUnified = true,
-            offloadKqv = false
+            useMmap = config.llamaUseMmap,
+            flashAttention = config.llamaFlashAttention,
+            kvUnified = config.llamaKvUnified,
+            offloadKqv = config.llamaOffloadKqv
         )
     }
 

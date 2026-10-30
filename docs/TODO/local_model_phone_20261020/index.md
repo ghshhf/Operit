@@ -19,9 +19,9 @@
 | # | 状态 | 分支 | 内容 | PR |
 |---|------|------|------|-----|
 | 1 | [DONE] | `fix/llama-max-tokens` | 修本地推理 256 token 硬截断（按 id 查找参数 + native 默认值改为按上下文派生） | #1385 |
-| 2 | [DONE] | `feat/gguf-model-manager` | GGUF 模型管理：内置精选目录（ModelScope/HuggingFace 双源）+ 下载（断点续传/暂停/删除）+ SAF 导入 + GGUF 头解析器 + 单测 | 本 PR |
-| 3 | [ ] | `feat/llama-vulkan-backend` | llama.cpp 构建启用 GGML_VULKAN，让「GPU 层数」真正生效 | - |
-| 4 | [ ] | `feat/llama-adaptive-params` | 新配置默认值设备自适应（线程=大核数、上下文按 RAM 分档）；工厂停止硬编码 batch/ubatch/mmap/flashAttn 等，改读配置 + native 钳制；向前兼容老配置 | - |
+| 2 | [DONE] | `feat/gguf-model-manager` | GGUF 模型管理：内置精选目录（ModelScope/HuggingFace 双源）+ 下载（断点续传/暂停/删除）+ SAF 导入 + GGUF 头解析器 + 单测 | #1386 |
+| 3 | [DONE] | `feat/llama-vulkan-backend` | llama.cpp 构建启用 GGML_VULKAN，让「GPU 层数」真正生效；CI 装 Vulkan SDK | #1387 |
+| 4 | [DONE] | `feat/llama-adaptive-params` | 设备自适应默认值（大核数/RAM 分档）+「应用设备推荐值」按钮；工厂停止硬编码 batch/ubatch/mmap/flashAttn 等，改读 ModelConfigData 既有字段；补齐设置 UI（2 数字 + 3 开关）；offloadKqv 默认改 true | 本 PR |
 | 5 | [ ] | `fix/mnn-vulkan-memory-mode` | 修 MNN int4/int8 量化模型 Vulkan/OpenCL 后端 memory mode 被误设 normal 导致崩溃（#1239） | - |
 | 6 | [ ] | `fix/think-tag-stream-leak` | 修流式解析把字面 think 标记当思考内容剥离导致泄漏进正文与上下文爆炸（#1341） | - |
 

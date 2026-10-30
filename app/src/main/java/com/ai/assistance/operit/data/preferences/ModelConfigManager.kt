@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.ai.assistance.operit.data.collects.ModelThinkingConfigDefaults
+import com.ai.assistance.operit.data.llama.LocalInferenceDefaults
 import com.ai.assistance.operit.data.model.CustomParameterData
 import com.ai.assistance.operit.data.model.FunctionType
 import com.ai.assistance.operit.data.model.ModelConfigData
@@ -136,6 +137,8 @@ class ModelConfigManager(
                     frequencyPenalty = StandardModelParameters.DEFAULT_FREQUENCY_PENALTY,
                     repetitionPenalty = StandardModelParameters.DEFAULT_REPETITION_PENALTY,
                     customParameters = "[]",
+                    llamaThreadCount = LocalInferenceDefaults.recommendedThreadCount(),
+                    llamaContextSize = LocalInferenceDefaults.recommendedContextSize(context),
                     thinkingConfigurations = thinkingRulesForProvider(DEFAULT_API_PROVIDER_TYPE.name),
                     thinkingOptionId = firstThinkingOptionIdForModel(
                             DEFAULT_API_PROVIDER_TYPE.name,
@@ -725,6 +728,11 @@ class ModelConfigManager(
             llamaThreadCount: Int,
             llamaContextSize: Int,
             llamaGpuLayers: Int,
+            llamaBatchSize: Int,
+            llamaUBatchSize: Int,
+            llamaUseMmap: Boolean,
+            llamaFlashAttention: Boolean,
+            llamaOffloadKqv: Boolean,
             enableDirectImageProcessing: Boolean,
             enableDirectAudioProcessing: Boolean,
             enableDirectVideoProcessing: Boolean,
@@ -748,6 +756,11 @@ class ModelConfigManager(
                     llamaThreadCount = llamaThreadCount.coerceAtLeast(1),
                     llamaContextSize = llamaContextSize.coerceAtLeast(1),
                     llamaGpuLayers = llamaGpuLayers.coerceAtLeast(0),
+                    llamaBatchSize = llamaBatchSize.coerceAtLeast(1),
+                    llamaUBatchSize = llamaUBatchSize.coerceAtLeast(1),
+                    llamaUseMmap = llamaUseMmap,
+                    llamaFlashAttention = llamaFlashAttention,
+                    llamaOffloadKqv = llamaOffloadKqv,
                     enableDirectImageProcessing = enableDirectImageProcessing,
                     enableDirectAudioProcessing = enableDirectAudioProcessing,
                     enableDirectVideoProcessing = enableDirectVideoProcessing,
