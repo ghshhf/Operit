@@ -161,7 +161,8 @@ fun ModelApiSettingsSection(
         configManager: ModelConfigManager,
         saveCoordinator: ModelConfigSaveCoordinator,
         showNotification: (String) -> Unit,
-        navigateToMnnModelDownload: (() -> Unit)? = null
+        navigateToMnnModelDownload: (() -> Unit)? = null,
+        navigateToLlamaModelManager: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -694,7 +695,8 @@ fun ModelApiSettingsSection(
                         if (input.isEmpty() || input.toIntOrNull() != null) {
                             llamaGpuLayersInput = input
                         }
-                    }
+                    },
+                    navigateToLlamaModelManager = navigateToLlamaModelManager
                 )
             } else if (isAntigravityProvider) {
                 AntigravityAuthSettingsBlock(
@@ -2220,9 +2222,30 @@ private fun LlamaSettingsBlock(
         llamaContextSizeInput: String,
         onContextSizeChange: (String) -> Unit,
         llamaGpuLayersInput: String,
-        onGpuLayersChange: (String) -> Unit
+        onGpuLayersChange: (String) -> Unit,
+        navigateToLlamaModelManager: (() -> Unit)? = null
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        navigateToLlamaModelManager?.let { navigate ->
+            Button(
+                    onClick = navigate,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors =
+                            ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+            ) {
+                Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = stringResource(R.string.llama_model_manager_entry))
+            }
+        }
+
         SettingsInfoBanner(text = stringResource(R.string.llama_local_model_tip))
 
         SettingsInfoBanner(

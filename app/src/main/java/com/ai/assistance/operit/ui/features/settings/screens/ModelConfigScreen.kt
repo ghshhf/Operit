@@ -165,6 +165,7 @@ private fun serializeHeaderEntries(headers: List<Pair<String, String>>): String 
 @Composable
 fun ModelConfigScreen(
     navigateToMnnModelDownload: (() -> Unit)? = null,
+    navigateToLlamaModelManager: (() -> Unit)? = null,
     entryMode: ModelConfigEntryMode = ModelConfigEntryMode.STANDARD
 ) {
     val context = LocalContext.current
@@ -316,7 +317,7 @@ fun ModelConfigScreen(
                             ChatConfigReadinessIssue.CODEX_LOGIN_REQUIRED ->
                                 R.string.onboarding_config_codex_login_required
                             ChatConfigReadinessIssue.ANTIGRAVITY_LOGIN_REQUIRED ->
-                                R.string.onboarding_config_antigravity_login_required
+                                R.string.onboarding_config_antigravity_login_required
                             ChatConfigReadinessIssue.API_KEY_MISSING ->
                                 R.string.onboarding_config_api_key_missing
                             ChatConfigReadinessIssue.API_KEY_INVALID ->
@@ -799,7 +800,8 @@ fun ModelConfigScreen(
                         configManager = configManager,
                         saveCoordinator = saveCoordinator,
                         showNotification = { message -> showNotification(message) },
-                        navigateToMnnModelDownload = navigateToMnnModelDownload
+                        navigateToMnnModelDownload = navigateToMnnModelDownload,
+                        navigateToLlamaModelManager = navigateToLlamaModelManager
                     )
                 }
 
