@@ -652,8 +652,11 @@ class MNNProvider(
                     flattenTypedHistory(multimodalTurns, preserveThinkInHistory)
                 }
 
+            // Same id-based lookup as the other parameters: the display name
+            // ("Max tokens") never matches "max_tokens", which previously
+            // forced every MNN reply onto the fallback cap.
             val requestedMaxNewTokens = modelParameters
-                .find { it.name == "max_tokens" }
+                .firstOrNull { it.id == "max_tokens" && it.isEnabled }
                 ?.let { (it.currentValue as? Number)?.toInt() }
                 ?: -1
             val effectiveMaxNewTokens = (if (requestedMaxNewTokens > 0) requestedMaxNewTokens else 512).coerceAtMost(8192)
